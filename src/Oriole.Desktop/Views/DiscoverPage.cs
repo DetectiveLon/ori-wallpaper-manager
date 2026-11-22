@@ -394,8 +394,7 @@ public sealed class DiscoverPage : UserControl
         try
         {
             var download = await Images.DownloadAsync(wallpaper.ImageUrl, WallhavenImageDownloader.MaximumWallpaperBytes, cancellation.Token);
-            ValidateWallpaperImage(download.Bytes);
-            var extension = GetImageExtension(download.MediaType, wallpaper.FileType);
+            var extension = ValidateWallpaperImage(download.Bytes);
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Oriole", "Wallpapers");
             Directory.CreateDirectory(directory);
             var id = string.Concat(wallpaper.Id.Where(char.IsAsciiLetterOrDigit));
@@ -426,12 +425,13 @@ public sealed class DiscoverPage : UserControl
         }
     }
 
-    private static void ValidateWallpaperImage(byte[] bytes)
+    private static string ValidateWallpaperImage(byte[] bytes)
     {
         using var stream = new MemoryStream(bytes, writable: false);
         var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.None);
         var frame = decoder.Frames.FirstOrDefault()
             ?? throw new InvalidDataException("The downloaded file does not contain an image frame.");
+
         const int maxDimension = 32_768;
         const long maxPixels = 50_000_000;
         if (frame.PixelWidth <= 0 || frame.PixelHeight <= 0
@@ -440,29 +440,12 @@ public sealed class DiscoverPage : UserControl
             throw new InvalidDataException($"Image dimensions {frame.PixelWidth:N0} × {frame.PixelHeight:N0} exceed Oriole's decode limit.");
 
         var codec = decoder.CodecInfo.FriendlyName;
-        if (!codec.Contains("JPEG", StringComparison.OrdinalIgnoreCase)
-            && !codec.Contains("PNG", StringComparison.OrdinalIgnoreCase)
-            && !codec.Contains("BMP", StringComparison.OrdinalIgnoreCase)
-            && !codec.Contains("TIFF", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException($"Image format '{codec}' is not supported yet.");
-    }
+        if (codec.Contains("JPEG", StringComparison.OrdinalIgnoreCase)) return ".jpg";
+        if (codec.Contains("PNG", StringComparison.OrdinalIgnoreCase)) return ".png";
+        if (codec.Contains("BMP", StringComparison.OrdinalIgnoreCase)) return ".bmp";
+        if (codec.Contains("TIFF", StringComparison.OrdinalIgnoreCase)) return ".tiff";
 
-    private static string GetImageExtension(string mediaType, string fallback)
-    {
-        if (mediaType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase)) return ".jpg";
-        if (mediaType.Equals("image/png", StringComparison.OrdinalIgnoreCase)) return ".png";
-        if (mediaType.Equals("image/bmp", StringComparison.OrdinalIgnoreCase)) return ".bmp";
-        if (mediaType.Equals("image/tiff", StringComparison.OrdinalIgnoreCase)) return ".tiff";
-        if (mediaType.Equals("image/webp", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("WebP wallpapers are not supported by the current Windows image decoder.");
-        return fallback.ToLowerInvariant() switch
-        {
-            "image/jpeg" or "jpg" or "jpeg" => ".jpg",
-            "image/png" or "png" => ".png",
-            "image/bmp" or "bmp" => ".bmp",
-            "image/tiff" or "tiff" or "tif" => ".tiff",
-            _ => throw new InvalidDataException($"Unsupported image type '{mediaType}'.")
-        };
+        throw new InvalidDataException($"Image format '{codec}' is not supported yet.");
     }
 
     private void OpenWallpaperPage(WallhavenWallpaper wallpaper)
