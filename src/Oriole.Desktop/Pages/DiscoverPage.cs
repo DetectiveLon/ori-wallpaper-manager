@@ -89,7 +89,33 @@ public sealed class DiscoverPage : UserControl
     public DiscoverPage()
     {
         foreach (var color in WallhavenColors.Allowed.OrderBy(value => value, StringComparer.Ordinal))
-            _colors.Items.Add(color);
+        {
+            var itemContent = new StackPanel { Orientation = Orientation.Horizontal };
+            itemContent.Children.Add(new Border
+            {
+                Width = 15,
+                Height = 15,
+                CornerRadius = new CornerRadius(3),
+                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString($"#{color}")),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(100, 112, 128)),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 0, 5, 0)
+            });
+            itemContent.Children.Add(new TextBlock
+            {
+                Text = $"#{color}",
+                Foreground = Brushes.White,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 10
+            });
+            _colors.Items.Add(new ListBoxItem
+            {
+                Content = itemContent,
+                Tag = color,
+                Padding = new Thickness(3),
+                Background = Brushes.Transparent
+            });
+        }
 
         _minimumResolution.SelectionChanged += (_, _) =>
         {
@@ -273,7 +299,11 @@ public sealed class DiscoverPage : UserControl
             MinimumResolution = string.Equals(minimum, "Any", StringComparison.Ordinal) ? null : minimum,
             ExactResolution = string.Equals(exact, "Any", StringComparison.Ordinal) ? null : exact,
             Ratio = string.Equals(ratio, "Any", StringComparison.Ordinal) ? null : ratio,
-            Colors = _colors.SelectedItems.Cast<string>().ToArray(),
+            Colors = _colors.SelectedItems
+                .Cast<ListBoxItem>()
+                .Select(item => item.Tag?.ToString() ?? string.Empty)
+                .Where(value => value.Length > 0)
+                .ToArray(),
             Page = page
         };
         filters.Validate();
