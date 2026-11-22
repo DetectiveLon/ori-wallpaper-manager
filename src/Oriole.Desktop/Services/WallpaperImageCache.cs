@@ -164,9 +164,10 @@ public sealed class WallpaperImageCache
         ArgumentNullException.ThrowIfNull(uri);
         if (!uri.IsAbsoluteUri
             || uri.Scheme != Uri.UriSchemeHttps
-            || !string.Equals(uri.Host, "w.wallhaven.cc", StringComparison.OrdinalIgnoreCase))
+            || (!string.Equals(uri.Host, "w.wallhaven.cc", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(uri.Host, "th.wallhaven.cc", StringComparison.OrdinalIgnoreCase)))
         {
-            throw new InvalidDataException("Only HTTPS images hosted on w.wallhaven.cc are allowed.");
+            throw new InvalidDataException("Only HTTPS images hosted on Wallhaven image hosts are allowed.");
         }
     }
 
