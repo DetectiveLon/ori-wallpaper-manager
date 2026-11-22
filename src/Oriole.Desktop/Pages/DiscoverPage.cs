@@ -100,6 +100,7 @@ public sealed class DiscoverPage : UserControl
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var filters = BuildFilterPanel();
         Grid.SetRow(filters, 0);
@@ -139,7 +140,7 @@ public sealed class DiscoverPage : UserControl
         footer.Children.Add(_previousButton);
         footer.Children.Add(_nextButton);
         footer.Children.Add(_pageStatus);
-        Grid.SetRow(footer, 2);
+        Grid.SetRow(footer, 3);
         root.Children.Add(footer);
         return root;
     }
