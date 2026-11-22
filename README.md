@@ -1,31 +1,38 @@
 # Oriole
 
-A clean-room Windows wallpaper manager. **Foundation build only — not yet installable.**
+A clean-room Windows 11 wallpaper manager. Source is being developed in reviewable feature branches. It is not yet a release build or installer.
 
-## Status
+## Current implementation
 
-The `foundation/0.1.0` branch contains the initial source package and the first Windows integration slice.
+The `foundation/0.1.0` branch provides the WPF shell, Wallhaven API client/query builder, Windows monitor detection, per-monitor wallpaper assignment, a sequential rotation engine, initial tests, and build scaffolding.
 
-- Native WPF interface with six sections.
-- Wallhaven v1 API client and query builder with categories, purity, tags, colours, resolutions, sorting and pagination.
-- Sequential scheduling engine designed to avoid overlapping changes and timer backlogs.
-- Windows monitor discovery using the desktop wallpaper API.
-- Local image selection and per-monitor wallpaper assignment.
-- Initial unit tests, Windows CI workflow, build script, product spec and technical design.
+The `feature/discover` branch builds on that foundation and currently adds:
 
-Windows exposes one shared wallpaper fit mode. Independent fit modes per monitor still require an image-composition layer.
+- Wallhaven discovery with independent General / Anime / People categories and SFW / Sketchy / NSFW purity filters.
+- Search expressions, sorting, toplist periods, resolution, aspect-ratio, and multi-select colour filters.
+- Result pagination, thumbnails, full-image preview, download validation, and per-monitor apply.
+- A local wallpaper library with a versioned JSON index, search, favourites, and safe metadata-only removal.
+- App-session wallpaper rotation from the local library with a live countdown, manual rotate, pause/resume, and stop.
 
-The source is available on [the foundation branch](https://github.com/DetectiveLon/oriole-wallpaper-manager/tree/foundation/0.1.0). Draft PR #1 is open for review and has not been merged.
+## Known gaps
 
-## Not implemented yet
+- Automation currently runs for one selected display during the current app session. Per-display schedules and restart persistence are not implemented.
+- Fullscreen-game detection, tray integration, startup registration, collections, and release packaging are not implemented.
+- Windows exposes one shared wallpaper fit mode through `IDesktopWallpaper`; independent per-monitor fit modes need an image-composition layer.
+- The first Windows CI runs have failed before a runner was assigned. No successful compile/test result is available yet.
 
-- Functional Wallhaven discovery browser and image previews
-- Persistent local library, favourites and collections
-- Per-display automation UI, tray controls and fullscreen deferral
-- Installer and release packaging
+## Build
 
-Images fetched from Wallhaven remain subject to their original owners' rights.
+Requires the .NET 10 SDK and Windows desktop targeting support.
 
-## Repository layout
+```powershell
+.\build.ps1
+```
 
-`main` retains the initial project-status README. Working source is developed on separate branches and proposed through pull requests.
+To publish a self-contained win-x64 folder:
+
+```powershell
+.\build.ps1 -Publish
+```
+
+Wallhaven images remain the property of their original owners. The API key is only kept in memory by the current discovery page; persistent encrypted key storage is not implemented yet.
