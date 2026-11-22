@@ -9,6 +9,8 @@ namespace Oriole.Desktop;
 
 public partial class MainWindow : Window
 {
+    private AutomationPage? _automationPage;
+
     private static readonly IReadOnlyDictionary<string, (string Title, string Subtitle, string Description)> Pages =
         new Dictionary<string, (string, string, string)>(StringComparer.OrdinalIgnoreCase)
         {
@@ -23,6 +25,11 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Closed += async (_, _) =>
+        {
+            if (_automationPage is not null)
+                await _automationPage.StopAsync();
+        };
     }
 
     private void Navigate(object sender, RoutedEventArgs e)
@@ -40,6 +47,11 @@ public partial class MainWindow : Window
             PageBody.Children.Add(new DiscoverPage());
         else if (string.Equals(key, "Library", StringComparison.OrdinalIgnoreCase))
             PageBody.Children.Add(new LibraryPage());
+        else if (string.Equals(key, "Automation", StringComparison.OrdinalIgnoreCase))
+        {
+            _automationPage ??= new AutomationPage();
+            PageBody.Children.Add(_automationPage);
+        }
         else
             BuildPlaceholderPage(key, page.Description);
 
