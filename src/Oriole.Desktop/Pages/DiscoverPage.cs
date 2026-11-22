@@ -30,11 +30,29 @@ public sealed class DiscoverPage : UserControl
     private readonly ComboBox _sorting = MakeCombo(Enum.GetValues<WallhavenSort>(), WallhavenSort.Random, 150);
     private readonly ComboBox _topRange = MakeCombo(Enum.GetValues<WallhavenTopRange>(), WallhavenTopRange.Month, 140);
     private readonly ComboBox _minimumResolution = MakeCombo(
-        new[] { "Any", "1280x720", "1600x900", "1920x1080", "2560x1440", "3840x2160" }, "Any", 140);
+        new[]
+        {
+            "Any", "1280x720", "1280x800", "1280x960", "1280x1024",
+            "1600x900", "1600x1000", "1600x1200", "1600x1280",
+            "1920x1080", "1920x1200", "1920x1440", "1920x1536",
+            "2560x1080", "2560x1440", "2560x1600", "2560x1920", "2560x2048",
+            "3440x1440", "3840x1600", "3840x2160", "3840x2400", "3840x2880", "3840x3072"
+        }, "Any", 150, editable: true);
     private readonly ComboBox _exactResolution = MakeCombo(
-        new[] { "Any", "1280x720", "1600x900", "1920x1080", "2560x1440", "3440x1440", "3840x2160" }, "Any", 150);
+        new[]
+        {
+            "Any", "1280x720", "1280x800", "1280x960", "1280x1024",
+            "1600x900", "1600x1000", "1600x1200", "1600x1280",
+            "1920x1080", "1920x1200", "1920x1440", "1920x1536",
+            "2560x1080", "2560x1440", "2560x1600", "2560x1920", "2560x2048",
+            "3440x1440", "3840x1600", "3840x2160", "3840x2400", "3840x2880", "3840x3072"
+        }, "Any", 160, editable: true);
     private readonly ComboBox _ratio = MakeCombo(
-        new[] { "Any", "16x9", "16x10", "21x9", "32x9", "4x3", "5x4", "9x16", "1x1" }, "Any", 130);
+        new[]
+        {
+            "Any", "16x9", "16x10", "21x9", "32x9", "48x9",
+            "9x16", "10x16", "9x18", "1x1", "3x2", "4x3", "5x4"
+        }, "Any", 140);
     private readonly ListBox _colors = new()
     {
         Width = 270,
@@ -241,8 +259,8 @@ public sealed class DiscoverPage : UserControl
         if (_sketchy.IsChecked == true) purity |= WallhavenPurity.Sketchy;
         if (_explicit.IsChecked == true) purity |= WallhavenPurity.Explicit;
 
-        var minimum = _minimumResolution.SelectedItem?.ToString();
-        var exact = _exactResolution.SelectedItem?.ToString();
+        var minimum = _minimumResolution.Text.Trim();
+        var exact = _exactResolution.Text.Trim();
         var ratio = _ratio.SelectedItem?.ToString();
 
         var filters = new WallhavenFilters
@@ -601,13 +619,19 @@ public sealed class DiscoverPage : UserControl
         VerticalAlignment = VerticalAlignment.Center
     };
 
-    private static ComboBox MakeCombo<T>(IEnumerable<T> values, T selected, double width)
+    private static ComboBox MakeCombo<T>(
+        IEnumerable<T> values,
+        T selected,
+        double width,
+        bool editable = false)
     {
         var combo = new ComboBox
         {
             MinWidth = width,
             Height = 30,
-            Padding = new Thickness(6, 3, 6, 3)
+            Padding = new Thickness(6, 3, 6, 3),
+            IsEditable = editable,
+            IsTextSearchEnabled = true
         };
         foreach (var value in values)
             combo.Items.Add(value);
