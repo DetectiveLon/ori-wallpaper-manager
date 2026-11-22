@@ -47,6 +47,12 @@ public static class WindowsDesktopWallpaper
             {
                 desktop.GetMonitorDevicePathAt(index, out string monitorId);
                 desktop.GetMonitorRECT(monitorId, out NativeRect bounds);
+
+                int width = bounds.Right - bounds.Left;
+                int height = bounds.Bottom - bounds.Top;
+                if (width <= 0 || height <= 0)
+                    continue; // GetMonitorDevicePathAt can also return detached monitors.
+
                 desktop.GetWallpaper(monitorId, out string? currentWallpaper);
 
                 var native = nativeMonitors.FirstOrDefault(candidate =>
@@ -54,11 +60,6 @@ public static class WindowsDesktopWallpaper
                     && candidate.Bounds.Top == bounds.Top
                     && candidate.Bounds.Right == bounds.Right
                     && candidate.Bounds.Bottom == bounds.Bottom);
-
-                int width = bounds.Right - bounds.Left;
-                int height = bounds.Bottom - bounds.Top;
-                if (width <= 0 || height <= 0)
-                    continue; // GetMonitorDevicePathAt can also return detached monitors.
 
                 result.Add(new DisplayMonitor(
                     monitorId,
