@@ -15,10 +15,10 @@ public partial class MainWindow : Window
         new Dictionary<string, (string, string, string)>(StringComparer.OrdinalIgnoreCase)
         {
             ["Overview"] = ("Your desktop, in order.", "Choose what you want to see. Or let Oriole take care of the rotation.", "Your workspace overview will live here."),
-            ["Discover"] = ("Find something worth keeping.", "Search first. Filter properly. Preview before anything touches your desktop.", "The discovery browser is the next feature module: Wallhaven search, category and purity filters, tags, resolution, aspect ratio, sorting, and pagination."),
-            ["Library"] = ("Your wallpaper library.", "Saved images stay on your PC and remain available offline.", "Collections, favourites, duplicates, metadata, and local folders will be managed here."),
+            ["Discover"] = ("Find something worth keeping.", "Search first. Filter properly. Preview before anything touches your desktop.", "Wallhaven search, preview, bounded image downloads, local saving, and per-monitor apply are available."),
+            ["Library"] = ("Your wallpaper library.", "Saved images stay on your PC and remain available offline.", "Search saved wallpapers, filter favourites, apply a saved image, open its file, or remove its library entry without deleting the image."),
             ["Displays"] = ("One setup for every display.", "See your actual monitor layout and configure each screen independently.", "Choose and apply a different image to each connected monitor."),
-            ["Automation"] = ("Rotation, without timer surprises.", "A visible countdown, one pending change at a time, and proper pause handling.", "Per-display schedules, next-run status, pause/resume, previous/next, and fullscreen-game deferral are being implemented in the scheduling module."),
+            ["Automation"] = ("Rotation, without timer surprises.", "A visible countdown, one pending change at a time, and proper pause handling.", "App-session rotation from the local library is available for one selected display. Fullscreen-game detection and schedule persistence across app restarts are not implemented yet."),
             ["Settings"] = ("Preferences.", "Keep the controls that matter. Leave the rest out of the way.", "Theme, startup behaviour, cache limits, download folder, API keys, and privacy controls will live here.")
         };
 
