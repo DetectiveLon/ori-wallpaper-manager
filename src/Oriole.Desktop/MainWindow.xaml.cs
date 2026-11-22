@@ -25,11 +25,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Closed += async (_, _) =>
-        {
-            if (_automationPage is not null)
-                await _automationPage.StopAsync();
-        };
+        Closed += (_, _) => _automationPage?.RequestStop();
     }
 
     private void Navigate(object sender, RoutedEventArgs e)
