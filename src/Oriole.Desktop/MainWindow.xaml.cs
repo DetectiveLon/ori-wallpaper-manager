@@ -40,7 +40,10 @@ public partial class MainWindow : Window
 
         foreach (var button in FindVisualChildren<Button>(this))
         {
-            var isSelected = string.Equals(button.Tag as string, key, StringComparison.OrdinalIgnoreCase);
+            if (button.Tag is not string buttonKey)
+                continue;
+
+            var isSelected = string.Equals(buttonKey, key, StringComparison.OrdinalIgnoreCase);
             button.Background = isSelected
                 ? (Brush)FindResource("PanelAltBrush")
                 : Brushes.Transparent;
@@ -202,8 +205,8 @@ public partial class MainWindow : Window
             try
             {
                 WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, dialog.FileName);
-                status.Text = $"Wallpaper applied to {monitor.DeviceName}.";
                 refresh();
+                status.Text = $"Wallpaper applied to {monitor.DeviceName}.";
             }
             catch (Exception ex)
             {
