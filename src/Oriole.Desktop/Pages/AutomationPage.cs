@@ -317,12 +317,20 @@ public sealed class AutomationPage : UserControl
                 throw new InvalidOperationException("No display is selected.");
 
             var lastId = await Dispatcher.InvokeAsync(() =>
-                _lastAppliedByDisplay.GetValueOrDefault(monitor.Id)
-                ?? available.FirstOrDefault(entry =>
+            {
+                var previousId = _lastAppliedByDisplay.GetValueOrDefault(monitor.Id);
+                if (previousId is not null)
+                    return previousId;
+                if (string.IsNullOrWhiteSpace(monitor.CurrentWallpaper))
+                    return null;
+
+                var currentPath = Path.GetFullPath(monitor.CurrentWallpaper);
+                return available.FirstOrDefault(entry =>
                     string.Equals(
                         Path.GetFullPath(entry.LocalPath),
-                        Path.GetFullPath(monitor.CurrentWallpaper ?? string.Empty),
-                        StringComparison.OrdinalIgnoreCase))?.Id);
+                        currentPath,
+                        StringComparison.OrdinalIgnoreCase))?.Id;
+            });
             var candidates = available.Length > 1
                 ? available.Where(entry => !string.Equals(entry.Id, lastId, StringComparison.OrdinalIgnoreCase)).ToArray()
                 : available;
@@ -450,13 +458,14 @@ public sealed class AutomationPage : UserControl
     private void UpdateButtons()
     {
         var running = _rotationTask is { IsCompleted: false };
-        _startButton.IsEnabled = !running && !_isStarting;
+        var busy = running || _isStarting;
+        _startButton.IsEnabled = !busy;
         _pauseButton.IsEnabled = running;
         _pauseButton.Content = _paused ? "Resume" : "Pause";
-        _rotateNowButton.IsEnabled = !_manualRotationRunning;
+        _rotateNowButton.IsEnabled = !busy && !_manualRotationRunning;
         _stopButton.IsEnabled = running;
-        _intervalPicker.IsEnabled = !running;
-        _displayPicker.IsEnabled = !running;
+        _intervalPicker.IsEnabled = !busy;
+        _displayPicker.IsEnabled = !busy;
     }
 
     private static UIElement Labeled(string label, UIElement control)
