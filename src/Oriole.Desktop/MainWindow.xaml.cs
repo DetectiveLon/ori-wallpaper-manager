@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Oriole.Desktop.Services;
+using Oriole.Desktop.Views;
 
 namespace Oriole.Desktop;
 
@@ -12,7 +13,7 @@ public partial class MainWindow : Window
         new Dictionary<string, (string, string, string)>(StringComparer.OrdinalIgnoreCase)
         {
             ["Overview"] = ("Your desktop, in order.", "Choose what you want to see. Or let Oriole take care of the rotation.", "Your workspace overview will live here."),
-            ["Discover"] = ("Find something worth keeping.", "Search first. Filter properly. Preview before anything touches your desktop.", "The discovery browser is the next feature module: Wallhaven search, category and purity filters, tags, resolution, aspect ratio, sorting, and pagination."),
+            ["Discover"] = ("Find something worth keeping.", "Search first. Filter properly. Preview before anything touches your desktop.", "Search Wallhaven, preview results, and apply a wallpaper to a selected display."),
             ["Library"] = ("Your wallpaper library.", "Saved images stay on your PC and remain available offline.", "Collections, favourites, duplicates, metadata, and local folders will be managed here."),
             ["Displays"] = ("One setup for every display.", "See your actual monitor layout and configure each screen independently.", "Choose and apply a different image to each connected monitor."),
             ["Automation"] = ("Rotation, without timer surprises.", "A visible countdown, one pending change at a time, and proper pause handling.", "Per-display schedules, next-run status, pause/resume, previous/next, and fullscreen-game deferral are being implemented in the scheduling module."),
@@ -35,6 +36,8 @@ public partial class MainWindow : Window
 
         if (string.Equals(key, "Displays", StringComparison.OrdinalIgnoreCase))
             BuildDisplaysPage();
+        else if (string.Equals(key, "Discover", StringComparison.OrdinalIgnoreCase))
+            PageBody.Children.Add(new DiscoverPage());
         else
             BuildPlaceholderPage(key, page.Description);
 
