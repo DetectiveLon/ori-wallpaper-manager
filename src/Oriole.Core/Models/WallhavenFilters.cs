@@ -27,7 +27,8 @@ public enum WallhavenSort
     Random,
     Views,
     Favorites,
-    Toplist
+    Toplist,
+    Hot
 }
 
 public enum WallhavenOrder
@@ -73,6 +74,12 @@ public sealed record WallhavenFilters
 
         if (Page < 1)
             throw new ArgumentOutOfRangeException(nameof(Page), "Page must be 1 or greater.");
+
+        if (Query.Length > 300)
+            throw new ArgumentException("Search expressions must be 300 characters or fewer.", nameof(Query));
+
+        if (Colors.Count > 29)
+            throw new ArgumentException("Too many color filters were selected.", nameof(Colors));
 
         ValidateResolution(MinimumResolution, nameof(MinimumResolution));
         ValidateResolution(ExactResolution, nameof(ExactResolution));
