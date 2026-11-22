@@ -43,20 +43,30 @@ public sealed class WallhavenQueryBuilderTests
     }
 
     [Fact]
-    public void ResolutionAndRatiosAreIncluded()
+    public void MinimumResolutionAndRatiosAreIncluded()
     {
         var query = Parse(WallhavenQueryBuilder.Build(new WallhavenFilters
         {
             MinimumResolution = "1920x1080",
-            ExactResolution = "3840x2160",
             Ratio = "16x9",
             Colors = ["#000000", "ffffff"]
         }));
 
         Assert.Equal("1920x1080", query["atleast"]);
-        Assert.Equal("3840x2160", query["resolutions"]);
         Assert.Equal("16x9", query["ratios"]);
         Assert.Equal("000000,ffffff", query["colors"]);
+    }
+
+    [Fact]
+    public void ExactResolutionIsIncluded()
+    {
+        var query = Parse(WallhavenQueryBuilder.Build(new WallhavenFilters
+        {
+            ExactResolution = "3840x2160"
+        }));
+
+        Assert.Equal("3840x2160", query["resolutions"]);
+        Assert.False(query.ContainsKey("atleast"));
     }
 
     [Fact]
