@@ -57,7 +57,7 @@ public sealed class AutomationPage : UserControl
     private CancellationTokenSource? _loopCancellation;
     private Task? _rotationTask;
     private DateTimeOffset? _nextRunUtc;
-    private bool _paused;
+    private volatile bool _paused;
 
     public AutomationPage()
     {
@@ -75,11 +75,6 @@ public sealed class AutomationPage : UserControl
         _countdownTimer.Tick += (_, _) => UpdateCountdown();
 
         Loaded += async (_, _) => await RefreshLibraryStatusAsync();
-        Unloaded += async (_, _) =>
-        {
-            _countdownTimer.Stop();
-            await StopRotationAsync();
-        };
         UpdateButtons();
     }
 
@@ -165,6 +160,8 @@ public sealed class AutomationPage : UserControl
         return root;
     }
 
+    public Task StopAsync() => StopRotationAsync();
+
     private async Task StartRotationAsync()
     {
         if (_rotationTask is { IsCompleted: false })
@@ -247,7 +244,18 @@ public sealed class AutomationPage : UserControl
         finally
         {
             if (ReferenceEquals(_rotationTask, task))
-                await Dispatcher.InvokeAsync(UpdateButtons);
+            {
+                _rotationTask = null;
+                _loopCancellation?.Dispose();
+                _loopCancellation = null;
+                _countdownTimer.Stop();
+                _nextRunUtc = null;
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    UpdateCountdown();
+                    UpdateButtons();
+                });
+            }
         }
     }
 
@@ -285,7 +293,8 @@ public sealed class AutomationPage : UserControl
         if (monitor is null)
             throw new InvalidOperationException("No display is selected.");
 
-        var lastId = _lastAppliedByDisplay.GetValueOrDefault(monitor.Id);
+        var lastId = await Dispatcher.InvokeAsync(
+            () => _lastAppliedByDisplay.GetValueOrDefault(monitor.Id));
         var candidates = available.Length > 1
             ? available.Where(entry => !string.Equals(entry.Id, lastId, StringComparison.OrdinalIgnoreCase)).ToArray()
             : available;
@@ -372,6 +381,9 @@ public sealed class AutomationPage : UserControl
 
     private async Task RefreshLibraryStatusAsync()
     {
+        if (_rotationTask is { IsCompleted: false })
+            return;
+
         try
         {
             var entries = await _library.GetAllAsync();
