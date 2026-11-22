@@ -58,6 +58,9 @@ public sealed class AutomationPage : UserControl
     private Task? _rotationTask;
     private DateTimeOffset? _nextRunUtc;
     private volatile bool _paused;
+    private bool _isStarting;
+    private bool _manualRotationRunning;
+    private readonly SemaphoreSlim _rotationGate = new(1, 1);
 
     public AutomationPage()
     {
@@ -164,7 +167,7 @@ public sealed class AutomationPage : UserControl
 
     private async Task StartRotationAsync()
     {
-        if (_rotationTask is { IsCompleted: false })
+        if (_isStarting || _rotationTask is { IsCompleted: false })
             return;
 
         if (_intervalPicker.SelectedItem is not string intervalName
@@ -180,6 +183,8 @@ public sealed class AutomationPage : UserControl
             return;
         }
 
+        _isStarting = true;
+        UpdateButtons();
         try
         {
             var entries = await _library.GetAllAsync();
@@ -225,6 +230,11 @@ public sealed class AutomationPage : UserControl
         {
             _status.Text = $"Could not start rotation: {ex.Message}";
             await StopRotationAsync();
+        }
+        finally
+        {
+            _isStarting = false;
+            UpdateButtons();
         }
     }
 
@@ -272,6 +282,11 @@ public sealed class AutomationPage : UserControl
 
     private async Task RotateNowAsync()
     {
+        if (_manualRotationRunning)
+            return;
+
+        _manualRotationRunning = true;
+        UpdateButtons();
         try
         {
             await RotateFromLibraryAsync(CancellationToken.None, respectPause: false);
@@ -280,42 +295,60 @@ public sealed class AutomationPage : UserControl
         {
             _status.Text = $"Could not rotate now: {ex.Message}";
         }
+        finally
+        {
+            _manualRotationRunning = false;
+            UpdateButtons();
+        }
     }
 
     private async Task RotateFromLibraryAsync(CancellationToken cancellationToken, bool respectPause)
     {
-        var entries = await _library.GetAllAsync(cancellationToken);
-        var available = entries.Where(entry => File.Exists(entry.LocalPath)).ToArray();
-        if (available.Length == 0)
-            throw new InvalidOperationException("No available images are saved in the local library.");
-
-        var monitor = await Dispatcher.InvokeAsync(() => _displayPicker.SelectedItem as DisplayMonitor);
-        if (monitor is null)
-            throw new InvalidOperationException("No display is selected.");
-
-        var lastId = await Dispatcher.InvokeAsync(
-            () => _lastAppliedByDisplay.GetValueOrDefault(monitor.Id));
-        var candidates = available.Length > 1
-            ? available.Where(entry => !string.Equals(entry.Id, lastId, StringComparison.OrdinalIgnoreCase)).ToArray()
-            : available;
-        var selected = candidates[Random.Shared.Next(candidates.Length)];
-
-        await Dispatcher.InvokeAsync(() =>
+        await _rotationGate.WaitAsync(cancellationToken);
+        try
         {
-            // Recheck after library lookup and immediately before the Windows apply call.
-            if (respectPause && _paused)
+            var entries = await _library.GetAllAsync(cancellationToken);
+            var available = entries.Where(entry => File.Exists(entry.LocalPath)).ToArray();
+            if (available.Length == 0)
+                throw new InvalidOperationException("No available images are saved in the local library.");
+
+            var monitor = await Dispatcher.InvokeAsync(() => _displayPicker.SelectedItem as DisplayMonitor);
+            if (monitor is null)
+                throw new InvalidOperationException("No display is selected.");
+
+            var lastId = await Dispatcher.InvokeAsync(() =>
+                _lastAppliedByDisplay.GetValueOrDefault(monitor.Id)
+                ?? available.FirstOrDefault(entry =>
+                    string.Equals(
+                        Path.GetFullPath(entry.LocalPath),
+                        Path.GetFullPath(monitor.CurrentWallpaper ?? string.Empty),
+                        StringComparison.OrdinalIgnoreCase))?.Id);
+            var candidates = available.Length > 1
+                ? available.Where(entry => !string.Equals(entry.Id, lastId, StringComparison.OrdinalIgnoreCase)).ToArray()
+                : available;
+            var selected = candidates[Random.Shared.Next(candidates.Length)];
+
+            await Dispatcher.InvokeAsync(() =>
             {
-                _status.Text = "Scheduled change skipped because rotation was paused.";
-                return;
-            }
+                // Recheck after library lookup and immediately before the Windows apply call.
+                if (respectPause && _paused)
+                {
+                    _status.Text = "Scheduled change skipped because rotation was paused.";
+                    return;
+                }
 
-            if (!File.Exists(selected.LocalPath))
-                throw new FileNotFoundException("The selected library image is missing.", selected.LocalPath);
+                if (!File.Exists(selected.LocalPath))
+                    throw new FileNotFoundException("The selected library image is missing.", selected.LocalPath);
 
-            WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, selected.LocalPath);
-            _lastAppliedByDisplay[monitor.Id] = selected.Id;
-            _status.Text = $"Applied {selected.Title} to {monitor.DeviceName}.";
-        });
+                WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, selected.LocalPath);
+                _lastAppliedByDisplay[monitor.Id] = selected.Id;
+                _status.Text = $"Applied {selected.Title} to {monitor.DeviceName}.";
+            });
+        }
+        finally
+        {
+            _rotationGate.Release();
+        }
     }
 
     private async Task StopRotationAsync()
@@ -417,10 +450,10 @@ public sealed class AutomationPage : UserControl
     private void UpdateButtons()
     {
         var running = _rotationTask is { IsCompleted: false };
-        _startButton.IsEnabled = !running;
+        _startButton.IsEnabled = !running && !_isStarting;
         _pauseButton.IsEnabled = running;
         _pauseButton.Content = _paused ? "Resume" : "Pause";
-        _rotateNowButton.IsEnabled = true;
+        _rotateNowButton.IsEnabled = !_manualRotationRunning;
         _stopButton.IsEnabled = running;
         _intervalPicker.IsEnabled = !running;
         _displayPicker.IsEnabled = !running;
