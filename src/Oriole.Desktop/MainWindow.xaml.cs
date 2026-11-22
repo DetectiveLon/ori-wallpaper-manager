@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Oriole.Desktop.Services;
+using Oriole.Desktop.Pages;
 
 namespace Oriole.Desktop;
 
@@ -35,6 +36,10 @@ public partial class MainWindow : Window
 
         if (string.Equals(key, "Displays", StringComparison.OrdinalIgnoreCase))
             BuildDisplaysPage();
+        else if (string.Equals(key, "Discover", StringComparison.OrdinalIgnoreCase))
+            PageBody.Children.Add(new DiscoverPage());
+        else if (string.Equals(key, "Library", StringComparison.OrdinalIgnoreCase))
+            PageBody.Children.Add(new LibraryPage());
         else
             BuildPlaceholderPage(key, page.Description);
 
