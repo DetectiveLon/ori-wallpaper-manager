@@ -165,6 +165,14 @@ public sealed class AutomationPage : UserControl
 
     public Task StopAsync() => StopRotationAsync();
 
+    public void RequestStop()
+    {
+        _paused = false;
+        _countdownTimer.Stop();
+        _nextRunUtc = null;
+        _loopCancellation?.Cancel();
+    }
+
     private async Task StartRotationAsync()
     {
         if (_isStarting || _rotationTask is { IsCompleted: false })
