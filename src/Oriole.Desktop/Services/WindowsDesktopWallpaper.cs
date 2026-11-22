@@ -55,13 +55,18 @@ public static class WindowsDesktopWallpaper
                     && candidate.Bounds.Right == bounds.Right
                     && candidate.Bounds.Bottom == bounds.Bottom);
 
+                int width = bounds.Right - bounds.Left;
+                int height = bounds.Bottom - bounds.Top;
+                if (width <= 0 || height <= 0)
+                    continue; // GetMonitorDevicePathAt can also return detached monitors.
+
                 result.Add(new DisplayMonitor(
                     monitorId,
                     native?.DeviceName ?? $"DISPLAY{index + 1}",
                     bounds.Left,
                     bounds.Top,
-                    bounds.Right - bounds.Left,
-                    bounds.Bottom - bounds.Top,
+                    width,
+                    height,
                     native?.IsPrimary ?? index == 0,
                     string.IsNullOrWhiteSpace(currentWallpaper) ? null : currentWallpaper));
             }
@@ -117,7 +122,7 @@ public static class WindowsDesktopWallpaper
     private static List<NativeMonitor> EnumerateNativeMonitors()
     {
         var monitors = new List<NativeMonitor>();
-        MonitorEnumProc callback = (handle, _, ref NativeRect _) =>
+        MonitorEnumProc callback = (IntPtr handle, IntPtr deviceContext, ref NativeRect monitorRect, IntPtr userData) =>
         {
             var info = new MonitorInfoEx
             {
