@@ -1,18 +1,49 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using Oriole.Desktop.Services;
 
 namespace Oriole.Desktop;
 
 public partial class App : Application
 {
+    public static TrayIconService? Tray { get; private set; }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
         base.OnStartup(e);
+
+        Tray = new TrayIconService(OpenFromTray, ExitFromTray);
+        Tray.Show("Oriole — wallpaper manager");
     }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        Tray?.Dispose();
+        Tray = null;
+        base.OnExit(e);
+    }
+
+    private static void OpenFromTray()
+    {
+        var window = Current.MainWindow;
+        if (window is null)
+        {
+            window = new MainWindow();
+            Current.MainWindow = window;
+        }
+
+        window.ShowInTaskbar = true;
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
+        window.Show();
+        window.Activate();
+    }
+
+    private static void ExitFromTray() => Current.Shutdown();
 
     private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {

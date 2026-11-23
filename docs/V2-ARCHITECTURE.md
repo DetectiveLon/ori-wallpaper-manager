@@ -33,6 +33,11 @@ rewrite.
 4. Discover port: `src/Oriole.Desktop/Views/DiscoverView.xaml(.cs)`, `src/Oriole.Desktop/ViewModels/DiscoverViewModel.cs`.
 5. Displays + Settings ports: `src/Oriole.Desktop/Views/DisplaysView.xaml(.cs)`, `src/Oriole.Desktop/Views/SettingsView.xaml(.cs)`, `src/Oriole.Desktop/ViewModels/DisplaysViewModel.cs`, `src/Oriole.Desktop/ViewModels/SettingsViewModel.cs`.
 
+## Wave 2 ownership (v2-shell)
+- Library virtualization + collections: `Views/LibraryView.xaml(.cs)`, `ViewModels/LibraryViewModel.cs`.
+- Tray + startup services: `Services/TrayIconService.cs`, `Services/StartupService.cs` only.
+- Integrator owns `App.xaml.cs`, `MainWindow.xaml(.cs)`, project/CI files and all docs.
+
 ## Build discipline
 - Do NOT run `build.ps1`, `dotnet build`, `dotnet test`, or launch Oriole.exe. The integrator builds once after all agents finish, to avoid file locks and conflicting obj/ writes.
 - Do NOT commit, push, or switch branches.

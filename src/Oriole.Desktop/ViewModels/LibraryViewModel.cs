@@ -24,6 +24,7 @@ public sealed class LibraryEntryViewModel : ViewModelBase
         IsFavorite = entry.IsFavorite;
         FavoriteLabel = entry.IsFavorite ? "Unfavorite" : "Favorite";
         DetailText = $"{entry.Width:N0} × {entry.Height:N0} · {entry.Category} · {entry.Collection}";
+        SelectedCollection = string.IsNullOrWhiteSpace(entry.Collection) ? "Unsorted" : entry.Collection;
     }
 
     public string Id { get; }
@@ -38,6 +39,16 @@ public sealed class LibraryEntryViewModel : ViewModelBase
 
     public string DetailText { get; }
 
+    private string _selectedCollection = "Unsorted";
+    public string SelectedCollection
+    {
+        get => _selectedCollection;
+        set => SetProperty(ref _selectedCollection, value);
+    }
+
+    // Set when this card is first realized so a recycled row only decodes it once.
+    public bool ThumbnailRequested { get; set; }
+
     private BitmapImage? _thumbnail;
     public BitmapImage? Thumbnail
     {
@@ -50,6 +61,8 @@ public sealed class LibraryViewModel : ViewModelBase
 {
     private const int ThumbnailDecodeWidth = 480;
     private static readonly TimeSpan RenderDebounce = TimeSpan.FromMilliseconds(180);
+    private const string AllCollections = "All collections";
+    private const string Unsorted = "Unsorted";
 
     private readonly WallpaperLibraryStore _store = new();
     private readonly Dispatcher _dispatcher;
@@ -66,6 +79,7 @@ public sealed class LibraryViewModel : ViewModelBase
         FavoriteCommand = new AsyncRelayCommand(p => ToggleFavoriteAsync(p as LibraryEntryViewModel), ex => Status = $"Could not update favorite: {ex.Message}");
         OpenCommand = new AsyncRelayCommand(p => OpenEntry(p as LibraryEntryViewModel), ex => Status = $"Could not open image: {ex.Message}");
         RemoveCommand = new AsyncRelayCommand(p => RemoveEntryAsync(p as LibraryEntryViewModel), ex => Status = $"Could not remove library entry: {ex.Message}");
+        MoveToCollectionCommand = new AsyncRelayCommand(p => MoveToCollectionAsync(p as LibraryEntryViewModel), ex => Status = $"Could not move to collection: {ex.Message}");
 
         LoadDisplays();
     }
@@ -73,6 +87,10 @@ public sealed class LibraryViewModel : ViewModelBase
     public ObservableCollection<LibraryEntryViewModel> Entries { get; } = new();
 
     public ObservableCollection<DisplayMonitor> Displays { get; } = new();
+
+    public ObservableCollection<string> CollectionFilters { get; } = new();
+
+    public ObservableCollection<string> MoveTargets { get; } = new();
 
     public ICommand RefreshCommand { get; }
 
@@ -83,6 +101,8 @@ public sealed class LibraryViewModel : ViewModelBase
     public ICommand OpenCommand { get; }
 
     public ICommand RemoveCommand { get; }
+
+    public ICommand MoveToCollectionCommand { get; }
 
     private DisplayMonitor? _selectedDisplay;
     public DisplayMonitor? SelectedDisplay
@@ -109,6 +129,17 @@ public sealed class LibraryViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _favoritesOnly, value))
+                ScheduleRender();
+        }
+    }
+
+    private string _selectedCollectionFilter = AllCollections;
+    public string SelectedCollectionFilter
+    {
+        get => _selectedCollectionFilter;
+        set
+        {
+            if (SetProperty(ref _selectedCollectionFilter, value))
                 ScheduleRender();
         }
     }
@@ -178,6 +209,7 @@ public sealed class LibraryViewModel : ViewModelBase
         try
         {
             _entries = await _store.GetAllAsync();
+            RebuildCollections();
             RenderEntries();
             Status = $"{_entries.Count} saved wallpaper(s).";
         }
@@ -191,12 +223,38 @@ public sealed class LibraryViewModel : ViewModelBase
         }
     }
 
+    private void RebuildCollections()
+    {
+        var names = _entries.Select(entry => entry.Collection)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        CollectionFilters.Clear();
+        CollectionFilters.Add(AllCollections);
+        CollectionFilters.Add(Unsorted);
+        foreach (var name in names.Where(name => !string.Equals(name, Unsorted, StringComparison.OrdinalIgnoreCase)))
+            CollectionFilters.Add(name);
+
+        MoveTargets.Clear();
+        MoveTargets.Add(Unsorted);
+        foreach (var name in names.Where(name => !string.Equals(name, Unsorted, StringComparison.OrdinalIgnoreCase)))
+            MoveTargets.Add(name);
+
+        if (!CollectionFilters.Any(name => string.Equals(name, _selectedCollectionFilter, StringComparison.OrdinalIgnoreCase)))
+            SelectedCollectionFilter = AllCollections;
+    }
+
     private void RenderEntries()
     {
-        var generation = ++_renderGeneration;
+        ++_renderGeneration;
         var query = SearchText.Trim();
+        var collectionFilter = _selectedCollectionFilter;
         var filtered = _entries.Where(entry =>
                 (!FavoritesOnly || entry.IsFavorite)
+                && (string.Equals(collectionFilter, AllCollections, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(entry.Collection, collectionFilter, StringComparison.OrdinalIgnoreCase))
                 && (query.Length == 0
                     || entry.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
                     || entry.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
@@ -213,12 +271,17 @@ public sealed class LibraryViewModel : ViewModelBase
         }
 
         foreach (var entry in filtered)
-        {
-            var card = new LibraryEntryViewModel(entry);
-            Entries.Add(card);
-            if (File.Exists(entry.LocalPath))
-                _ = LoadThumbnailAsync(card, entry.LocalPath, generation);
-        }
+            Entries.Add(new LibraryEntryViewModel(entry));
+    }
+
+    // Called from the view when a card row is realized. Tying decode to realization means a
+    // 5,000-item library never creates 5,000 decoded cards up front.
+    public void RequestThumbnail(LibraryEntryViewModel? card)
+    {
+        if (card is null || card.ThumbnailRequested || !File.Exists(card.LocalPath))
+            return;
+        card.ThumbnailRequested = true;
+        _ = LoadThumbnailAsync(card, card.LocalPath, _renderGeneration);
     }
 
     private Task ApplyEntryAsync(LibraryEntryViewModel? entry)
@@ -296,6 +359,34 @@ public sealed class LibraryViewModel : ViewModelBase
         catch (Exception ex)
         {
             Status = $"Could not remove library entry: {ex.Message}";
+        }
+    }
+
+    private async Task MoveToCollectionAsync(LibraryEntryViewModel? entry)
+    {
+        if (entry is null)
+            return;
+
+        var target = string.IsNullOrWhiteSpace(entry.SelectedCollection)
+            ? Unsorted
+            : entry.SelectedCollection.Trim();
+        try
+        {
+            var changed = await _store.SetCollectionAsync(entry.Id, target);
+            if (!changed)
+            {
+                Status = "That library entry no longer exists.";
+                return;
+            }
+
+            // Reload entries and collection lists so a newly used collection is
+            // immediately available to the filter and every card.
+            await ReloadAsync();
+            Status = $"Moved {entry.Title} to {target}.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not move to collection: {ex.Message}";
         }
     }
 

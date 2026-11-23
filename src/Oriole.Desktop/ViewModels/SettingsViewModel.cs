@@ -20,6 +20,10 @@ public sealed class SettingsViewModel : ViewModelBase
     private string _status = string.Empty;
     private int _cacheFileCount;
     private long _cacheSizeBytes;
+    private bool _startupEnabled;
+    private string _startupToggleLabel = string.Empty;
+    private string _startupStatus = string.Empty;
+    private readonly StartupService _startup = new();
 
     public SettingsViewModel()
     {
@@ -27,6 +31,13 @@ public sealed class SettingsViewModel : ViewModelBase
         RemoveApiKeyCommand = new RelayCommand(_ => RemoveApiKey());
         ClearCacheCommand = new RelayCommand(_ => ClearCache());
         OpenDataFolderCommand = new RelayCommand(_ => OpenDataFolder());
+        ToggleStartupCommand = new RelayCommand(_ => ToggleStartup());
+
+        _startupEnabled = _startup.IsEnabled();
+        _startupToggleLabel = _startupEnabled ? "Disable launch at login" : "Enable launch at login";
+        _startupStatus = string.IsNullOrWhiteSpace(_startup.LastError)
+            ? (_startupEnabled ? "Oriole starts when you sign in." : "Oriole only starts when you open it.")
+            : $"Could not read startup setting: {_startup.LastError}";
 
         _apiKey = ApiKeyStore.Load();
         RefreshKeyStatus();
@@ -73,6 +84,24 @@ public sealed class SettingsViewModel : ViewModelBase
         set => SetProperty(ref _status, value, nameof(Status));
     }
 
+    public bool StartupEnabled
+    {
+        get => _startupEnabled;
+        private set => SetProperty(ref _startupEnabled, value, nameof(StartupEnabled));
+    }
+
+    public string StartupToggleLabel
+    {
+        get => _startupToggleLabel;
+        private set => SetProperty(ref _startupToggleLabel, value, nameof(StartupToggleLabel));
+    }
+
+    public string StartupStatus
+    {
+        get => _startupStatus;
+        private set => SetProperty(ref _startupStatus, value, nameof(StartupStatus));
+    }
+
     public string LibraryPathText => $"Library: {Path.Combine(LibraryDirectory, "library.json")}";
     public string SchedulesPathText => $"Schedules: {Path.Combine(DataRoot, "schedules", "schedules.json")}";
     public string LogPathText => $"Error log: {Path.Combine(LogDirectory, "errors.log")}";
@@ -83,6 +112,7 @@ public sealed class SettingsViewModel : ViewModelBase
     public ICommand RemoveApiKeyCommand { get; }
     public ICommand ClearCacheCommand { get; }
     public ICommand OpenDataFolderCommand { get; }
+    public ICommand ToggleStartupCommand { get; }
 
     /// <summary>Raised when the stored key is removed so the view can clear its PasswordBox.</summary>
     public event Action? ApiKeyCleared;
@@ -124,6 +154,24 @@ public sealed class SettingsViewModel : ViewModelBase
         {
             Status = $"Could not clear cache: {ex.Message}";
         }
+    }
+
+    private void ToggleStartup()
+    {
+        _startup.Toggle();
+        if (!string.IsNullOrWhiteSpace(_startup.LastError))
+        {
+            StartupStatus = $"Could not change startup setting: {_startup.LastError}";
+            Status = StartupStatus;
+            return;
+        }
+
+        StartupEnabled = _startup.IsEnabled();
+        StartupToggleLabel = StartupEnabled ? "Disable launch at login" : "Enable launch at login";
+        StartupStatus = StartupEnabled
+            ? "Oriole starts when you sign in."
+            : "Oriole only starts when you open it.";
+        Status = StartupEnabled ? "Launch at login enabled." : "Launch at login disabled.";
     }
 
     private void OpenDataFolder()

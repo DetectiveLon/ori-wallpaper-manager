@@ -32,7 +32,9 @@ This is a progress record, not a release-readiness claim.
 
 ## V2 shell branch
 
-`v2-shell` replaces the code-built pages with XAML views and view models (`ViewModels/`, `Views/*View.xaml`, `Mvvm/`) while reusing the unchanged services and Core libraries. All six screens were smoke-tested on a two-monitor Windows desktop; the old page classes were removed on that branch. It is a presentation-layer rewrite, not a feature release — installer, tray, collections and virtualization are still outstanding.
+`v2-shell` replaces the code-built pages with XAML views and view models (`ViewModels/`, `Views/*View.xaml`, `Mvvm/`) while reusing the unchanged services and Core libraries. All six screens were smoke-tested on a two-monitor Windows desktop; the old page classes were removed on that branch. It is a presentation-layer rewrite, not a feature release — installer and a proper release package are the remaining follow-ups.
+
+Wave 2 on the same branch adds a virtualized library list (recycled rows, lazy thumbnail decode) with a collection filter and per-card move-to collection, plus a system-tray icon (Open/Exit, minimize-to-tray) and a launch-at-login toggle in Settings backed by the HKCU Run key.
 
 ## Validation
 

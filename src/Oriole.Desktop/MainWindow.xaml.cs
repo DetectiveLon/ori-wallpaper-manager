@@ -18,7 +18,19 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = _shell;
         Closing += OnClosing;
+        StateChanged += OnStateChanged;
         _shell.Navigate("Overview");
+    }
+
+    private void OnStateChanged(object? sender, EventArgs e)
+    {
+        // With a tray icon available, minimizing means "keep running quietly".
+        // The tray's Open Oriole menu restores the window.
+        if (WindowState == WindowState.Minimized && App.Tray is not null)
+        {
+            ShowInTaskbar = false;
+            Hide();
+        }
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)

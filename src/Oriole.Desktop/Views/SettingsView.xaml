@@ -47,6 +47,27 @@
                 </StackPanel>
             </Border>
 
+            <!-- Launch at login -->
+            <Border Background="{StaticResource PanelBrush}" CornerRadius="14" Padding="20" Margin="0,0,0,14">
+                <StackPanel>
+                    <TextBlock Text="LAUNCH AT LOGIN" Foreground="{StaticResource AccentBrush}"
+                               FontSize="10" FontWeight="Bold" />
+                    <TextBlock Text="Register Oriole for the current Windows user so it starts quietly when you sign in. No administrator rights needed."
+                               Foreground="{StaticResource MutedBrush}" FontSize="12"
+                               TextWrapping="Wrap" MaxWidth="720" Margin="0,10,0,0" />
+                    <DockPanel Margin="0,10,0,6">
+                        <Button DockPanel.Dock="Right" Content="{Binding StartupToggleLabel}"
+                                Command="{Binding ToggleStartupCommand}" Padding="14,8,14,8" Margin="8,0,0,0" />
+                        <CheckBox Content="Start Oriole when I sign in"
+                                  IsChecked="{Binding StartupEnabled, Mode=OneWay}"
+                                  Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"
+                                  IsEnabled="False" />
+                    </DockPanel>
+                    <TextBlock Text="{Binding StartupStatus}" Foreground="{StaticResource MutedBrush}"
+                               FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" />
+                </StackPanel>
+            </Border>
+
             <!-- Data & about -->
             <Border Background="{StaticResource PanelBrush}" CornerRadius="14" Padding="20" Margin="0,0,0,14">
                 <StackPanel>
