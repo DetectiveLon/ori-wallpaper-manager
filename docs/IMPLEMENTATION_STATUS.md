@@ -13,14 +13,15 @@ This is a progress record, not a release-readiness claim.
 - Bounded original/thumbnail downloads and image decode limits.
 - Versioned JSON library index under Local AppData.
 - Library search, favourites-only filter, apply, open image file, and metadata-only removal.
-- Single-display, app-session rotation from local library files.
-- Visible countdown, manual rotate, pause/resume, stop, serialized apply, and no catch-up burst after a long pause.
-- App navigation does not stop the rotation loop; main-window close requests cancellation.
+- Independent app-session rotation schedules for each connected display, each with its own interval and controls.
+- Per-display countdown, manual rotate, pause/resume, stop, serialized wallpaper apply, and a fresh interval after a pause.
+- Optional pause when a full-screen foreground window covers the target display. Geometry matching tolerates small window-frame rounding but rejects ordinary maximized windows that leave the taskbar area.
+- App navigation does not stop rotation; main-window close requests cancellation.
 
 ## Not implemented
 
-- Fullscreen-game detection / automatic pause.
-- Independent rotation schedules for each display.
+- Identifying games specifically by process or executable name; current detection applies to full-screen foreground apps generally.
+- Detecting background full-screen windows when they are not the foreground window.
 - Persisting schedule state and resuming after app restart.
 - Library collections, local-folder import, and duplicate detection.
 - Independent per-monitor fit modes.
@@ -29,4 +30,4 @@ This is a progress record, not a release-readiness claim.
 
 ## Validation
 
-The GitHub Actions workflow has repeatedly failed before runner assignment. The failed jobs contained no steps or logs, so those failures do not establish whether the code compiles or whether tests pass. The current tool environment has no .NET SDK. A successful Windows build and test run is required before merging.
+GitHub Actions now allocates hosted runners after the repository became public. The latest PR validation passed the Core test job and the Windows desktop build. This confirms compilation and the automated Core tests, but does not replace an interactive check on a real multi-monitor Windows desktop. The app has not yet been packaged or released.
