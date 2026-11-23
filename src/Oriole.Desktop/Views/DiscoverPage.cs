@@ -99,9 +99,20 @@ public sealed class DiscoverPage : UserControl
             Content = _colorPalette
         });
         filterStack.Children.Add(StyleTextBox(_colors));
-        _searchButton.Margin = new Thickness(0, 16, 0, 0);
-        filterStack.Children.Add(_searchButton);
         filterStack.Children.Add(Label("Your API key is used only for this request and is not stored.", 10, "#9AA8B8", margin: new Thickness(0, 9, 0, 0)));
+
+        var filterScroll = new ScrollViewer
+        {
+            MaxHeight = 540,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = filterStack
+        };
+        // Keep Search reachable without scrolling the long filter list.
+        var sidebarContent = new DockPanel();
+        DockPanel.SetDock(_searchButton, Dock.Bottom);
+        _searchButton.Margin = new Thickness(0, 12, 0, 0);
+        sidebarContent.Children.Add(_searchButton);
+        sidebarContent.Children.Add(filterScroll);
 
         var sidebar = new Border
         {
@@ -109,7 +120,7 @@ public sealed class DiscoverPage : UserControl
             CornerRadius = new CornerRadius(14),
             Padding = new Thickness(16),
             Margin = new Thickness(0, 0, 14, 0),
-            Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = filterStack }
+            Child = sidebarContent
         };
         Grid.SetColumn(sidebar, 0);
         root.Children.Add(sidebar);

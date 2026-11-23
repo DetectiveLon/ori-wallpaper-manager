@@ -1,4 +1,5 @@
 using System.Net;
+using System.Reflection;
 using System.Text.Json;
 using Oriole.Core.Models;
 
@@ -26,8 +27,32 @@ public sealed class WallhavenClient
     public WallhavenClient(HttpClient http)
     {
         _http = http ?? throw new ArgumentNullException(nameof(http));
+        if (HasAutoRedirectEnabled(http))
+            throw new ArgumentException(
+                "An auto-redirecting HttpClient can forward the X-API-Key header to another host. Use CreateHttpClient().",
+                nameof(http));
         if (!_http.DefaultRequestHeaders.UserAgent.Any())
             _http.DefaultRequestHeaders.UserAgent.ParseAdd("Oriole-Wallpaper/0.1 (+https://github.com/)");
+    }
+
+    private static bool HasAutoRedirectEnabled(HttpClient client)
+    {
+        // Best-effort invariant check: the redirect guard below only sees 3xx responses
+        // when the handler does not follow them internally.
+        object? handler = null;
+        for (var clientType = typeof(HttpClient); clientType is not null && handler is null; clientType = clientType.BaseType)
+        {
+            var field = clientType.GetField("_handler", BindingFlags.Instance | BindingFlags.NonPublic);
+            handler = field?.GetValue(client);
+        }
+
+        for (var type = handler?.GetType(); type is not null; type = type.BaseType)
+        {
+            var property = type.GetProperty("AllowAutoRedirect", BindingFlags.Instance | BindingFlags.Public);
+            if (property?.GetValue(handler) is bool enabled)
+                return enabled;
+        }
+        return false;
     }
 
     public async Task<WallhavenSearchPage> SearchAsync(

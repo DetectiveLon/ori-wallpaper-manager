@@ -342,6 +342,10 @@ public sealed class AutomationPage : UserControl
         {
             session.StatusMessage = $"Could not start rotation: {ex.Message}";
             await StopSessionAsync(session);
+            // StopSessionAsync resets the status to "Schedule stopped."; the start error
+            // is the useful diagnostic and must survive the cleanup.
+            session.StatusMessage = $"Could not start rotation: {ex.Message}";
+            UpdateSessionUi(session);
         }
         finally
         {

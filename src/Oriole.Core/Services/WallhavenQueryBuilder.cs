@@ -23,7 +23,12 @@ public static class WallhavenQueryBuilder
                 WallhavenSort.Toplist => "toplist",
                 _ => throw new ArgumentOutOfRangeException(nameof(filters.Sorting))
             }),
-            Pair("order", filters.Order == WallhavenOrder.Ascending ? "asc" : "desc"),
+            Pair("order", filters.Order switch
+            {
+                WallhavenOrder.Descending => "desc",
+                WallhavenOrder.Ascending => "asc",
+                _ => throw new ArgumentOutOfRangeException(nameof(filters.Order))
+            }),
             Pair("page", filters.Page.ToString(System.Globalization.CultureInfo.InvariantCulture))
         };
 

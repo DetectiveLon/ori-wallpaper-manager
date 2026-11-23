@@ -53,6 +53,35 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
         if (interval < TimeSpan.FromMinutes(1) || interval > TimeSpan.FromDays(7))
             throw new ArgumentOutOfRangeException(nameof(interval));
 
+        // A throwing UI callback must not unwind the loop. Keep the original delegates
+        // in locals so the wrappers cannot recurse into themselves.
+        var notify = nextRunChanged;
+        if (notify is not null)
+            nextRunChanged = async nextRun =>
+            {
+                try
+                {
+                    await notify(nextRun).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Reporting failures must never stop future rotations.
+                }
+            };
+
+        var report = failed;
+        if (report is not null)
+            failed = async exception =>
+            {
+                try
+                {
+                    await report(exception).ConfigureAwait(false);
+                }
+                catch
+                {
+                }
+            };
+
         while (_resetSignal.Wait(0))
         {
         }
@@ -74,6 +103,12 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
 
             if (deferredByPause)
             {
+                // Discard resets issued while paused: a resumed schedule always starts a
+                // fresh full interval, and a leftover permit would reset it a second time.
+                while (_resetSignal.Wait(0))
+                {
+                }
+
                 // Do not apply immediately after a pause (for example, after a game exits).
                 nextRun = _timeProvider.GetUtcNow() + interval;
                 deferredByPause = false;

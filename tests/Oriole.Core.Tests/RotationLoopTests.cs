@@ -74,4 +74,38 @@ public sealed class RotationLoopTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
     }
 
+    [Fact]
+    public async Task ResetDuringPauseAppliesFreshIntervalExactlyOnce()
+    {
+        var loop = new RotationLoop();
+        using var cancellation = new CancellationTokenSource();
+        var paused = false;
+        var notifications = 0;
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var run = loop.RunAsync(
+            TimeSpan.FromMinutes(30),
+            shouldPause: () => Volatile.Read(ref paused),
+            rotateAsync: _ => Task.CompletedTask,
+            nextRunChanged: _ =>
+            {
+                if (Interlocked.Increment(ref notifications) == 1)
+                    first.TrySetResult();
+                return Task.CompletedTask;
+            },
+            cancellationToken: cancellation.Token);
+
+        await first.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Volatile.Write(ref paused, true);
+        await Task.Delay(TimeSpan.FromMilliseconds(2200)); // let the loop enter its pause poll
+        loop.ResetNextRun();
+        await Task.Delay(TimeSpan.FromMilliseconds(200));
+        Volatile.Write(ref paused, false);
+        await Task.Delay(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, notifications);
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
 }

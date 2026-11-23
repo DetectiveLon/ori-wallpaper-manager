@@ -57,6 +57,11 @@ public partial class MainWindow : Window
             if (button.Tag is not string buttonKey)
                 continue;
 
+            // The Overview CTA is a primary button with the same tag; only sidebar
+            // navigation buttons should show the selected state.
+            if (!ReferenceEquals(button.Style, FindResource("NavButtonStyle")))
+                continue;
+
             var isSelected = string.Equals(buttonKey, key, StringComparison.OrdinalIgnoreCase);
             button.Background = isSelected
                 ? (Brush)FindResource("PanelAltBrush")
@@ -149,7 +154,7 @@ public partial class MainWindow : Window
             catch (Exception ex)
             {
                 status.Text = "Could not read display information.";
-                MessageBox.Show(this, ex.Message, "Display detection failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                status.Text = $"Could not read display information: {ex.Message}";
             }
         }
 

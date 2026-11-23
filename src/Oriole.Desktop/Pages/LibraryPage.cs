@@ -29,16 +29,40 @@ public sealed class LibraryPage : UserControl
     };
     private readonly WrapPanel _cards = new();
     private IReadOnlyList<WallpaperLibraryEntry> _entries = Array.Empty<WallpaperLibraryEntry>();
+    private CancellationTokenSource? _renderDebounce;
+    private int _renderGeneration;
 
     public LibraryPage()
     {
         LoadDisplays();
         Content = BuildLayout();
         _refresh.Click += async (_, _) => await ReloadAsync();
-        _search.TextChanged += (_, _) => RenderEntries();
-        _favoritesOnly.Checked += (_, _) => RenderEntries();
-        _favoritesOnly.Unchecked += (_, _) => RenderEntries();
+        _search.TextChanged += (_, _) => ScheduleRender();
+        _favoritesOnly.Checked += (_, _) => ScheduleRender();
+        _favoritesOnly.Unchecked += (_, _) => ScheduleRender();
         Loaded += async (_, _) => await ReloadAsync();
+    }
+
+    private void ScheduleRender()
+    {
+        _renderDebounce?.Cancel();
+        _renderDebounce?.Dispose();
+        var cancellation = new CancellationTokenSource();
+        _renderDebounce = cancellation;
+        _ = DebouncedRenderAsync(cancellation);
+    }
+
+    private async Task DebouncedRenderAsync(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(180), cancellation.Token);
+            if (!cancellation.IsCancellationRequested)
+                RenderEntries();
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private UIElement BuildLayout()
@@ -120,6 +144,7 @@ public sealed class LibraryPage : UserControl
 
     private void RenderEntries()
     {
+        var generation = ++_renderGeneration;
         var query = _search.Text.Trim();
         var filtered = _entries.Where(entry =>
                 (!_favoritesOnly.IsChecked.GetValueOrDefault() || entry.IsFavorite)
@@ -151,10 +176,10 @@ public sealed class LibraryPage : UserControl
         }
 
         foreach (var entry in filtered)
-            _cards.Children.Add(CreateCard(entry));
+            _cards.Children.Add(CreateCard(entry, generation));
     }
 
-    private FrameworkElement CreateCard(WallpaperLibraryEntry entry)
+    private FrameworkElement CreateCard(WallpaperLibraryEntry entry, int generation)
     {
         var card = new Border
         {
@@ -173,15 +198,8 @@ public sealed class LibraryPage : UserControl
             Width = 244,
             Stretch = Stretch.UniformToFill
         };
-        try
-        {
-            if (File.Exists(entry.LocalPath))
-                image.Source = LoadBitmap(entry.LocalPath, 480);
-        }
-        catch
-        {
-            // A missing or damaged local image does not prevent its library entry being managed.
-        }
+        if (File.Exists(entry.LocalPath))
+            _ = LoadThumbnailAsync(entry.LocalPath, image, generation);
 
         stack.Children.Add(new Border
         {
@@ -219,8 +237,15 @@ public sealed class LibraryPage : UserControl
         apply.Click += (_, _) => ApplyEntry(entry);
         favorite.Click += async (_, _) =>
         {
-            await _store.SetFavoriteAsync(entry.Id, !entry.IsFavorite);
-            await ReloadAsync();
+            try
+            {
+                await _store.SetFavoriteAsync(entry.Id, !entry.IsFavorite);
+                await ReloadAsync();
+            }
+            catch (Exception ex)
+            {
+                _status.Text = $"Could not update favorite: {ex.Message}";
+            }
         };
         open.Click += (_, _) =>
         {
@@ -246,8 +271,15 @@ public sealed class LibraryPage : UserControl
             if (answer != MessageBoxResult.Yes)
                 return;
 
-            await _store.RemoveAsync(entry.Id);
-            await ReloadAsync();
+            try
+            {
+                await _store.RemoveAsync(entry.Id);
+                await ReloadAsync();
+            }
+            catch (Exception ex)
+            {
+                _status.Text = $"Could not remove library entry: {ex.Message}";
+            }
         };
 
         actions.Children.Add(apply);
@@ -275,6 +307,23 @@ public sealed class LibraryPage : UserControl
         {
             _status.Text = $"Could not apply wallpaper: {ex.Message}";
         }
+    }
+
+    private async Task LoadThumbnailAsync(string path, Image image, int generation)
+    {
+        BitmapImage? bitmap = null;
+        try
+        {
+            // Decode off the UI thread; the frozen bitmap is safe to assign on Dispatcher.
+            bitmap = await Task.Run(() => LoadBitmap(path, 480));
+        }
+        catch
+        {
+            // A missing or damaged local image does not prevent its library entry being managed.
+        }
+
+        if (bitmap is not null && generation == _renderGeneration)
+            await Dispatcher.InvokeAsync(() => image.Source = bitmap);
     }
 
     private static BitmapImage LoadBitmap(string path, int decodeWidth)

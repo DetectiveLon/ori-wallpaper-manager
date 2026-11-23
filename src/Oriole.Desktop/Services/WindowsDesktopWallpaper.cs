@@ -45,15 +45,37 @@ public static class WindowsDesktopWallpaper
 
             for (uint index = 0; index < count; index++)
             {
-                desktop.GetMonitorDevicePathAt(index, out string monitorId);
-                desktop.GetMonitorRECT(monitorId, out NativeRect bounds);
+                string monitorId;
+                NativeRect bounds;
+                try
+                {
+                    desktop.GetMonitorDevicePathAt(index, out monitorId);
+                    desktop.GetMonitorRECT(monitorId, out bounds);
+                }
+                catch (COMException)
+                {
+                    // Windows can keep stale display paths in the COM list after a
+                    // driver re-enumeration (the same panel appears twice, once with
+                    // a dead instance). GetMonitorRECT fails with E_FAIL for those.
+                    // One dead path must not hide every healthy display.
+                    continue;
+                }
 
                 int width = bounds.Right - bounds.Left;
                 int height = bounds.Bottom - bounds.Top;
                 if (width <= 0 || height <= 0)
-                    continue; // GetMonitorDevicePathAt can also return detached monitors.
+                    continue; // Detached monitors have no usable geometry.
 
-                desktop.GetWallpaper(monitorId, out string? currentWallpaper);
+                string? currentWallpaper = null;
+                try
+                {
+                    desktop.GetWallpaper(monitorId, out currentWallpaper);
+                }
+                catch (COMException)
+                {
+                    // Geometry is authoritative; a transient wallpaper read failure
+                    // must not remove the display from the list.
+                }
 
                 var native = nativeMonitors.FirstOrDefault(candidate =>
                     candidate.Bounds.Left == bounds.Left
@@ -79,7 +101,7 @@ public static class WindowsDesktopWallpaper
     public static void ApplyWallpaper(
         string monitorId,
         string imagePath,
-        DesktopWallpaperPosition position = DesktopWallpaperPosition.Fill)
+        DesktopWallpaperPosition? position = null)
     {
         EnsureWindows();
         ArgumentException.ThrowIfNullOrWhiteSpace(monitorId);
@@ -98,9 +120,10 @@ public static class WindowsDesktopWallpaper
 
         WithDesktopWallpaper(desktop =>
         {
-            // Windows exposes the desktop positioning mode globally. Image assignment
-            // remains per-monitor; independent scaling modes will need image composition.
-            desktop.SetPosition(position);
+            // The OS fit mode is global. Leave it alone unless the caller explicitly
+            // asked to change it; forcing Fill here crops wallpapers chosen elsewhere.
+            if (position is { } requested)
+                desktop.SetPosition(requested);
             desktop.SetWallpaper(monitorId, fullPath);
             return true;
         });

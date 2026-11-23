@@ -33,9 +33,12 @@ public sealed class WallpaperLibraryStore
 
     public WallpaperLibraryStore(string? indexPath = null)
     {
-        _indexPath = indexPath ?? Path.Combine(
+        var path = indexPath ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Oriole", "library", "library.json");
+        // A bare filename has no parent directory; normalizing once keeps writes working
+        // from any current working directory.
+        _indexPath = Path.GetFullPath(path);
     }
 
     public async Task<IReadOnlyList<WallpaperLibraryEntry>> GetAllAsync(
@@ -114,6 +117,33 @@ public sealed class WallpaperLibraryStore
                 return false;
 
             entries[index] = entries[index] with { IsFavorite = isFavorite };
+            await WriteCoreAsync(entries, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    public async Task<bool> SetCollectionAsync(
+        string id,
+        string collection,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        ArgumentNullException.ThrowIfNull(collection);
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var entries = await ReadCoreAsync(cancellationToken).ConfigureAwait(false);
+            var index = entries.FindIndex(existing =>
+                string.Equals(existing.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+                return false;
+
+            var target = string.IsNullOrWhiteSpace(collection) ? "Unsorted" : collection.Trim();
+            entries[index] = entries[index] with { Collection = target };
             await WriteCoreAsync(entries, cancellationToken).ConfigureAwait(false);
             return true;
         }
