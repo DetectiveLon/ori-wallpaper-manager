@@ -5,10 +5,10 @@ Screenshots live under `C:\Users\eslam\AppData\Local\hermes\cache\images\`.
 
 ## Final status (this session)
 
-- Fixed 12 issues; 6 new regression tests. 42/42 core tests pass, WPF build 0 warnings/0 errors.
-- Final smoke: app launches, both monitors detected, Displays and Automation render, no modal.
+- Fixed 14 issues; 9 new regression tests. 45/45 core tests pass, WPF build 0 warnings/0 errors.
+- Final smoke: app launches, both monitors detected, Displays and Automation render, no modal; a seeded schedule restored with a live countdown; graceful close now exits cleanly. Live close testing found and fixed a WPF re-entrant `Close()` bug in the first shutdown implementation.
 - Fixed in addition to item 1 below: silent process exit (global exception handlers + wrapped library handlers); Library UI decoded every image on the UI thread and re-rendered per keystroke (now background decode + 180 ms debounce); Start error overwritten by cleanup; wallpaper apply forcing global Fill fit mode; Discover Search button off-screen; blocking detection modal; reset-during-pause double notification; throwing loop callbacks killing rotation; API key forwarded on auto-redirecting HttpClient; no path back to "Unsorted"; relative index path crash; invalid WallhavenOrder silently mapping to "desc"; stale Overview copy; CTA highlighted as nav.
-- Still open: session-only schedules (`CalculateNextRun` uncalled by `RunAsync`, so its tests give false confidence); duplicated detection in three pages; primary-monitor fallback by index; shutdown cancellation race; two disagreeing image pipelines; dead Settings page; enabled actions with empty library; foreground-only full-screen detection.
+- Still open: duplicated detection presentation in three pages (detection itself now shares one service); primary-monitor fallback by index; two disagreeing image pipelines; dead Settings page; foreground-only full-screen detection; schedule persistence does not survive moving to a different monitor ID.
 - Not tested: real Wallhaven search/download, full-screen pause with a game, installer.
 
 ## Fixed during this session

@@ -29,6 +29,8 @@ public sealed class AutomationPage : UserControl
         };
 
     private readonly WallpaperLibraryStore _library = new();
+    private readonly ScheduleStore _schedules = new();
+    private readonly SemaphoreSlim _persistGate = new(1, 1);
     private readonly StackPanel _sessionCards = new();
     private readonly TextBlock _globalStatus = new()
     {
@@ -76,11 +78,82 @@ public sealed class AutomationPage : UserControl
 
         Loaded += async (_, _) =>
         {
-            await RefreshDisplaysAsync();
             await RefreshLibraryStatusAsync();
+            await RefreshDisplaysAsync();
+            await RestoreSchedulesAsync();
             _uiTimer.Start();
         };
 
+    }
+
+    private async Task PersistSessionAsync(RotationSession session, bool? shouldRun = null)
+    {
+        if (_shutdownRequested)
+            return;
+
+        try
+        {
+            await _persistGate.WaitAsync();
+            try
+            {
+                var states = _sessions.Values.Select(current => new DisplayScheduleState(
+                    current.Monitor.Id,
+                    current.IntervalPicker.SelectedItem as string ?? "5 minutes",
+                    ReferenceEquals(current, session) && shouldRun.HasValue
+                        ? shouldRun.Value
+                        : current.ActiveSchedule,
+                    current.UserPaused,
+                    current.NextRunUtc,
+                    current.LastAppliedId)).ToArray();
+                await _schedules.SaveAsync(states);
+            }
+            finally
+            {
+                _persistGate.Release();
+            }
+        }
+        catch
+        {
+            // A failed persistence write must never stop the active schedule.
+        }
+    }
+
+    private async Task RestoreSchedulesAsync()
+    {
+        if (_shutdownRequested)
+            return;
+
+        IReadOnlyDictionary<string, DisplayScheduleState> saved;
+        try
+        {
+            saved = await _schedules.LoadAsync();
+        }
+        catch
+        {
+            return;
+        }
+
+        foreach (var session in _sessions.Values)
+        {
+            if (!saved.TryGetValue(session.Monitor.Id, out var state))
+                continue;
+
+            if (Intervals.ContainsKey(state.IntervalName))
+                session.IntervalPicker.SelectedItem = state.IntervalName;
+            session.LastAppliedId = state.LastAppliedId;
+            if (!state.ShouldRun)
+                continue;
+
+            if (!_libraryHasImages)
+            {
+                session.StatusMessage = "Saved schedule is waiting for wallpapers in the local library.";
+                UpdateSessionUi(session);
+                continue;
+            }
+
+            session.UserPaused = state.UserPaused;
+            await StartRotationAsync(session, state.NextRunUtc, restoring: true);
+        }
     }
 
     private UIElement BuildLayout()
@@ -280,7 +353,10 @@ public sealed class AutomationPage : UserControl
         return card;
     }
 
-    private async Task StartRotationAsync(RotationSession session)
+    private async Task StartRotationAsync(
+        RotationSession session,
+        DateTimeOffset? resumeAt = null,
+        bool restoring = false)
     {
         if (_shutdownRequested || session.IsStarting || IsRunning(session))
             return;
@@ -311,9 +387,13 @@ public sealed class AutomationPage : UserControl
 
             session.Loop = new RotationLoop();
             session.LoopCancellation = new CancellationTokenSource();
-            session.UserPaused = false;
-            session.NextRunUtc = DateTimeOffset.UtcNow + interval;
-            session.StatusMessage = $"{available.Length} local wallpaper(s) available. This display's schedule is running.";
+            session.ActiveSchedule = true;
+            if (!restoring)
+                session.UserPaused = false;
+            session.NextRunUtc = resumeAt ?? DateTimeOffset.UtcNow + interval;
+            session.StatusMessage = restoring
+                ? "Schedule restored. Rotation continues from the saved deadline."
+                : $"{available.Length} local wallpaper(s) available. This display's schedule is running.";
 
             var token = session.LoopCancellation.Token;
             var task = session.Loop.RunAsync(
@@ -331,6 +411,7 @@ public sealed class AutomationPage : UserControl
                         session.NextRunUtc = nextRun;
                         UpdateSessionUi(session);
                     });
+                    await PersistSessionAsync(session);
                 },
                 failed: async exception =>
                 {
@@ -340,10 +421,12 @@ public sealed class AutomationPage : UserControl
                         UpdateSessionUi(session);
                     });
                 },
-                cancellationToken: token);
+                cancellationToken: token,
+                lastCompletedAt: resumeAt.HasValue ? resumeAt.Value - interval : null);
 
             session.LoopTask = task;
             _ = ObserveLoopAsync(session, task);
+            await PersistSessionAsync(session, shouldRun: true);
         }
         catch (Exception ex)
         {
@@ -412,6 +495,7 @@ public sealed class AutomationPage : UserControl
         session.UserPaused = !session.UserPaused;
         session.StatusMessage = session.UserPaused ? "Paused manually." : "Manual pause released.";
         UpdateSessionUi(session);
+        _ = PersistSessionAsync(session);
     }
 
     private async Task RotateNowAsync(RotationSession session)
@@ -525,6 +609,7 @@ public sealed class AutomationPage : UserControl
                 session.StatusMessage = $"Applied {selected.Title} to {monitor.DeviceName}.";
                 UpdateSessionUi(session);
             });
+            await PersistSessionAsync(session);
         }
         finally
         {
@@ -538,6 +623,7 @@ public sealed class AutomationPage : UserControl
         var loopTask = session.LoopTask;
         var manualTask = session.ManualTask;
 
+        session.ActiveSchedule = false;
         session.ManualCancellation?.Cancel();
         loopCancellation?.Cancel();
 
@@ -587,6 +673,7 @@ public sealed class AutomationPage : UserControl
             session.StatusMessage = "Schedule stopped.";
             UpdateSessionUi(session);
         }
+        await PersistSessionAsync(session, shouldRun: false);
     }
 
     private void UpdateAllSessions()
@@ -711,6 +798,7 @@ public sealed class AutomationPage : UserControl
         public bool IsStarting;
         public bool ManualRotationRunning;
         public int ManualRotationGeneration;
+        public bool ActiveSchedule;
         public string? LastAppliedId;
         public string StatusMessage = "Ready. Start this display's schedule when you are.";
     }

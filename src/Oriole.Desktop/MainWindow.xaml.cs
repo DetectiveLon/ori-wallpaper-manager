@@ -21,7 +21,7 @@ public partial class MainWindow : Window
             ["Discover"] = ("Find something worth keeping.", "Search first. Filter properly. Preview before anything touches your desktop.", "Search Wallhaven, filter results, preview wallpapers, save them to your library, and apply them to a selected display."),
             ["Library"] = ("Your wallpaper library.", "Saved images stay on your PC and remain available offline.", "Search saved wallpapers, filter favourites, apply a saved image, open its file, or remove its library entry without deleting the image."),
             ["Displays"] = ("One setup for every display.", "See your actual monitor layout and configure each screen independently.", "Choose and apply a different image to each connected monitor."),
-            ["Automation"] = ("Independent rotation for every screen.", "Separate schedules, clear countdowns, and full-screen app pause detection.", "Each connected display has its own app-session schedule and controls. Schedules rotate local library images and can pause while a full-screen foreground window covers that display. Schedule settings do not persist after Oriole closes."),
+            ["Automation"] = ("Independent rotation for every screen.", "Separate schedules, clear countdowns, and full-screen app pause detection.", "Each connected display has its own schedule and controls. Schedules rotate local library images, can pause while a full-screen foreground window covers that display, and resume after Oriole restarts. Schedules whose deadline has passed restart with a fresh full interval."),
             ["Settings"] = ("Preferences.", "Keep the controls that matter. Leave the rest out of the way.", "Theme, startup behaviour, cache limits, download folder, API keys, and privacy controls will live here.")
         };
 
@@ -31,25 +31,25 @@ public partial class MainWindow : Window
         Closing += OnClosing;
     }
 
-    private async void OnClosing(object? sender, CancelEventArgs e)
+    private void OnClosing(object? sender, CancelEventArgs e)
     {
         if (_closingHandled || _automationPage is null)
             return;
 
         // Let the rotation loops unwind before the dispatcher shuts down, with a
         // hard timeout so a stuck COM call cannot prevent the window from closing.
-        e.Cancel = true;
+        // Called from Closing itself: calling Close() from an async continuation
+        // here is rejected by WPF while the window is still marked closing.
         _closingHandled = true;
         try
         {
             _automationPage.RequestStop();
-            await _automationPage.StopAsync().WaitAsync(TimeSpan.FromSeconds(3));
+            _automationPage.StopAsync().Wait(TimeSpan.FromSeconds(3));
         }
         catch (Exception)
         {
             // Shutdown must finish even if a loop fails to stop cleanly.
         }
-        Close();
     }
 
     private void Navigate(object sender, RoutedEventArgs e)

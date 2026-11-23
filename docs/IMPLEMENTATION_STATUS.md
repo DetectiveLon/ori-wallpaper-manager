@@ -15,6 +15,7 @@ This is a progress record, not a release-readiness claim.
 - Library search, favourites-only filter, apply, open image file, and metadata-only removal.
 - Independent app-session rotation schedules for each connected display, each with its own interval and controls.
 - Per-display countdown, manual rotate, pause/resume, stop, serialized wallpaper apply, and a fresh interval after a pause.
+- Versioned per-display schedule state under Local AppData; running schedules resume after an app restart, and missed deadlines restart with a fresh full interval.
 - Optional pause when a full-screen foreground window covers the target display. Geometry matching tolerates small window-frame rounding but rejects ordinary maximized windows that leave the taskbar area.
 - App navigation does not stop rotation; main-window close requests cancellation.
 
@@ -22,7 +23,6 @@ This is a progress record, not a release-readiness claim.
 
 - Identifying games specifically by process or executable name; current detection applies to full-screen foreground apps generally.
 - Detecting background full-screen windows when they are not the foreground window.
-- Persisting schedule state and resuming after app restart.
 - Library collections, local-folder import, and duplicate detection.
 - Independent per-monitor fit modes.
 - Tray controls, startup registration, installer, and release packaging.
@@ -30,4 +30,4 @@ This is a progress record, not a release-readiness claim.
 
 ## Validation
 
-GitHub Actions now allocates hosted runners after the repository became public. The latest PR validation passed the Core test job and the Windows desktop build. This confirms compilation and the automated Core tests, but does not replace an interactive check on a real multi-monitor Windows desktop. The app has not yet been packaged or released.
+GitHub Actions now allocates hosted runners after the repository became public. The latest PR validation passed the Core test job and the Windows desktop build. This confirms compilation and the automated Core tests, but does not replace an interactive check on a real multi-monitor Windows desktop. A live two-monitor session verified detection, grid cards, per-display controls, and schedule restore after restart. The app has not yet been packaged or released.

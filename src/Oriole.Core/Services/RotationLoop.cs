@@ -46,7 +46,8 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
         Func<CancellationToken, Task> rotateAsync,
         Func<DateTimeOffset, Task>? nextRunChanged = null,
         Func<Exception, Task>? failed = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateTimeOffset? lastCompletedAt = null)
     {
         ArgumentNullException.ThrowIfNull(shouldPause);
         ArgumentNullException.ThrowIfNull(rotateAsync);
@@ -86,7 +87,7 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
         {
         }
 
-        var nextRun = _timeProvider.GetUtcNow() + interval;
+        var nextRun = CalculateNextRun(_timeProvider.GetUtcNow(), interval, lastCompletedAt);
         if (nextRunChanged is not null)
             await nextRunChanged(nextRun).ConfigureAwait(false);
 

@@ -77,6 +77,72 @@ public sealed class RegressionTests
         }
     }
 
+    [Fact]
+    public async Task ScheduleStoreRoundTripsPerDisplayState()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"oriole-schedules-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new ScheduleStore(path);
+            var deadline = DateTimeOffset.UtcNow.AddMinutes(17);
+            await store.SaveAsync([
+                new DisplayScheduleState("DISPLAY1", "5 minutes", true, false, deadline, "wall-1"),
+                new DisplayScheduleState("DISPLAY2", "1 minute", false, true, null, null)
+            ]);
+
+            var loaded = await store.LoadAsync();
+            Assert.Equal(2, loaded.Count);
+            Assert.Equal(deadline, loaded["DISPLAY1"].NextRunUtc);
+            Assert.True(loaded["DISPLAY2"].UserPaused);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task CorruptScheduleFileIsTreatedAsEmpty()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"oriole-schedules-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{ not json");
+        try
+        {
+            Assert.Empty(await new ScheduleStore(path).LoadAsync());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LoopHonoursSavedCompletionTime()
+    {
+        var loop = new RotationLoop();
+        using var cancellation = new CancellationTokenSource();
+        var deadline = new TaskCompletionSource<DateTimeOffset>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var now = DateTimeOffset.UtcNow;
+
+        var run = loop.RunAsync(
+            TimeSpan.FromMinutes(30),
+            shouldPause: () => false,
+            rotateAsync: _ => Task.CompletedTask,
+            nextRunChanged: next =>
+            {
+                deadline.TrySetResult(next);
+                return Task.CompletedTask;
+            },
+            cancellationToken: cancellation.Token,
+            lastCompletedAt: now.AddMinutes(-10));
+
+        var actual = await deadline.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.InRange(actual, now.AddMinutes(19), now.AddMinutes(21));
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
     private static (WallpaperLibraryStore Store, string IndexPath, string ImagePath, Action Cleanup) CreateStore()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"oriole-tests-{Guid.NewGuid():N}");
