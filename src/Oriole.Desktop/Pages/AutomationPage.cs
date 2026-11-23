@@ -346,6 +346,7 @@ public sealed class AutomationPage : UserControl
 
             await Dispatcher.InvokeAsync(() =>
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 // Recheck after library lookup and immediately before the Windows apply call.
                 if (respectPause && _paused)
                 {
