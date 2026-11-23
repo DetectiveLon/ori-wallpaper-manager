@@ -1,19 +1,22 @@
+using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
+using System.Windows.Input;
 using System.Windows.Threading;
 using Oriole.Core.Services;
+using Oriole.Desktop.Mvvm;
 using Oriole.Desktop.Services;
 
-namespace Oriole.Desktop.Pages;
+namespace Oriole.Desktop.ViewModels;
 
 /// <summary>
 /// Independent app-session wallpaper rotation schedules for each connected display.
-/// Scheduled changes use only files already stored in the local library.
+/// Scheduled changes use only files already stored in the local library. All
+/// persistence and timing mechanics are delegated to the unchanged Core services.
 /// </summary>
-public sealed class AutomationPage : UserControl
+public sealed class AutomationViewModel : ViewModelBase
 {
-    private static readonly IReadOnlyDictionary<string, TimeSpan> Intervals =
+    internal static readonly IReadOnlyDictionary<string, TimeSpan> IntervalsByName =
         new Dictionary<string, TimeSpan>(StringComparer.Ordinal)
         {
             ["1 minute"] = TimeSpan.FromMinutes(1),
@@ -28,65 +31,108 @@ public sealed class AutomationPage : UserControl
             ["1 day"] = TimeSpan.FromDays(1)
         };
 
+    internal static readonly IReadOnlyList<string> IntervalNames = IntervalsByName.Keys.ToArray();
+
+    // Bounded so a stuck COM call cannot prevent MainWindow from closing.
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(3);
+
     private readonly WallpaperLibraryStore _library = new();
     private readonly ScheduleStore _schedules = new();
     private readonly SemaphoreSlim _persistGate = new(1, 1);
-    private readonly StackPanel _sessionCards = new();
-    private readonly TextBlock _globalStatus = new()
-    {
-        Foreground = new SolidColorBrush(Color.FromRgb(170, 184, 203)),
-        TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(2, 12, 2, 0)
-    };
-    private readonly CheckBox _pauseWhenFullscreenToggle = new()
-    {
-        Content = "Pause a display's schedule while a full-screen app is active on it",
-        IsChecked = true,
-        Foreground = new SolidColorBrush(Color.FromRgb(205, 216, 230)),
-        VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Thickness(0, 0, 16, 0)
-    };
-    private readonly Button _refreshDisplaysButton = MakeButton("Refresh displays");
-    private readonly DispatcherTimer _uiTimer = new(DispatcherPriority.Background)
-    {
-        Interval = TimeSpan.FromSeconds(1)
-    };
-    private readonly Dictionary<string, RotationSession> _sessions =
-        new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _rotationGate = new(1, 1);
+    private readonly Dispatcher _dispatcher;
+    private readonly DispatcherTimer _uiTimer;
+    private readonly Dictionary<string, DisplayScheduleViewModel> _sessions =
+        new(StringComparer.OrdinalIgnoreCase);
 
-    private volatile bool _pauseWhenFullscreen = true;
+    private bool _pauseWhenFullscreen = true;
     private bool _shutdownRequested;
     private bool _libraryHasImages;
+    private bool _initialized;
+    private string _globalStatus = "Preparing…";
 
-    public AutomationPage()
+    public AutomationViewModel()
     {
-        Content = BuildLayout();
-
-        _pauseWhenFullscreenToggle.Checked += (_, _) =>
+        // Constructed by the view on the UI thread; capture its dispatcher so every
+        // callback from the rotation loops can marshal state changes back to XAML.
+        _dispatcher = Dispatcher.CurrentDispatcher;
+        _uiTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            _pauseWhenFullscreen = true;
-            UpdateAllSessions();
+            Interval = TimeSpan.FromSeconds(1)
         };
-        _pauseWhenFullscreenToggle.Unchecked += (_, _) =>
-        {
-            _pauseWhenFullscreen = false;
-            UpdateAllSessions();
-        };
-        _refreshDisplaysButton.Click += async (_, _) => await RefreshDisplaysAsync();
         _uiTimer.Tick += (_, _) => UpdateAllSessions();
-
-        Loaded += async (_, _) =>
-        {
-            await RefreshLibraryStatusAsync();
-            await RefreshDisplaysAsync();
-            await RestoreSchedulesAsync();
-            _uiTimer.Start();
-        };
-
+        RefreshDisplaysCommand = new RelayCommand(_ => { _ = RefreshDisplaysAsync(); });
     }
 
-    private async Task PersistSessionAsync(RotationSession session, bool? shouldRun = null)
+    /// <summary>One row per connected display, rendered by the AutomationView DataTemplate.</summary>
+    public ObservableCollection<DisplayScheduleViewModel> Schedules { get; } = new();
+
+    public string GlobalStatus
+    {
+        get => _globalStatus;
+        private set => SetProperty(ref _globalStatus, value, nameof(GlobalStatus));
+    }
+
+    /// <summary>Mirrors the full-screen pause checkbox; read by the rotation loops off-thread.</summary>
+    public bool PauseWhenFullscreen
+    {
+        get => Volatile.Read(ref _pauseWhenFullscreen);
+        set
+        {
+            if (SetProperty(ref _pauseWhenFullscreen, value, nameof(PauseWhenFullscreen)))
+                UpdateAllSessions();
+        }
+    }
+
+    public ICommand RefreshDisplaysCommand { get; }
+
+    /// <summary>Called once from the view's Loaded handler.</summary>
+    public async Task InitializeAsync()
+    {
+        if (_initialized || _shutdownRequested)
+            return;
+        _initialized = true;
+
+        await RefreshLibraryStatusAsync();
+        await RefreshDisplaysAsync();
+        await RestoreSchedulesAsync();
+        _uiTimer.Start();
+    }
+
+    /// <summary>
+    /// Signals every loop to stop without waiting. Safe to call before StopAsync.
+    /// </summary>
+    public void RequestStop()
+    {
+        _shutdownRequested = true;
+        _uiTimer.Stop();
+
+        foreach (var session in _sessions.Values)
+        {
+            session.UserPaused = false;
+            session.LoopCancellation?.Cancel();
+            session.ManualCancellation?.Cancel();
+        }
+    }
+
+    /// <summary>
+    /// Bounded shutdown: requests cancellation of every rotation loop and waits at
+    /// most three seconds for them to unwind. The integrator may call this directly
+    /// from MainWindow.Closing (await it, or .Wait(TimeSpan.FromSeconds(3))).
+    /// </summary>
+    public async Task StopAsync()
+    {
+        RequestStop();
+
+        var tasks = _sessions.Values.Select(StopSessionAsync).ToArray();
+        if (tasks.Length == 0)
+            return;
+
+        var all = Task.WhenAll(tasks);
+        await Task.WhenAny(all, Task.Delay(ShutdownTimeout));
+    }
+
+    private async Task PersistSessionAsync(DisplayScheduleViewModel session, bool? shouldRun = null)
     {
         if (_shutdownRequested)
             return;
@@ -98,7 +144,7 @@ public sealed class AutomationPage : UserControl
             {
                 var states = _sessions.Values.Select(current => new DisplayScheduleState(
                     current.Monitor.Id,
-                    current.IntervalPicker.SelectedItem as string ?? "5 minutes",
+                    current.SelectedInterval,
                     ReferenceEquals(current, session) && shouldRun.HasValue
                         ? shouldRun.Value
                         : current.ActiveSchedule,
@@ -138,8 +184,8 @@ public sealed class AutomationPage : UserControl
             if (!saved.TryGetValue(session.Monitor.Id, out var state))
                 continue;
 
-            if (Intervals.ContainsKey(state.IntervalName))
-                session.IntervalPicker.SelectedItem = state.IntervalName;
+            if (IntervalsByName.ContainsKey(state.IntervalName))
+                session.SelectedInterval = state.IntervalName;
             session.LastAppliedId = state.LastAppliedId;
             if (!state.ShouldRun)
                 continue;
@@ -156,79 +202,29 @@ public sealed class AutomationPage : UserControl
         }
     }
 
-    private UIElement BuildLayout()
+    private async Task RefreshLibraryStatusAsync()
     {
-        var root = new StackPanel();
+        if (_shutdownRequested)
+            return;
 
-        var header = new Border
+        try
         {
-            Background = new SolidColorBrush(Color.FromRgb(30, 42, 57)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(48, 64, 83)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(14),
-            Padding = new Thickness(22),
-            Margin = new Thickness(0, 0, 0, 16)
-        };
-        var headerContent = new StackPanel();
-        headerContent.Children.Add(new TextBlock
-        {
-            Text = "WALLPAPER AUTOMATION",
-            Foreground = new SolidColorBrush(Color.FromRgb(151, 190, 244)),
-            FontWeight = FontWeights.Bold,
-            FontSize = 11
-        });
-        headerContent.Children.Add(new TextBlock
-        {
-            Text = "A separate schedule for every screen.",
-            Foreground = Brushes.White,
-            FontSize = 20,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 8, 0, 6)
-        });
-        headerContent.Children.Add(new TextBlock
-        {
-            Text = "Each display has its own interval and controls. Rotation uses wallpapers already saved in your local library, so scheduled changes never trigger background downloads.",
-            Foreground = new SolidColorBrush(Color.FromRgb(170, 184, 203)),
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 15)
-        });
-
-        var options = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
-        options.Children.Add(_pauseWhenFullscreenToggle);
-        options.Children.Add(_refreshDisplaysButton);
-        headerContent.Children.Add(options);
-        headerContent.Children.Add(new TextBlock
-        {
-            Text = "Full-screen detection is based on the foreground window covering a display. It pauses for full-screen apps such as games and video players; it does not try to identify games by name.",
-            Foreground = new SolidColorBrush(Color.FromRgb(143, 160, 181)),
-            FontSize = 11,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 12, 0, 0)
-        });
-        header.Child = headerContent;
-        root.Children.Add(header);
-
-        root.Children.Add(_sessionCards);
-        root.Children.Add(_globalStatus);
-        return root;
-    }
-
-    public Task StopAsync() => Task.WhenAll(_sessions.Values.Select(StopSessionAsync));
-
-    public void RequestStop()
-    {
-        _shutdownRequested = true;
-        _uiTimer.Stop();
-
-        foreach (var session in _sessions.Values)
-        {
-            session.UserPaused = false;
-            session.LoopCancellation?.Cancel();
-            session.ManualCancellation?.Cancel();
+            var entries = await _library.GetAllAsync();
+            _libraryHasImages = entries.Count > 0;
+            GlobalStatus = entries.Count == 0
+                ? "Your local library is empty. Save wallpapers from Discover before starting a schedule."
+                : $"{entries.Count} wallpaper(s) are saved locally and available for offline rotation.";
         }
+        catch (Exception ex)
+        {
+            _libraryHasImages = false;
+            GlobalStatus = $"Could not read the local library: {ex.Message}";
+        }
+
+        UpdateAllSessions();
     }
 
-    private async Task RefreshDisplaysAsync()
+    internal async Task RefreshDisplaysAsync()
     {
         if (_shutdownRequested)
             return;
@@ -238,9 +234,10 @@ public sealed class AutomationPage : UserControl
             var detection = DisplayDetection.Read();
             if (!detection.Succeeded)
             {
-                _globalStatus.Text = $"Could not refresh displays: {detection.Error}";
+                GlobalStatus = $"Could not refresh displays: {detection.Error}";
                 return;
             }
+
             var monitors = detection.Monitors;
             var connectedIds = monitors
                 .Select(monitor => monitor.Id)
@@ -251,7 +248,7 @@ public sealed class AutomationPage : UserControl
                          .ToArray())
             {
                 await StopSessionAsync(removed);
-                _sessionCards.Children.Remove(removed.Card);
+                Schedules.Remove(removed);
                 _sessions.Remove(removed.Monitor.Id);
             }
 
@@ -264,105 +261,31 @@ public sealed class AutomationPage : UserControl
                     continue;
                 }
 
-                var session = new RotationSession(monitor);
-                session.Card = BuildSessionCard(session);
+                var session = new DisplayScheduleViewModel(monitor, this);
                 _sessions.Add(monitor.Id, session);
-                _sessionCards.Children.Add(session.Card);
+                Schedules.Add(session);
                 UpdateSessionUi(session);
             }
 
-            _globalStatus.Text = monitors.Count == 0
+            GlobalStatus = monitors.Count == 0
                 ? "Windows did not report any connected displays."
                 : $"{monitors.Count} display(s) detected. Start a schedule on each display you want Oriole to manage.";
         }
         catch (Exception ex)
         {
-            _globalStatus.Text = $"Could not refresh displays: {ex.Message}";
+            GlobalStatus = $"Could not refresh displays: {ex.Message}";
         }
     }
 
-    private Border BuildSessionCard(RotationSession session)
-    {
-        var card = new Border
-        {
-            Background = new SolidColorBrush(Color.FromRgb(24, 34, 47)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(48, 64, 83)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(14),
-            Padding = new Thickness(20),
-            Margin = new Thickness(0, 0, 0, 12)
-        };
-
-        var content = new StackPanel();
-        var displayHeading = new StackPanel();
-        displayHeading.Children.Add(new TextBlock
-        {
-            Text = session.Monitor.IsPrimary
-                ? $"{session.Monitor.DeviceName}  ·  PRIMARY"
-                : session.Monitor.DeviceName,
-            Foreground = Brushes.White,
-            FontSize = 16,
-            FontWeight = FontWeights.SemiBold
-        });
-        displayHeading.Children.Add(new TextBlock
-        {
-            Text = $"{session.Monitor.Width:N0} × {session.Monitor.Height:N0}  ·  Position {session.Monitor.Left}, {session.Monitor.Top}",
-            Foreground = new SolidColorBrush(Color.FromRgb(143, 160, 181)),
-            FontSize = 11,
-            Margin = new Thickness(0, 5, 0, 14)
-        });
-        content.Children.Add(displayHeading);
-
-        content.Children.Add(new TextBlock
-        {
-            Text = "NEXT CHANGE",
-            Foreground = new SolidColorBrush(Color.FromRgb(151, 190, 244)),
-            FontWeight = FontWeights.Bold,
-            FontSize = 10
-        });
-        content.Children.Add(session.Countdown);
-        content.Children.Add(session.Status);
-
-        var controls = new WrapPanel { Margin = new Thickness(0, 14, 0, 0) };
-        var intervalPanel = new StackPanel { Margin = new Thickness(0, 0, 12, 7) };
-        intervalPanel.Children.Add(new TextBlock
-        {
-            Text = "Change every",
-            Foreground = new SolidColorBrush(Color.FromRgb(174, 188, 208)),
-            FontSize = 10,
-            Margin = new Thickness(0, 0, 0, 4)
-        });
-        foreach (var interval in Intervals.Keys)
-            session.IntervalPicker.Items.Add(interval);
-        session.IntervalPicker.SelectedItem = "30 minutes";
-        intervalPanel.Children.Add(session.IntervalPicker);
-
-        controls.Children.Add(intervalPanel);
-        controls.Children.Add(session.StartButton);
-        controls.Children.Add(session.PauseButton);
-        controls.Children.Add(session.RotateNowButton);
-        controls.Children.Add(session.StopButton);
-        content.Children.Add(controls);
-        card.Child = content;
-
-        session.StartButton.Click += async (_, _) => await StartRotationAsync(session);
-        session.PauseButton.Click += (_, _) => TogglePause(session);
-        session.RotateNowButton.Click += async (_, _) => await RotateNowAsync(session);
-        session.StopButton.Click += async (_, _) => await StopSessionAsync(session);
-
-        return card;
-    }
-
-    private async Task StartRotationAsync(
-        RotationSession session,
+    internal async Task StartRotationAsync(
+        DisplayScheduleViewModel session,
         DateTimeOffset? resumeAt = null,
         bool restoring = false)
     {
         if (_shutdownRequested || session.IsStarting || IsRunning(session))
             return;
 
-        if (session.IntervalPicker.SelectedItem is not string intervalName
-            || !Intervals.TryGetValue(intervalName, out var interval))
+        if (!IntervalsByName.TryGetValue(session.SelectedInterval, out var interval))
         {
             session.StatusMessage = "Choose a valid rotation interval.";
             UpdateSessionUi(session);
@@ -406,7 +329,7 @@ public sealed class AutomationPage : UserControl
                     expectedManualRotationGeneration: Volatile.Read(ref session.ManualRotationGeneration)),
                 nextRunChanged: async nextRun =>
                 {
-                    await Dispatcher.InvokeAsync(() =>
+                    await _dispatcher.InvokeAsync(() =>
                     {
                         session.NextRunUtc = nextRun;
                         UpdateSessionUi(session);
@@ -415,7 +338,7 @@ public sealed class AutomationPage : UserControl
                 },
                 failed: async exception =>
                 {
-                    await Dispatcher.InvokeAsync(() =>
+                    await _dispatcher.InvokeAsync(() =>
                     {
                         session.StatusMessage = $"Rotation failed: {exception.Message}";
                         UpdateSessionUi(session);
@@ -444,7 +367,7 @@ public sealed class AutomationPage : UserControl
         }
     }
 
-    private async Task ObserveLoopAsync(RotationSession session, Task task)
+    private async Task ObserveLoopAsync(DisplayScheduleViewModel session, Task task)
     {
         try
         {
@@ -459,16 +382,18 @@ public sealed class AutomationPage : UserControl
         }
         finally
         {
-            if (!Dispatcher.HasShutdownStarted)
-                await Dispatcher.InvokeAsync(() =>
+            if (!_dispatcher.HasShutdownStarted && Application.Current is not null)
+            {
+                await _dispatcher.InvokeAsync(() =>
                 {
                     if (ReferenceEquals(session.LoopTask, task))
                         FinishLoop(session, task);
                 });
+            }
         }
     }
 
-    private void FinishLoop(RotationSession session, Task task)
+    private void FinishLoop(DisplayScheduleViewModel session, Task task)
     {
         if (!ReferenceEquals(session.LoopTask, task))
             return;
@@ -481,13 +406,12 @@ public sealed class AutomationPage : UserControl
         UpdateSessionUi(session);
     }
 
-    private bool ShouldPause(RotationSession session)
-    {
-        return session.UserPaused
-            || (_pauseWhenFullscreen && FullscreenWindowDetector.IsFullscreenOnDisplay(session.Monitor));
-    }
+    private bool ShouldPause(DisplayScheduleViewModel session) =>
+        session.UserPaused
+        || (Volatile.Read(ref _pauseWhenFullscreen)
+            && FullscreenWindowDetector.IsFullscreenOnDisplay(session.Monitor));
 
-    private void TogglePause(RotationSession session)
+    internal void TogglePause(DisplayScheduleViewModel session)
     {
         if (!IsRunning(session))
             return;
@@ -498,7 +422,7 @@ public sealed class AutomationPage : UserControl
         _ = PersistSessionAsync(session);
     }
 
-    private async Task RotateNowAsync(RotationSession session)
+    internal async Task RotateNowAsync(DisplayScheduleViewModel session)
     {
         if (_shutdownRequested || session.IsStarting || session.ManualRotationRunning)
             return;
@@ -542,7 +466,7 @@ public sealed class AutomationPage : UserControl
     }
 
     private async Task RotateFromLibraryAsync(
-        RotationSession session,
+        DisplayScheduleViewModel session,
         CancellationToken cancellationToken,
         bool respectPause,
         int? expectedManualRotationGeneration = null)
@@ -579,7 +503,7 @@ public sealed class AutomationPage : UserControl
                 : available;
             var selected = candidates[Random.Shared.Next(candidates.Length)];
 
-            await Dispatcher.InvokeAsync(() =>
+            await _dispatcher.InvokeAsync(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -617,7 +541,7 @@ public sealed class AutomationPage : UserControl
         }
     }
 
-    private async Task StopSessionAsync(RotationSession session)
+    internal async Task StopSessionAsync(DisplayScheduleViewModel session)
     {
         var loopCancellation = session.LoopCancellation;
         var loopTask = session.LoopTask;
@@ -676,28 +600,37 @@ public sealed class AutomationPage : UserControl
         await PersistSessionAsync(session, shouldRun: false);
     }
 
+    private static bool IsRunning(DisplayScheduleViewModel session) =>
+        session.LoopTask is { IsCompleted: false };
+
     private void UpdateAllSessions()
     {
         foreach (var session in _sessions.Values)
             UpdateSessionUi(session);
     }
 
-    private void UpdateSessionUi(RotationSession session)
+    private void UpdateSessionUi(DisplayScheduleViewModel session)
     {
         var running = IsRunning(session);
         session.FullscreenPaused = running
-            && _pauseWhenFullscreen
+            && Volatile.Read(ref _pauseWhenFullscreen)
             && FullscreenWindowDetector.IsFullscreenOnDisplay(session.Monitor);
+
+        session.Heading = session.Monitor.IsPrimary
+            ? $"{session.Monitor.DeviceName}  ·  PRIMARY"
+            : session.Monitor.DeviceName;
+        session.Subheading =
+            $"{session.Monitor.Width:N0} × {session.Monitor.Height:N0}  ·  Position {session.Monitor.Left}, {session.Monitor.Top}";
 
         if (!running || session.NextRunUtc is null)
         {
-            session.Countdown.Text = session.IsStarting
+            session.Countdown = session.IsStarting
                 ? "Preparing…"
                 : session.ManualRotationRunning ? "Applying…" : "Not running";
         }
         else if (session.UserPaused || session.FullscreenPaused)
         {
-            session.Countdown.Text = "Paused";
+            session.Countdown = "Paused";
         }
         else
         {
@@ -706,100 +639,147 @@ public sealed class AutomationPage : UserControl
                 remaining = TimeSpan.Zero;
 
             var days = (int)remaining.TotalDays;
-            session.Countdown.Text = days > 0
+            session.Countdown = days > 0
                 ? $"{days}d {remaining.Hours:00}:{remaining.Minutes:00}:{remaining.Seconds:00}"
                 : $"{remaining.Hours:00}:{remaining.Minutes:00}:{remaining.Seconds:00}";
         }
 
-        session.Status.Text = session.UserPaused
+        session.StatusText = session.UserPaused
             ? "Paused manually. Resume to restart the full interval."
             : session.FullscreenPaused
                 ? "Paused: a full-screen foreground window is active on this display. The full interval restarts when it closes."
                 : session.StatusMessage;
 
         var busy = running || session.IsStarting || session.ManualRotationRunning;
-        session.StartButton.IsEnabled = !busy && !_shutdownRequested && _libraryHasImages;
-        session.PauseButton.IsEnabled = running;
-        session.PauseButton.Content = session.UserPaused ? "Resume" : "Pause";
-        session.RotateNowButton.IsEnabled = !session.IsStarting
+        session.CanStart = !busy && !_shutdownRequested && _libraryHasImages;
+        session.CanPause = running;
+        session.PauseButtonText = session.UserPaused ? "Resume" : "Pause";
+        session.CanRotateNow = !session.IsStarting
             && !session.ManualRotationRunning
             && !_shutdownRequested
             && _libraryHasImages;
-        session.StopButton.IsEnabled = running || session.IsStarting || session.ManualRotationRunning;
-        session.IntervalPicker.IsEnabled = !busy;
+        session.CanStop = running || session.IsStarting || session.ManualRotationRunning;
+        session.IntervalEnabled = !busy;
+    }
+}
+
+/// <summary>Per-display row rendered by the AutomationView DataTemplate.</summary>
+public sealed class DisplayScheduleViewModel : ViewModelBase
+{
+    private readonly AutomationViewModel _owner;
+
+    private string _heading = string.Empty;
+    private string _subheading = string.Empty;
+    private string _selectedInterval = "30 minutes";
+    private string _countdown = "Not running";
+    private string _statusText = "Ready. Start this display's schedule when you are.";
+    private string _pauseButtonText = "Pause";
+    private bool _canStart;
+    private bool _canPause;
+    private bool _canRotateNow;
+    private bool _canStop;
+    private bool _intervalEnabled = true;
+
+    public DisplayScheduleViewModel(DisplayMonitor monitor, AutomationViewModel owner)
+    {
+        _owner = owner;
+        Monitor = monitor;
+        Intervals = AutomationViewModel.IntervalNames;
+
+        StartCommand = new RelayCommand(_ => { _ = _owner.StartRotationAsync(this); });
+        PauseCommand = new RelayCommand(_ => _owner.TogglePause(this));
+        RotateNowCommand = new RelayCommand(_ => { _ = _owner.RotateNowAsync(this); });
+        StopCommand = new RelayCommand(_ => { _ = _owner.StopSessionAsync(this); });
     }
 
-    private async Task RefreshLibraryStatusAsync()
-    {
-        if (_shutdownRequested)
-            return;
+    public IReadOnlyList<string> Intervals { get; }
 
-        try
-        {
-            var entries = await _library.GetAllAsync();
-            _libraryHasImages = entries.Count > 0;
-            _globalStatus.Text = entries.Count == 0
-                ? "Your local library is empty. Save wallpapers from Discover before starting a schedule."
-                : $"{entries.Count} wallpaper(s) are saved locally and available for offline rotation.";
-        }
-        catch (Exception ex)
-        {
-            _libraryHasImages = false;
-            _globalStatus.Text = $"Could not read the local library: {ex.Message}";
-        }
-        UpdateAllSessions();
+    public ICommand StartCommand { get; }
+    public ICommand PauseCommand { get; }
+    public ICommand RotateNowCommand { get; }
+    public ICommand StopCommand { get; }
+
+    public string Heading
+    {
+        get => _heading;
+        internal set => SetProperty(ref _heading, value, nameof(Heading));
     }
 
-    private static bool IsRunning(RotationSession session) =>
-        session.LoopTask is { IsCompleted: false };
-
-    private static Button MakeButton(string label) => new()
+    public string Subheading
     {
-        Content = label,
-        Padding = new Thickness(14, 9, 14, 9),
-        Margin = new Thickness(0, 0, 8, 7),
-        Background = new SolidColorBrush(Color.FromRgb(47, 65, 86)),
-        Foreground = Brushes.White,
-        BorderBrush = new SolidColorBrush(Color.FromRgb(65, 86, 111)),
-        Cursor = System.Windows.Input.Cursors.Hand
-    };
-
-    private sealed class RotationSession(DisplayMonitor monitor)
-    {
-        public volatile DisplayMonitor Monitor = monitor;
-        public readonly ComboBox IntervalPicker = new() { MinWidth = 148, Height = 34 };
-        public readonly TextBlock Countdown = new()
-        {
-            Text = "Not running",
-            FontSize = 25,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = Brushes.White,
-            Margin = new Thickness(0, 7, 0, 3)
-        };
-        public readonly TextBlock Status = new()
-        {
-            Foreground = new SolidColorBrush(Color.FromRgb(170, 184, 203)),
-            TextWrapping = TextWrapping.Wrap
-        };
-        public readonly Button StartButton = MakeButton("Start");
-        public readonly Button PauseButton = MakeButton("Pause");
-        public readonly Button RotateNowButton = MakeButton("Rotate now");
-        public readonly Button StopButton = MakeButton("Stop");
-
-        public RotationLoop Loop = new();
-        public Border Card = new();
-        public CancellationTokenSource? LoopCancellation;
-        public Task? LoopTask;
-        public CancellationTokenSource? ManualCancellation;
-        public Task? ManualTask;
-        public DateTimeOffset? NextRunUtc;
-        public volatile bool UserPaused;
-        public bool FullscreenPaused;
-        public bool IsStarting;
-        public bool ManualRotationRunning;
-        public int ManualRotationGeneration;
-        public bool ActiveSchedule;
-        public string? LastAppliedId;
-        public string StatusMessage = "Ready. Start this display's schedule when you are.";
+        get => _subheading;
+        internal set => SetProperty(ref _subheading, value, nameof(Subheading));
     }
+
+    public string SelectedInterval
+    {
+        get => _selectedInterval;
+        set => SetProperty(ref _selectedInterval, value, nameof(SelectedInterval));
+    }
+
+    public string Countdown
+    {
+        get => _countdown;
+        internal set => SetProperty(ref _countdown, value, nameof(Countdown));
+    }
+
+    public string StatusText
+    {
+        get => _statusText;
+        internal set => SetProperty(ref _statusText, value, nameof(StatusText));
+    }
+
+    public string PauseButtonText
+    {
+        get => _pauseButtonText;
+        internal set => SetProperty(ref _pauseButtonText, value, nameof(PauseButtonText));
+    }
+
+    public bool CanStart
+    {
+        get => _canStart;
+        internal set => SetProperty(ref _canStart, value, nameof(CanStart));
+    }
+
+    public bool CanPause
+    {
+        get => _canPause;
+        internal set => SetProperty(ref _canPause, value, nameof(CanPause));
+    }
+
+    public bool CanRotateNow
+    {
+        get => _canRotateNow;
+        internal set => SetProperty(ref _canRotateNow, value, nameof(CanRotateNow));
+    }
+
+    public bool CanStop
+    {
+        get => _canStop;
+        internal set => SetProperty(ref _canStop, value, nameof(CanStop));
+    }
+
+    public bool IntervalEnabled
+    {
+        get => _intervalEnabled;
+        internal set => SetProperty(ref _intervalEnabled, value, nameof(IntervalEnabled));
+    }
+
+    // Engine state, owned by AutomationViewModel and deliberately outside the
+    // binding surface. Fields (not properties) preserve the original semantics.
+    internal DisplayMonitor Monitor { get; set; }
+    internal RotationLoop Loop = new();
+    internal CancellationTokenSource? LoopCancellation;
+    internal Task? LoopTask;
+    internal CancellationTokenSource? ManualCancellation;
+    internal Task? ManualTask;
+    internal DateTimeOffset? NextRunUtc;
+    internal volatile bool UserPaused;
+    internal bool FullscreenPaused;
+    internal bool IsStarting;
+    internal bool ManualRotationRunning;
+    internal int ManualRotationGeneration;
+    internal bool ActiveSchedule;
+    internal string? LastAppliedId;
+    internal string StatusMessage = "Ready. Start this display's schedule when you are.";
 }

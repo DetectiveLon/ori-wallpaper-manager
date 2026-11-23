@@ -1,6 +1,6 @@
 # Implementation status
 
-Current working branch: `feature/library-automation`
+Current working branch: `v2-shell` (v1 work remains on `feature/library-automation`)
 
 This is a progress record, not a release-readiness claim.
 
@@ -29,6 +29,10 @@ This is a progress record, not a release-readiness claim.
 - Independent per-monitor fit modes.
 - Tray controls, startup registration, installer, and release packaging.
 - Library virtualization and a collections UI (the library decodes thumbnails off the UI thread and debounces filtering, but renders all matching cards).
+
+## V2 shell branch
+
+`v2-shell` replaces the code-built pages with XAML views and view models (`ViewModels/`, `Views/*View.xaml`, `Mvvm/`) while reusing the unchanged services and Core libraries. All six screens were smoke-tested on a two-monitor Windows desktop; the old page classes were removed on that branch. It is a presentation-layer rewrite, not a feature release — installer, tray, collections and virtualization are still outstanding.
 
 ## Validation
 
