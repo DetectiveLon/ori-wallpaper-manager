@@ -29,7 +29,7 @@ public sealed class RotationLoopTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(7)]
+    [InlineData(10081)]
     public void InvalidIntervalsAreRejected(int minutes)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
