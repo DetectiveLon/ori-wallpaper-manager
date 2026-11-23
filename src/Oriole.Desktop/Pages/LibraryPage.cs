@@ -107,19 +107,14 @@ public sealed class LibraryPage : UserControl
 
     private void LoadDisplays()
     {
-        try
-        {
-            var monitors = WindowsDesktopWallpaper.GetMonitors();
-            foreach (var monitor in monitors)
-                _displayPicker.Items.Add(monitor);
-            _displayPicker.DisplayMemberPath = nameof(DisplayMonitor.DeviceName);
-            _displayPicker.SelectedItem = monitors.FirstOrDefault(monitor => monitor.IsPrimary)
-                ?? monitors.FirstOrDefault();
-        }
-        catch (Exception ex)
-        {
-            _status.Text = $"Display detection unavailable: {ex.Message}";
-        }
+        var detection = DisplayDetection.Read();
+        foreach (var monitor in detection.Monitors)
+            _displayPicker.Items.Add(monitor);
+        _displayPicker.DisplayMemberPath = nameof(DisplayMonitor.DeviceName);
+        _displayPicker.SelectedItem = detection.Monitors.FirstOrDefault(monitor => monitor.IsPrimary)
+            ?? detection.Monitors.FirstOrDefault();
+        if (!detection.Succeeded)
+            _status.Text = $"Display detection unavailable: {detection.Error}";
     }
 
     private async Task ReloadAsync()

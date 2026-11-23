@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
@@ -11,6 +12,7 @@ namespace Oriole.Desktop;
 public partial class MainWindow : Window
 {
     private AutomationPage? _automationPage;
+    private bool _closingHandled;
 
     private static readonly IReadOnlyDictionary<string, (string Title, string Subtitle, string Description)> Pages =
         new Dictionary<string, (string, string, string)>(StringComparer.OrdinalIgnoreCase)
@@ -26,7 +28,28 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Closed += (_, _) => _automationPage?.RequestStop();
+        Closing += OnClosing;
+    }
+
+    private async void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (_closingHandled || _automationPage is null)
+            return;
+
+        // Let the rotation loops unwind before the dispatcher shuts down, with a
+        // hard timeout so a stuck COM call cannot prevent the window from closing.
+        e.Cancel = true;
+        _closingHandled = true;
+        try
+        {
+            _automationPage.RequestStop();
+            await _automationPage.StopAsync().WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        catch (Exception)
+        {
+            // Shutdown must finish even if a loop fails to stop cleanly.
+        }
+        Close();
     }
 
     private void Navigate(object sender, RoutedEventArgs e)
@@ -139,7 +162,13 @@ public partial class MainWindow : Window
             cards.Children.Clear();
             try
             {
-                var monitors = WindowsDesktopWallpaper.GetMonitors();
+                var detection = DisplayDetection.Read();
+                if (!detection.Succeeded)
+                {
+                    status.Text = $"Could not read display information: {detection.Error}";
+                    return;
+                }
+                var monitors = detection.Monitors;
                 if (monitors.Count == 0)
                 {
                     status.Text = "Windows did not report any connected displays.";
@@ -153,7 +182,6 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                status.Text = "Could not read display information.";
                 status.Text = $"Could not read display information: {ex.Message}";
             }
         }

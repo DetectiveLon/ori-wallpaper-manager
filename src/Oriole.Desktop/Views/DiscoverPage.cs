@@ -242,20 +242,15 @@ public sealed class DiscoverPage : UserControl
 
     private void LoadDisplays()
     {
-        try
-        {
-            _monitors = WindowsDesktopWallpaper.GetMonitors();
-            _display.ItemsSource = _monitors;
-            _display.DisplayMemberPath = nameof(DisplayMonitor.DeviceName);
-            _display.SelectedItem = _monitors.FirstOrDefault(m => m.IsPrimary) ?? _monitors.FirstOrDefault();
-            if (_monitors.Count == 0)
-                _status.Text = "No connected display detected. You can still browse wallpapers.";
-        }
-        catch (Exception ex)
-        {
-            _monitors = [];
-            _status.Text = $"Display detection unavailable: {ex.Message}";
-        }
+        var detection = DisplayDetection.Read();
+        _monitors = detection.Monitors;
+        _display.ItemsSource = _monitors;
+        _display.DisplayMemberPath = nameof(DisplayMonitor.DeviceName);
+        _display.SelectedItem = _monitors.FirstOrDefault(m => m.IsPrimary) ?? _monitors.FirstOrDefault();
+        if (!detection.Succeeded)
+            _status.Text = $"Display detection unavailable: {detection.Error}";
+        else if (_monitors.Count == 0)
+            _status.Text = "No connected display detected. You can still browse wallpapers.";
     }
 
     private async Task SearchFirstPageAsync()

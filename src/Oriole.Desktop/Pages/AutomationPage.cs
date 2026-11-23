@@ -55,6 +55,7 @@ public sealed class AutomationPage : UserControl
 
     private volatile bool _pauseWhenFullscreen = true;
     private bool _shutdownRequested;
+    private bool _libraryHasImages;
 
     public AutomationPage()
     {
@@ -161,7 +162,13 @@ public sealed class AutomationPage : UserControl
 
         try
         {
-            var monitors = WindowsDesktopWallpaper.GetMonitors();
+            var detection = DisplayDetection.Read();
+            if (!detection.Succeeded)
+            {
+                _globalStatus.Text = $"Could not refresh displays: {detection.Error}";
+                return;
+            }
+            var monitors = detection.Monitors;
             var connectedIds = monitors
                 .Select(monitor => monitor.Id)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -369,11 +376,12 @@ public sealed class AutomationPage : UserControl
         }
         finally
         {
-            await Dispatcher.InvokeAsync(() =>
-            {
-                if (ReferenceEquals(session.LoopTask, task))
-                    FinishLoop(session, task);
-            });
+            if (!Dispatcher.HasShutdownStarted)
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (ReferenceEquals(session.LoopTask, task))
+                        FinishLoop(session, task);
+                });
         }
     }
 
@@ -623,12 +631,13 @@ public sealed class AutomationPage : UserControl
                 : session.StatusMessage;
 
         var busy = running || session.IsStarting || session.ManualRotationRunning;
-        session.StartButton.IsEnabled = !busy && !_shutdownRequested;
+        session.StartButton.IsEnabled = !busy && !_shutdownRequested && _libraryHasImages;
         session.PauseButton.IsEnabled = running;
         session.PauseButton.Content = session.UserPaused ? "Resume" : "Pause";
         session.RotateNowButton.IsEnabled = !session.IsStarting
             && !session.ManualRotationRunning
-            && !_shutdownRequested;
+            && !_shutdownRequested
+            && _libraryHasImages;
         session.StopButton.IsEnabled = running || session.IsStarting || session.ManualRotationRunning;
         session.IntervalPicker.IsEnabled = !busy;
     }
@@ -641,14 +650,17 @@ public sealed class AutomationPage : UserControl
         try
         {
             var entries = await _library.GetAllAsync();
+            _libraryHasImages = entries.Count > 0;
             _globalStatus.Text = entries.Count == 0
                 ? "Your local library is empty. Save wallpapers from Discover before starting a schedule."
                 : $"{entries.Count} wallpaper(s) are saved locally and available for offline rotation.";
         }
         catch (Exception ex)
         {
+            _libraryHasImages = false;
             _globalStatus.Text = $"Could not read the local library: {ex.Message}";
         }
+        UpdateAllSessions();
     }
 
     private static bool IsRunning(RotationSession session) =>
