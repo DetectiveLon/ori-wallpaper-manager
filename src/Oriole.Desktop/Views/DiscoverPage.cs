@@ -162,7 +162,6 @@ public sealed class DiscoverPage : UserControl
         AddChoice(_sorting, "Most viewed", WallhavenSort.Views);
         AddChoice(_sorting, "Most favourited", WallhavenSort.Favorites);
         AddChoice(_sorting, "Toplist", WallhavenSort.Toplist);
-        AddChoice(_sorting, "Hot", WallhavenSort.Hot);
 
         AddChoice(_topRange, "Day", WallhavenTopRange.Day);
         AddChoice(_topRange, "3 days", WallhavenTopRange.ThreeDays);
