@@ -27,8 +27,7 @@ public enum WallhavenSort
     Random,
     Views,
     Favorites,
-    Toplist,
-    Hot
+    Toplist
 }
 
 public enum WallhavenOrder
