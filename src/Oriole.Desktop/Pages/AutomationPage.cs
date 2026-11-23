@@ -80,7 +80,6 @@ public sealed class AutomationPage : UserControl
             _uiTimer.Start();
         };
 
-        _ = RefreshDisplaysAsync();
     }
 
     private UIElement BuildLayout()
