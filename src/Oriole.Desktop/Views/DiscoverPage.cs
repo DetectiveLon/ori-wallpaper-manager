@@ -30,7 +30,7 @@ public sealed class DiscoverPage : UserControl
     private readonly TextBox _exact = CreateTextBox("3840x2160");
     private readonly TextBox _colors = CreateTextBox("Custom hex colors, comma-separated");
     private readonly WrapPanel _colorPalette = new();
-    private readonly PasswordBox _apiKey = new() { Height = 32, Margin = new Thickness(0, 5, 0, 12), Padding = new Thickness(8, 5), Background = Brush("#202B39"), Foreground = Brush("#F1F4F8"), BorderBrush = Brush("#344254") };
+    private readonly PasswordBox _apiKey = new() { Height = 32, Margin = new Thickness(0, 5, 0, 12), Padding = new Thickness(8, 5, 8, 5), Background = Brush("#202B39"), Foreground = Brush("#F1F4F8"), BorderBrush = Brush("#344254") };
     private readonly ComboBox _sorting = CreateCombo();
     private readonly ComboBox _topRange = CreateCombo();
     private readonly ComboBox _order = CreateCombo();
@@ -700,7 +700,7 @@ public sealed class DiscoverPage : UserControl
         {
             Text = string.Empty,
             Height = 33,
-            Padding = new Thickness(8, 5),
+            Padding = new Thickness(8, 5, 8, 5),
             Background = Brush("#202B39"),
             Foreground = Brush("#F1F4F8"),
             BorderBrush = Brush("#344254"),
