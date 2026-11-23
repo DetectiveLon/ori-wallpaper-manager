@@ -21,7 +21,6 @@ public static class WallhavenQueryBuilder
                 WallhavenSort.Views => "views",
                 WallhavenSort.Favorites => "favorites",
                 WallhavenSort.Toplist => "toplist",
-                WallhavenSort.Hot => "hot",
                 _ => throw new ArgumentOutOfRangeException(nameof(filters.Sorting))
             }),
             Pair("order", filters.Order == WallhavenOrder.Ascending ? "asc" : "desc"),
