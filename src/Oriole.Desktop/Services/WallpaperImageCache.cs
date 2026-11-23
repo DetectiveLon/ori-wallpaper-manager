@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http;
 using System.Windows.Media.Imaging;
 using Oriole.Core.Models;
 
