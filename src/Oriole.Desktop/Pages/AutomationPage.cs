@@ -61,6 +61,8 @@ public sealed class AutomationPage : UserControl
     private bool _isStarting;
     private bool _manualRotationRunning;
     private bool _shutdownRequested;
+    private int _manualRotationGeneration;
+    private CancellationTokenSource? _manualRotationCancellation;
     private readonly SemaphoreSlim _rotationGate = new(1, 1);
 
     public AutomationPage()
@@ -173,6 +175,7 @@ public sealed class AutomationPage : UserControl
         _countdownTimer.Stop();
         _nextRunUtc = null;
         _loopCancellation?.Cancel();
+        _manualRotationCancellation?.Cancel();
     }
 
     private async Task StartRotationAsync()
@@ -218,7 +221,10 @@ public sealed class AutomationPage : UserControl
             _rotationTask = _rotationLoop.RunAsync(
                 interval,
                 shouldPause: () => _paused,
-                rotateAsync: cancellationToken => RotateFromLibraryAsync(cancellationToken, respectPause: true),
+                rotateAsync: cancellationToken => RotateFromLibraryAsync(
+                    cancellationToken,
+                    respectPause: true,
+                    expectedManualRotationGeneration: Volatile.Read(ref _manualRotationGeneration)),
                 nextRunChanged: async nextRun =>
                 {
                     await Dispatcher.InvokeAsync(() =>
@@ -295,16 +301,24 @@ public sealed class AutomationPage : UserControl
 
     private async Task RotateNowAsync()
     {
-        if (_manualRotationRunning)
+        if (_manualRotationRunning || _isStarting || _shutdownRequested)
             return;
 
         _manualRotationRunning = true;
+        var loopToken = _loopCancellation?.Token ?? CancellationToken.None;
+        var manualCancellation = CancellationTokenSource.CreateLinkedTokenSource(loopToken);
+        _manualRotationCancellation = manualCancellation;
         UpdateButtons();
         try
         {
-            await RotateFromLibraryAsync(CancellationToken.None, respectPause: false);
+            await RotateFromLibraryAsync(manualCancellation.Token, respectPause: false);
+            Interlocked.Increment(ref _manualRotationGeneration);
             if (_rotationTask is { IsCompleted: false })
                 _rotationLoop.ResetNextRun();
+        }
+        catch (OperationCanceledException) when (manualCancellation.IsCancellationRequested)
+        {
+            _status.Text = "Manual rotation was cancelled.";
         }
         catch (Exception ex)
         {
@@ -312,16 +326,28 @@ public sealed class AutomationPage : UserControl
         }
         finally
         {
+            if (ReferenceEquals(_manualRotationCancellation, manualCancellation))
+                _manualRotationCancellation = null;
+            manualCancellation.Dispose();
             _manualRotationRunning = false;
             UpdateButtons();
         }
     }
 
-    private async Task RotateFromLibraryAsync(CancellationToken cancellationToken, bool respectPause)
+    private async Task RotateFromLibraryAsync(
+        CancellationToken cancellationToken,
+        bool respectPause,
+        int? expectedManualRotationGeneration = null)
     {
         await _rotationGate.WaitAsync(cancellationToken);
         try
         {
+            if (expectedManualRotationGeneration is int expectedBeforeLoad
+                && expectedBeforeLoad != Volatile.Read(ref _manualRotationGeneration))
+            {
+                return;
+            }
+
             var entries = await _library.GetAllAsync(cancellationToken);
             var available = entries.Where(entry => File.Exists(entry.LocalPath)).ToArray();
             if (available.Length == 0)
@@ -354,6 +380,13 @@ public sealed class AutomationPage : UserControl
             await Dispatcher.InvokeAsync(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (expectedManualRotationGeneration is int expectedBeforeApply
+                    && expectedBeforeApply != Volatile.Read(ref _manualRotationGeneration))
+                {
+                    _status.Text = "Scheduled change skipped because a manual rotation just completed.";
+                    return;
+                }
+
                 // Recheck after library lookup and immediately before the Windows apply call.
                 if (respectPause && _paused)
                 {
@@ -380,6 +413,7 @@ public sealed class AutomationPage : UserControl
         var cancellation = _loopCancellation;
         var task = _rotationTask;
 
+        _manualRotationCancellation?.Cancel();
         _paused = false;
         _countdownTimer.Stop();
         _nextRunUtc = null;
@@ -474,11 +508,11 @@ public sealed class AutomationPage : UserControl
     private void UpdateButtons()
     {
         var running = _rotationTask is { IsCompleted: false };
-        var busy = running || _isStarting;
+        var busy = running || _isStarting || _manualRotationRunning;
         _startButton.IsEnabled = !busy;
         _pauseButton.IsEnabled = running;
         _pauseButton.Content = _paused ? "Resume" : "Pause";
-        _rotateNowButton.IsEnabled = !busy && !_manualRotationRunning;
+        _rotateNowButton.IsEnabled = !_isStarting && !_manualRotationRunning && !_shutdownRequested;
         _stopButton.IsEnabled = running;
         _intervalPicker.IsEnabled = !busy;
         _displayPicker.IsEnabled = !busy;
