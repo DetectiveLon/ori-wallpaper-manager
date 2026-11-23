@@ -23,6 +23,11 @@ public sealed class TrayIconService : IDisposable
     // NotifyIcon.Text is limited to 63 characters by the underlying shell API.
     private const int MaxTooltipLength = 63;
 
+    // Balloon tips have their own, tighter shell limits. Bound both fields so a
+    // long error message can never be rejected or truncated unpredictably.
+    private const int MaxBalloonTitleLength = 63;
+    private const int MaxBalloonMessageLength = 255;
+
     private readonly Action _onOpen;
     private readonly Action _onExit;
 
@@ -48,7 +53,7 @@ public sealed class TrayIconService : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             EnsureCreated();
-            _notifyIcon!.Text = Cap(tooltip);
+            _notifyIcon!.Text = Cap(tooltip, MaxTooltipLength);
             _notifyIcon.Visible = true;
         });
     }
@@ -62,7 +67,36 @@ public sealed class TrayIconService : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_notifyIcon is null)
                 return;
-            _notifyIcon.Text = Cap(tooltip);
+            _notifyIcon.Text = Cap(tooltip, MaxTooltipLength);
+        });
+    }
+
+    /// <summary>
+    /// Shows a short, non-intrusive balloon notification. Safe to call from any
+    /// thread and before <see cref="Show"/>; a no-op while the icon is not ready
+    /// (not created yet, hidden, or already disposed). Text is capped to the
+    /// shell limits and truncated without splitting a Unicode surrogate pair.
+    /// </summary>
+    public void Notify(string title, string message, bool error = false)
+    {
+        ArgumentNullException.ThrowIfNull(title);
+        ArgumentNullException.ThrowIfNull(message);
+        RunOnUiDispatcher(() =>
+        {
+            if (_disposed || _notifyIcon is null || !_notifyIcon.Visible)
+                return;
+            try
+            {
+                _notifyIcon.ShowBalloonTip(
+                    5000,
+                    Cap(title, MaxBalloonTitleLength),
+                    Cap(message, MaxBalloonMessageLength),
+                    error ? ToolTipIcon.Error : ToolTipIcon.Info);
+            }
+            catch (Exception)
+            {
+                // A failed balloon must never affect the app or its tray icon.
+            }
         });
     }
 
@@ -125,6 +159,22 @@ public sealed class TrayIconService : IDisposable
             Text = string.Empty,
             Visible = false
         };
+        // Restore on left click / double-click only. WinForms raises the plain
+        // Click and DoubleClick events for right and middle clicks as well, so
+        // using those here would reopen the window on a right-click and make it
+        // impossible to leave it hidden. MouseClick/MouseDoubleClick carry the
+        // button, and OpenFromTray is idempotent when a double-click also fires
+        // a single click first.
+        _notifyIcon.MouseClick += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+                RunOnUiDispatcher(_onOpen);
+        };
+        _notifyIcon.MouseDoubleClick += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+                RunOnUiDispatcher(_onOpen);
+        };
     }
 
     /// <summary>
@@ -151,8 +201,20 @@ public sealed class TrayIconService : IDisposable
         return (SystemIcons.Application, false);
     }
 
-    private static string Cap(string tooltip) =>
-        tooltip.Length <= MaxTooltipLength ? tooltip : tooltip[..MaxTooltipLength];
+    /// <summary>
+    /// Clips text to a shell character limit without leaving a dangling UTF-16
+    /// high surrogate at the cut boundary, so all input stays valid Unicode.
+    /// </summary>
+    private static string Cap(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxLength)
+            return text;
+
+        var clipped = text[..maxLength];
+        if (clipped.Length > 0 && char.IsHighSurrogate(clipped[^1]))
+            clipped = clipped[..^1];
+        return clipped;
+    }
 
     private static void RunOnUiDispatcher(Action action)
     {

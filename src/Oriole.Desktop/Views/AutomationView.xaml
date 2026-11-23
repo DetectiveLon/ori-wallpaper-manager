@@ -55,29 +55,34 @@
                     <TextBlock Text="Automation on your terms." FontSize="21" FontWeight="SemiBold"
                                Foreground="{StaticResource TextBrush}" Margin="0,9,0,8" />
                     <TextBlock Style="{StaticResource MutedCaption}" MaxWidth="720"
-                               Text="Each display has its own interval and controls. Rotation uses wallpapers already saved in your local library, so scheduled changes never trigger background downloads." />
+                               Text="Each display has its own interval and controls. Rotation normally uses wallpapers already saved in your local library. You can optionally let it fetch more from Wallhaven when the library runs dry." />
 
                     <Border Height="1" Background="{StaticResource ControlBorderBrush}"
                             Opacity="0.6" Margin="0,18,0,16" />
 
-                    <!-- Full-screen pause and display refresh share one quiet row. -->
+                    <!-- Global controls: full-screen pause master, Wallhaven opt-in, display refresh. -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <CheckBox Grid.Column="0"
-                                  Content="Pause a display's schedule while a full-screen app is active on it"
-                                  IsChecked="{Binding PauseWhenFullscreen, Mode=TwoWay}"
-                                  Foreground="{StaticResource TextBrush}" FontSize="12"
-                                  VerticalAlignment="Center" Margin="0,0,16,0" />
+                        <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                            <CheckBox Content="Pause displays while a full-screen app is active (master switch)"
+                                      IsChecked="{Binding PauseWhenFullscreen, Mode=TwoWay}"
+                                      Foreground="{StaticResource TextBrush}" FontSize="12"
+                                      VerticalAlignment="Center" />
+                            <CheckBox Content="Auto-fetch from Wallhaven using current Discover filters"
+                                      IsChecked="{Binding AutoFetchFromWallhaven, Mode=TwoWay}"
+                                      Foreground="{StaticResource TextBrush}" FontSize="12"
+                                      VerticalAlignment="Center" Margin="0,9,0,0" />
+                        </StackPanel>
                         <Button Grid.Column="1" Content="Refresh displays"
                                 Command="{Binding RefreshDisplaysCommand}"
                                 Padding="16,9" VerticalAlignment="Center" />
                     </Grid>
 
                     <TextBlock Style="{StaticResource FinePrint}" Margin="0,12,0,0"
-                               Text="Full-screen detection is based on the foreground window covering a display. It pauses for full-screen apps such as games and video players; it does not try to identify games by name." />
+                               Text="Full-screen detection is based on the foreground window covering a display. Each card can opt out of it. Auto-fetch is off by default and only runs when a display has no unseen local wallpapers left; it uses whatever filters you last searched with in Discover." />
                 </StackPanel>
             </Border>
 
@@ -199,6 +204,12 @@
                                 <TextBlock Text="{Binding StatusText}" Style="{StaticResource FinePrint}"
                                            Margin="2,10,0,0" />
 
+                                <!-- Per-display full-screen pause opt-out -->
+                                <CheckBox Content="Pause this display for full-screen apps"
+                                          IsChecked="{Binding PauseWhenFullscreen, Mode=TwoWay}"
+                                          Foreground="{StaticResource MutedBrush}" FontSize="11"
+                                          Margin="2,8,0,0" />
+
                                 <!-- Segmented control deck: interval selector | actions -->
                                 <Border Background="#17212D" CornerRadius="12" Padding="16" Margin="0,16,0,0">
                                     <Grid>
@@ -224,6 +235,10 @@
                                             <Button Content="{Binding PauseButtonText}" Padding="14,10" FontSize="12"
                                                     Margin="0,0,8,0" Command="{Binding PauseCommand}"
                                                     IsEnabled="{Binding CanPause}" />
+                                            <Button Content="Previous" Padding="14,10" FontSize="12"
+                                                    Margin="0,0,8,0" Command="{Binding PreviousCommand}"
+                                                    IsEnabled="{Binding CanRotateNow}"
+                                                    ToolTip="Re-apply the previous wallpaper on this display and restart the interval" />
                                             <Button Content="Rotate now" Padding="14,10" FontSize="12"
                                                     Margin="0,0,8,0" Command="{Binding RotateNowCommand}"
                                                     IsEnabled="{Binding CanRotateNow}" />

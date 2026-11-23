@@ -9,8 +9,38 @@ permissions:
   contents: write
 
 jobs:
+  verify:
+    name: Verify before release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10 SDK (pinned by global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.404"
+
+      - name: Restore solution
+        run: dotnet restore Oriole.sln
+
+      - name: Core tests
+        run: dotnet test tests/Oriole.Core.Tests/Oriole.Core.Tests.csproj --configuration Release --no-restore
+
+      - name: Build solution (app + updater)
+        run: dotnet build Oriole.sln --configuration Release --no-restore
+
+      - name: Static regression guards
+        shell: pwsh
+        run: |
+          ./scripts/check-tray.ps1 -Strict
+          ./scripts/check-theme.ps1
+          ./scripts/check-buttons.ps1
+          ./scripts/check-invariants.ps1
+
   release:
     name: Package and publish release
+    needs: verify
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -18,14 +48,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install .NET 10 SDK
+      - name: Install .NET 10 SDK (pinned by global.json)
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.404"
 
       - name: Build release package
         shell: pwsh
-        run: ./scripts/publish.ps1 -Tag "${{ github.ref_name }}"
+        # Tests already ran in the verify job; publish.ps1 runs them again only
+        # for local invocations. -SkipTests keeps CI from duplicating the work.
+        run: ./scripts/publish.ps1 -Tag "${{ github.ref_name }}" -SkipTests
 
       - name: Locate package and compute checksum
         id: package
@@ -35,18 +67,34 @@ jobs:
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
           if (-not $zip) { throw 'No release zip found under artifacts/.' }
-          $hash = (Get-FileHash -Algorithm SHA256 -Path $zip.FullName).Hash
-          "path=$($zip.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "name=$($zip.Name)"     | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "sha256=$hash"          | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $exe = Get-ChildItem -Path artifacts -Filter 'oriole-*-win-x64.exe' |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $exe) { throw 'No updater EXE found under artifacts/.' }
+          $manifest = Join-Path (Resolve-Path artifacts) 'update-manifest.json'
+          if (-not (Test-Path $manifest)) { throw 'No update manifest found under artifacts/.' }
+          $zipHash = (Get-FileHash -Algorithm SHA256 -Path $zip.FullName).Hash
+          $exeHash = (Get-FileHash -Algorithm SHA256 -Path $exe.FullName).Hash
+          "path=$($zip.FullName)"     | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "name=$($zip.Name)"         | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "exe=$($exe.FullName)"      | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "exename=$($exe.Name)"      | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "manifest=$manifest"        | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sha256=$zipHash"           | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "exesha256=$exeHash"        | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           Write-Host "Package: $($zip.FullName)"
-          Write-Host "SHA-256: $hash"
+          Write-Host "SHA-256: $zipHash"
+          Write-Host "Updater EXE: $($exe.FullName)"
+          Write-Host "SHA-256: $exeHash"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: oriole-win-x64
-          path: ${{ steps.package.outputs.path }}
+          path: |
+            ${{ steps.package.outputs.path }}
+            ${{ steps.package.outputs.exe }}
+            ${{ steps.package.outputs.manifest }}
           if-no-files-found: error
           retention-days: 30
 
@@ -55,9 +103,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $notes = "Portable win-x64 build (framework-dependent; requires the .NET 10 Desktop Runtime).`n`nSHA-256: ${{ steps.package.outputs.sha256 }}`n`nSee RELEASE-NOTES.txt inside the zip."
+          $notes = @"
+          Self-contained, single-file win-x64 build. No .NET runtime to install.
+
+          Assets:
+            ${{ steps.package.outputs.name }}  - portable zip (run Oriole.exe inside)
+            ${{ steps.package.outputs.exename }}  - standalone EXE used by auto-update
+            update-manifest.json  - update manifest consumed by Oriole.Updater
+
+          SHA-256 checksums:
+            Zip: ${{ steps.package.outputs.sha256 }}
+            EXE: ${{ steps.package.outputs.exesha256 }}
+
+          Signing / SmartScreen: these binaries are NOT code-signed. Windows SmartScreen
+          may warn on first run until the app builds reputation. Code signing is deferred
+          (a certificate is not available yet), not silently ignored.
+
+          See RELEASE-NOTES.txt inside the zip. No API keys or secrets are included.
+          "@
           gh release create '${{ github.ref_name }}' `
             --title 'Oriole ${{ github.ref_name }}' `
             --notes $notes `
             --verify-tag `
-            '${{ steps.package.outputs.path }}'
+            '${{ steps.package.outputs.path }}' `
+            '${{ steps.package.outputs.exe }}' `
+            '${{ steps.package.outputs.manifest }}'

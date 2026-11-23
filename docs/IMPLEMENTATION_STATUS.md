@@ -1,45 +1,72 @@
 # Implementation status
 
-Current working branch: `v2-shell` (v1 work remains on `feature/library-automation`)
+Current working branch: `v2-shell` (v1 work remains on `feature/library-automation`).
 
 This is a progress record, not a release-readiness claim.
 
-## Implemented
+## Implemented (carried forward from v1)
 
-- Existing Wallhaven discovery page retained from the foundation branch.
-- Wallhaven search categories, purity, query expressions, sorting, toplist periods, order, resolution, aspect ratio, and color filters.
-- Search pagination and thumbnail previews.
-- Full-size preview, local saving, and apply to a selected display.
+- Wallhaven discovery with categories, purity, query expressions, sorting,
+  toplist, order, resolution, aspect-ratio and colour filters, with pagination
+  and thumbnail previews.
+- Full-size preview, local save and apply to a selected display.
 - Bounded original/thumbnail downloads and image decode limits.
-- Versioned JSON library index under Local AppData.
-- Library search, favourites-only filter, apply, open image file, and metadata-only removal.
-- Independent app-session rotation schedules for each connected display, each with its own interval and controls.
-- Per-display countdown, manual rotate, pause/resume, stop, serialized wallpaper apply, and a fresh interval after a pause.
-- Versioned per-display schedule state under Local AppData; running schedules resume after an app restart, and missed deadlines restart with a fresh full interval.
-- Optional pause when a full-screen foreground window covers the target display. Geometry matching tolerates small window-frame rounding but rejects ordinary maximized windows that leave the taskbar area.
-- App navigation does not stop rotation; main-window close requests cancellation.
-- Settings page with DPAPI-protected Wallhaven API key storage, cache clearing, data folders, and version information.
-- Dark-theme styles for buttons, combo boxes and scrollbars, including disabled states.
+- Versioned JSON library index under Local AppData; search, favourites, apply,
+  open and metadata-only removal.
+- Independent app-session rotation schedules per display with countdown, manual
+  rotate, pause/resume, stop and serialized wallpaper apply.
+- Versioned per-display schedule state under Local App Data; running schedules
+  resume after an app restart with missed deadlines restarted fresh.
+- Geometry-based full-screen pause for the foreground window.
+- Settings with a DPAPI (`CurrentUser`) protected Wallhaven API key, cache
+  clearing, data folders and version information. Discover loads the saved key
+  but no longer auto-saves it.
+- Dark-theme styles across buttons, combo boxes and other standard controls.
 
-## Not implemented
+## Implemented in v2-shell
 
-- Identifying games specifically by process or executable name; current detection applies to full-screen foreground apps generally.
-- Detecting background full-screen windows when they are not the foreground window.
-- Library collections, local-folder import, and duplicate detection.
-- Independent per-monitor fit modes.
-- Tray controls, startup registration, installer, and release packaging.
-- Library virtualization and a collections UI (the library decodes thumbnails off the UI thread and debounces filtering, but renders all matching cards).
+- XAML views + view models for all screens, reusing the unchanged services and
+  Core libraries.
+- Library list with lazy thumbnail decode, collections, folder import and
+  SHA-256 duplicate detection.
+- System-tray icon with Open/Exit, launch-at-sign-in (HKCU Run) and balloon
+  notifications (`TrayIconService.Notify`).
+- Automatic Wallhaven rotation from persisted tag feeds (`WallhavenFeedStore`)
+  with local caching; tag presets and an editable tag/collection ComboBox.
+- App-wide dark implicit styles and a custom window chrome.
+- Static regression guards: `scripts/check-theme.ps1`, `check-buttons.ps1`,
+  `check-tray.ps1`, `check-invariants.ps1`.
+- **Packaging (this pass):** self-contained single-file win-x64 release via
+  `scripts/publish.ps1`; optional per-user Inno Setup installer under
+  `tools/installer/`; separate `tools/Oriole.Updater` process; exact SDK pin in
+  `global.json`; tag-driven single version source in `Oriole.Desktop.csproj` +
+  `app.manifest`; pre-publish verification in `release.yml`.
 
-## V2 shell branch
+## Not implemented / outstanding
 
-`v2-shell` replaces the code-built pages with XAML views and view models (`ViewModels/`, `Views/*View.xaml`, `Mvvm/`) while reusing the unchanged services and Core libraries. All six screens were smoke-tested on a two-monitor Windows desktop; the old page classes were removed on that branch. It is a presentation-layer rewrite, not a feature release — a real installer is still outstanding, but a portable release zip can now be produced.
+- Identifying games by process/executable name or detecting background
+  full-screen windows.
+- Independent per-monitor wallpaper fit modes.
+- Library virtualization (all matching cards on one page are rendered).
+- **Auto-update wiring:** `Oriole.Updater` is built and the manifest is
+  published, but the version-check call in `App.xaml.cs` (another agent's file)
+  is not added. See `docs/RELEASING.md` for the exact one-line integration.
+- Rename of library entries; a learned tag-preference model.
+- Code signing / SmartScreen reputation (deferred, tracked in
+  `docs/RELEASING.md`).
 
-Wave 2 adds a library list with lazy thumbnail decode, collection filter and move-to collection, plus a system-tray icon (Open/Exit, minimize-to-tray) and a launch-at-login toggle in Settings backed by the HKCU Run key.
+## Error reporting / privacy notes
 
-Wave 3 adds app-wide dark implicit styles for CheckBox, TextBox, PasswordBox, ListBox, ToolTip and other standard controls (no more white checkbox squares), a bounded paged card grid for the library, a launch-at-login status pill, a `scripts/check-theme.ps1` regression guard, and a tag-triggered release workflow that produces a portable win-x64 zip. The release script was exercised locally: 45 tests pass and `oriole-0.2.0-local-win-x64.zip` contains `Oriole.exe`, `README.md` and `RELEASE-NOTES.txt`.
-
-Wave 4 is a visual redesign: custom window chrome with an in-app title bar and icon navigation, a named typography/spacing system, elevated cards, real empty states, a hero page, and a refined accent/contrast palette. Build verified: 45 tests, 0 warnings, six-page live sweep with no logged errors.
+- `%LOCALAPPDATA%\Oriole\logs\errors.log` records unhandled errors. It rotates
+  (bounded size/history) and is redacted so keys and sensitive values are not
+  written in plaintext; the path is shown under Settings → DATA & ABOUT.
+- The Wallhaven API key is stored on disk encrypted with DPAPI `CurrentUser`.
 
 ## Validation
 
-GitHub Actions now allocates hosted runners after the repository became public. The latest PR validation passed the Core test job and the Windows desktop build. This confirms compilation and the automated Core tests, but does not replace an interactive check on a real multi-monitor Windows desktop. A live two-monitor session verified detection, grid cards, per-display controls, and schedule restore after restart. The app has not yet been packaged or released.
+CI (`.github/workflows/ci.yml`) runs Core tests on Linux and a full-solution
+build plus the static guards on Windows on pushes to `main`, `v2-shell` and
+`foundation/**`/`feature/**`/`work/**` branches and on all PRs. The Release
+workflow runs the same checks before publishing. This confirms compilation and
+automated tests, but does not replace an interactive check on a real
+multi-monitor Windows desktop.

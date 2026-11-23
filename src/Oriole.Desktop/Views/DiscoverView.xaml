@@ -146,6 +146,52 @@
                         <TextBlock Style="{StaticResource HintText}"
                                    Text="Separate tags with commas. Prefix with - to exclude; + to require." />
 
+                        <!-- QUICK TAGS: presets + recently used queries -->
+                        <TextBlock Text="Quick tags" Style="{StaticResource FieldLabel}" Margin="0,3,0,5" />
+                        <ItemsControl ItemsSource="{Binding TagPresets}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Content="{Binding Label}" FontSize="11" Padding="8,4"
+                                            Margin="0,0,5,5" Cursor="Hand"
+                                            ToolTip="{Binding Tags}"
+                                            Command="{Binding DataContext.ApplyPresetCommand,
+                                                RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <ItemsControl ItemsSource="{Binding RecentTags}">
+                            <ItemsControl.Style>
+                                <Style TargetType="ItemsControl">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RecentTags.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ItemsControl.Style>
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Content="{Binding}" FontSize="11" Padding="8,4"
+                                            Margin="0,0,5,5" Cursor="Hand"
+                                            Command="{Binding DataContext.ApplyTagCommand,
+                                                RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
                         <!-- CATEGORIES -->
                         <TextBlock Text="CATEGORIES" Style="{StaticResource GroupHeader}" />
                         <WrapPanel>
@@ -184,7 +230,9 @@
                         <TextBlock Text="Toplist period" Style="{StaticResource FieldLabel}" />
                         <ComboBox Style="{StaticResource FieldCombo}" DisplayMemberPath="Label"
                                   ItemsSource="{Binding TopRangeChoices}"
-                                  SelectedItem="{Binding SelectedTopRange, Mode=TwoWay}" />
+                                  SelectedItem="{Binding SelectedTopRange, Mode=TwoWay}"
+                                  IsEnabled="{Binding IsTopRangeEnabled}"
+                                  ToolTip="{Binding TopRangeToolTip}" />
                         <TextBlock Text="Order" Style="{StaticResource FieldLabel}" />
                         <ComboBox Style="{StaticResource FieldCombo}" DisplayMemberPath="Label"
                                   ItemsSource="{Binding OrderChoices}"
@@ -268,6 +316,9 @@
                 <DockPanel LastChildFill="True">
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"
                                 Margin="18,0,0,0">
+                        <Button Content="Apply selected" FontSize="11" Padding="10,6,10,6" Margin="0,0,12,0"
+                                Command="{Binding ApplySelectedCommand}"
+                                ToolTip="Apply the highlighted wallpaper to the target display" />
                         <TextBlock Text="Apply to" FontSize="11" Foreground="{StaticResource MutedBrush}"
                                    Margin="0,0,8,0" VerticalAlignment="Center" />
                         <ComboBox Width="172" DisplayMemberPath="DeviceName"
@@ -370,14 +421,19 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <!-- Genuine empty state: large Fluent glyph, headline, one guidance line. -->
-                <Border Background="{StaticResource WindowBrush}">
+                <!-- Genuine empty state: large Fluent glyph, headline, one guidance line.
+                     Never intercept input from the results list underneath. -->
+                <Border Background="{StaticResource WindowBrush}" IsHitTestVisible="False">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Collapsed" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding Results.Count}" Value="0">
                                     <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <!-- A running search is not an empty state: hide the placeholder. -->
+                                <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed" />
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
@@ -395,6 +451,26 @@
                         <TextBlock Text="Choose your filters, then select Search wallpapers to explore Wallhaven."
                                    FontSize="13" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
                                    TextAlignment="Center" MaxWidth="380" HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Indeterminate progress while a search (or load) is in flight. -->
+                <Border Background="{StaticResource WindowBrush}" IsHitTestVisible="False">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="260">
+                        <ProgressBar Height="6" IsIndeterminate="True" />
+                        <TextBlock Text="Working…" FontSize="13"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   HorizontalAlignment="Center" Margin="0,12,0,0" />
                     </StackPanel>
                 </Border>
             </Grid>

@@ -15,8 +15,21 @@ public partial class DisplaysView : UserControl
         InitializeComponent();
         _viewModel = new DisplaysViewModel();
         DataContext = _viewModel;
-        _viewModel.ChooseImageRequested += OnChooseImageRequested;
+        // NavigationService caches views: Unloaded fires when the user leaves this
+        // page and Loaded fires again on return. Subscribe per load so "Choose
+        // image" keeps working after navigating away and back.
+        Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        _viewModel.ChooseImageRequested -= OnChooseImageRequested; // no duplicate hooks
+        _viewModel.ChooseImageRequested += OnChooseImageRequested;
+        // Views are cached by NavigationService, so the constructor's one-time
+        // detection is stale on a return visit. Re-read monitors on every load,
+        // the same way the Library and Discover pages refresh.
+        _viewModel.RefreshCommand.Execute(null);
     }
 
     private void OnChooseImageRequested(DisplayCardViewModel monitor)
@@ -41,6 +54,5 @@ public partial class DisplaysView : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _viewModel.ChooseImageRequested -= OnChooseImageRequested;
-        Unloaded -= OnUnloaded;
     }
 }

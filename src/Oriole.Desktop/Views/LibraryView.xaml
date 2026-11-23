@@ -30,21 +30,88 @@
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
+
+        <!-- Editable ComboBox: the app-level ComboBox template has no editable text box,
+             so the move control gets a local template with the required PART_EditableTextBox
+             and a toggle button. Typing a fresh name and pressing Move creates a collection. -->
+        <Style x:Key="EditableComboBox" TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="MaxDropDownHeight" Value="260" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid SnapsToDevicePixels="True">
+                            <Border x:Name="Surface" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="22" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="PART_EditableTextBox" Grid.Column="0"
+                                             Background="Transparent" BorderThickness="0"
+                                             Foreground="{TemplateBinding Foreground}"
+                                             CaretBrush="{StaticResource AccentBrush}"
+                                             FontSize="{TemplateBinding FontSize}"
+                                             Padding="7,3,2,3" VerticalContentAlignment="Center"
+                                             IsReadOnly="{TemplateBinding IsReadOnly}" />
+                                    <ToggleButton x:Name="DropDownToggle" Grid.Column="1"
+                                                  Background="Transparent" BorderThickness="0"
+                                                  Focusable="False" Cursor="Hand"
+                                                  IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                        <Path Data="M 0 3 L 5 8 L 10 3" Stroke="{TemplateBinding Foreground}"
+                                              StrokeThickness="1.5" HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" IsHitTestVisible="False" />
+                                    </ToggleButton>
+                                </Grid>
+                            </Border>
+                            <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                                <Border MinWidth="{TemplateBinding ActualWidth}"
+                                        MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                        Background="{StaticResource PanelAltBrush}"
+                                        BorderBrush="{StaticResource ControlBorderBrush}"
+                                        BorderThickness="1" CornerRadius="8">
+                                    <ScrollViewer>
+                                        <ItemsPresenter />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Surface" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Compact toolbar: search, collection filter, favourites, refresh, apply target. -->
+        <!-- Compact toolbar: search, collection filter, sort, favourites, import,
+             duplicate scan, new collection, refresh and apply target. -->
         <Border Grid.Row="0" Background="{StaticResource PanelBrush}" CornerRadius="14"
                 Padding="12,11" Margin="0,0,0,10">
             <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Grid Width="238" Height="34" Margin="0,0,12,4">
+                <Grid Width="210" Height="34" Margin="0,0,12,4">
                     <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                              Padding="32,5,10,5" FontSize="12" />
                     <TextBlock Text="&#xE721;" Style="{StaticResource Glyph}" FontSize="14"
@@ -53,9 +120,14 @@
                 </Grid>
 
                 <TextBlock Text="Collection" Style="{StaticResource ToolbarLabel}" Margin="0,0,8,4" />
-                <ComboBox Width="164" Height="34" Margin="0,0,12,4"
+                <ComboBox Width="140" Height="34" Margin="0,0,12,4"
                           ItemsSource="{Binding CollectionFilters}"
                           SelectedItem="{Binding SelectedCollectionFilter}" />
+
+                <TextBlock Text="Sort" Style="{StaticResource ToolbarLabel}" Margin="0,0,8,4" />
+                <ComboBox Width="112" Height="34" Margin="0,0,12,4"
+                          ItemsSource="{Binding SortOptions}"
+                          SelectedItem="{Binding SelectedSort}" />
 
                 <CheckBox IsChecked="{Binding FavoritesOnly}" Margin="0,0,14,4"
                           VerticalAlignment="Center" Cursor="Hand">
@@ -66,8 +138,26 @@
                     </StackPanel>
                 </CheckBox>
 
+                <Button Click="OnImportFolderClick" Padding="11,7,11,7" Margin="0,0,10,4"
+                        VerticalAlignment="Center" ToolTip="Import all images from a folder">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE838;" Style="{StaticResource Glyph}" FontSize="13"
+                                   Margin="0,0,7,0" />
+                        <TextBlock Text="Import folder…" FontSize="11" />
+                    </StackPanel>
+                </Button>
+
+                <Button Command="{Binding FindDuplicatesCommand}" Padding="11,7,11,7" Margin="0,0,10,4"
+                        VerticalAlignment="Center" ToolTip="Scan the index for duplicate wallpapers">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE9D5;" Style="{StaticResource Glyph}" FontSize="13"
+                                   Margin="0,0,7,0" />
+                        <TextBlock Text="Find duplicates" FontSize="11" />
+                    </StackPanel>
+                </Button>
+
                 <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding IsRefreshEnabled}"
-                        Padding="12,7,12,7" Margin="0,0,14,4" VerticalAlignment="Center">
+                        Padding="11,7,11,7" Margin="0,0,10,4" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE72C;" Style="{StaticResource Glyph}" FontSize="13"
                                    Margin="0,0,7,0" />
@@ -76,8 +166,23 @@
                 </Button>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,4">
+                    <TextBlock Text="New collection" Style="{StaticResource ToolbarLabel}" Margin="0,0,6,0" />
+                    <TextBox Width="120" Height="30" FontSize="11"
+                             Text="{Binding NewCollectionName, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Type a name, select a wallpaper, then press Create" />
+                    <Button Command="{Binding CreateCollectionCommand}" Padding="8,6,8,6" Margin="5,0,0,0"
+                            FontSize="10" VerticalAlignment="Center" ToolTip="Create the named collection on the selected wallpaper">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE8B7;" Style="{StaticResource Glyph}" FontSize="12"
+                                       Margin="0,0,4,0" />
+                            <TextBlock Text="Create" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,4">
                     <TextBlock Text="Apply to" Style="{StaticResource ToolbarLabel}" Margin="0,0,8,0" />
-                    <ComboBox Width="164" Height="34"
+                    <ComboBox Width="150" Height="34"
                               ItemsSource="{Binding Displays}"
                               SelectedItem="{Binding SelectedDisplay}"
                               DisplayMemberPath="DeviceName" />
@@ -85,8 +190,52 @@
             </WrapPanel>
         </Border>
 
+        <!-- Inline import progress and duplicate results. -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,10">
+            <Border Background="#18212C" CornerRadius="9" Padding="11,8" Margin="0,0,0,8"
+                    Visibility="{Binding IsImporting, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE896;" Style="{StaticResource Glyph}" FontSize="13"
+                               Foreground="{StaticResource AccentBrush}" Margin="0,0,9,0" />
+                    <TextBlock Text="{Binding ImportProgress}" FontSize="11"
+                               Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <Border Background="#18212C" CornerRadius="9" Padding="11,9"
+                    Visibility="{Binding HasDuplicates, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel>
+                    <TextBlock Text="{Binding DuplicateStatus}" FontSize="11"
+                               Foreground="{StaticResource AccentBrush}" TextWrapping="Wrap" />
+                    <ItemsControl ItemsSource="{Binding Duplicates}" Margin="0,8,0,0" MaxHeight="220">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding Name}" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Path}" FontSize="10"
+                                                   Foreground="{StaticResource MutedBrush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Remove" Padding="8,4,8,4"
+                                            Margin="8,0,0,0" FontSize="10" ToolTip="Remove only this library entry"
+                                            Command="{Binding DataContext.RemoveDuplicateCommand, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
+                                            CommandParameter="{Binding}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
         <!-- Inline status strip. -->
-        <Border Grid.Row="1" Background="#18212C" CornerRadius="9" Padding="11,8"
+        <Border Grid.Row="2" Background="#18212C" CornerRadius="9" Padding="11,8"
                 Margin="0,0,0,12">
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="&#xE946;" Style="{StaticResource Glyph}" FontSize="13"
@@ -97,7 +246,7 @@
         </Border>
 
         <!-- Gallery grid + empty state overlay. -->
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
@@ -107,6 +256,7 @@
             <ListBox x:Name="EntriesListBox"
                      Grid.Row="0"
                      ItemsSource="{Binding Entries}"
+                     SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
                      Background="Transparent"
                      BorderThickness="0"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -198,7 +348,7 @@
                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                     </Border>
-                                    <Border CornerRadius="5" Background="#233149" Padding="7,3"
+                                    <Border CornerRadius="5" Background="#233149"
                                             Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#xE734;" Style="{StaticResource Glyph}"
@@ -208,6 +358,28 @@
                                                        Foreground="{StaticResource TextBrush}" />
                                         </StackPanel>
                                     </Border>
+                                </StackPanel>
+
+                                <!-- Palette swatches, shown only when the entry has colours. -->
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,7"
+                                            Visibility="{Binding HasColors, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="Colours" Style="{StaticResource CardMeta}"
+                                               Margin="0,0,7,0" VerticalAlignment="Center" />
+                                    <ItemsControl ItemsSource="{Binding ColorSwatches}"
+                                                  ToolTip="{Binding ColorsText}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Width="14" Height="14" CornerRadius="3"
+                                                        Background="{Binding}" Margin="0,0,4,0"
+                                                        BorderBrush="#2D3C50" BorderThickness="1" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
 
                                 <!-- Primary action + icon actions. -->
@@ -261,16 +433,18 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- Collection move row. -->
+                                <!-- Collection move row: editable so a typed name becomes a collection. -->
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <ComboBox Grid.Column="0" Height="26" FontSize="10"
-                                              ToolTip="Move to collection"
+                                              Style="{StaticResource EditableComboBox}"
+                                              IsEditable="True"
+                                              ToolTip="Pick a collection or type a new name, then press Move"
                                               ItemsSource="{Binding DataContext.MoveTargets, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                              SelectedItem="{Binding SelectedCollection, Mode=TwoWay}" />
+                                              Text="{Binding SelectedCollection, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
                                     <Button Grid.Column="1" Margin="6,0,0,0" Padding="8,5,8,5"
                                             FontSize="10" ToolTip="Move to selected collection"
                                             Command="{Binding DataContext.MoveToCollectionCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
@@ -282,6 +456,29 @@
                                         </StackPanel>
                                     </Button>
                                 </Grid>
+
+                                <!-- Tags row: existing tags are shown and editable inline. -->
+                                <Grid Margin="0,7,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" Height="24" FontSize="10"
+                                             Text="{Binding TagText, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="Comma-separated tags" />
+                                    <Button Grid.Column="1" Margin="6,0,0,0" Padding="7,4,7,4"
+                                            FontSize="10" ToolTip="Save tags for this wallpaper"
+                                            Command="{Binding DataContext.SetTagsCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
+                                            CommandParameter="{Binding}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE8EC;" Style="{StaticResource Glyph}"
+                                                       FontSize="11" Margin="0,0,4,0" />
+                                            <TextBlock Text="Tags" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+                                <TextBlock Text="{Binding TagStatus}" FontSize="9"
+                                           Foreground="{StaticResource MutedBrush}" Margin="1,3,0,0" />
                             </StackPanel>
                         </Border>
                     </DataTemplate>
@@ -313,7 +510,7 @@
                     <TextBlock Text="{Binding EmptyMessage}" Foreground="{StaticResource MutedBrush}"
                                FontSize="12" TextWrapping="Wrap" TextAlignment="Center"
                                HorizontalAlignment="Center" MaxWidth="380" />
-                    <TextBlock Text="Save wallpapers from Discover or clear a filter to see more."
+                    <TextBlock Text="Import a folder, save wallpapers from Discover, or clear a filter to see more."
                                FontSize="10" Foreground="#738195" TextWrapping="Wrap"
                                TextAlignment="Center" HorizontalAlignment="Center"
                                Margin="0,12,0,0" MaxWidth="360" />
@@ -322,7 +519,7 @@
         </Grid>
 
         <!-- Pager. -->
-        <Border Grid.Row="3" BorderBrush="#2A3442" BorderThickness="0,1,0,0"
+        <Border Grid.Row="4" BorderBrush="#2A3442" BorderThickness="0,1,0,0"
                 Padding="0,12,0,0" Margin="0,2,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <Button Command="{Binding PreviousPageCommand}" IsEnabled="{Binding CanGoPrevious}"
@@ -345,5 +542,35 @@
                 </Button>
             </StackPanel>
         </Border>
+
+        <!-- Themed, in-app removal confirmation. Nothing is deleted until Confirm is pressed,
+             and the file is only deleted when the checkbox is explicitly ticked. -->
+        <Grid Grid.RowSpan="5" Panel.ZIndex="10"
+              Visibility="{Binding IsRemoveConfirmationOpen, Converter={StaticResource BoolToVisibility}}">
+            <Rectangle Fill="#B300070C" />
+            <Border Width="420" MaxWidth="440" Background="{StaticResource PanelBrush}"
+                    BorderBrush="#2D3C50" BorderThickness="1" CornerRadius="16"
+                    Padding="22" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="Remove from library" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding RemoveConfirmationText}" FontSize="12"
+                               Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                               Margin="0,10,0,0" />
+                    <CheckBox IsChecked="{Binding DeleteFileOnRemove}" Margin="0,16,0,0" Cursor="Hand">
+                        <TextBlock Text="Also delete the image file from disk" FontSize="11"
+                                   TextWrapping="Wrap" />
+                    </CheckBox>
+                    <TextBlock Text="Left unchecked, only the library entry is removed and the file is kept."
+                               FontSize="10" Foreground="{StaticResource MutedBrush}"
+                               TextWrapping="Wrap" Margin="24,4,0,0" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                        <Button Content="Cancel" Padding="14,8,14,8" Margin="0,0,8,0"
+                                Command="{Binding CancelRemoveCommand}" />
+                        <Button Style="{StaticResource PrimaryButtonStyle}" Content="Remove"
+                                Padding="14,8,14,8" Command="{Binding ConfirmRemoveCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

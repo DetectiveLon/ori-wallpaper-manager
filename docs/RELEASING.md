@@ -1,71 +1,130 @@
 # Releasing Oriole
 
-This describes how to publish a free, open-source release of Oriole as a zip file.
-There is no installer and no code signing; users simply unzip and run the app.
+This describes the free, open-source release process. Oriole ships as a
+**self-contained, single-file win-x64** build, so there is no .NET runtime
+prerequisite. An optional per-user Inno Setup installer and an auto-update
+helper are also produced. Code signing is deferred (see the last section).
+
+## Single version source
+
+There is exactly one version source: `src/Oriole.Desktop/Oriole.Desktop.csproj`
+(`<Version>`, currently `1.0.0`), overridden at release time by the tag. The
+tag `v1.0.0` becomes version `1.0.0`, which the SDK stamps into
+`AssemblyVersion`, `FileVersion` and **`AssemblyInformationalVersion`**. The
+About page derives the displayed version from `AssemblyInformationalVersion`.
+`scripts/publish.ps1` also rewrites `app.manifest`'s `assemblyIdentity` version
+in the published copy so all three can never disagree.
+
+Do not hand-edit version numbers in individual files; always change the single
+source and let the tag override it.
 
 ## What gets released
 
-A single file named `oriole-<version>-win-x64.zip`, published on the GitHub
-Releases page and also saved as a workflow artifact for download.
+For tag `v1.0.0`, `artifacts/` contains:
+
+- `oriole-1.0.0-win-x64.zip` — portable zip (self-contained `Oriole.exe`,
+  `README.md`, `RELEASE-NOTES.txt`).
+- `oriole-1.0.0-win-x64.exe` — standalone EXE used by auto-update.
+- `update-manifest.json` — JSON manifest consumed by `Oriole.Updater`.
+- `Oriole.exe` — the raw single-file EXE used by the optional Inno Setup build.
+
+All are attached to the GitHub Release and uploaded as a workflow artifact;
+their SHA-256 hashes are printed by the script and written into the manifest and
+release notes.
 
 ## Prerequisites
 
-- The release is built by GitHub Actions, so you only need permission to push
-  tags and to create releases in this repository.
-- For a local test run, you need Windows and the .NET 10 SDK.
+- The release is built by GitHub Actions; you need permission to push tags and
+  create releases.
+- The SDK is pinned exactly to **10.0.404** in `global.json` and in both
+  workflows. No floating `10.0.x`.
+- Locally: Windows and the .NET 10 SDK (10.0.404).
 
 ## Cut a release
 
 1. Make sure the code you want to ship is merged and its CI checks are green.
-
-2. Pick a version and create a tag, where the version matches the tag without the
-   leading `v`. For example, for version `0.2.0`:
+   The **Release** workflow has a `verify` job that runs restore, Core tests,
+   the full solution build and all static guards before publishing. A red
+   commit cannot be tagged into a release.
+2. Create and push a tag matching the intended version:
 
    ```bash
-   git tag v0.2.0
-   git push origin v0.2.0
+   git tag v1.0.0
+   git push origin v1.0.0
    ```
 
-   The tag drives the version stamped into the app and the zip filename, so you do
-   not need to edit `Oriole.Desktop.csproj` first.
-
-3. Pushing a tag that starts with `v` automatically starts the **Release** workflow
-   on a Windows runner. It installs .NET 10, runs the Core tests, publishes the app,
-   builds the zip, uploads it as a workflow artifact, and creates a GitHub Release
-   with the zip attached.
-
-4. When the workflow finishes, open the **Actions** tab to confirm it passed, then
-   open **Releases** to find the new release. Download the attached zip and verify
-   it (the release notes and workflow log show its SHA-256 checksum).
+3. Pushing a `v*` tag starts the **Release** workflow on Windows. It verifies,
+   runs `scripts/publish.ps1 -Tag <tag> -SkipTests`, computes checksums, uploads
+   a workflow artifact and creates the GitHub Release with the zip, standalone
+   EXE and update manifest attached.
+4. Confirm the run passed under **Actions**, then open **Releases** and spot-check
+   one hash from the notes against the downloaded file.
 
 ## Build a package locally (optional)
 
-From the repository root:
-
 ```powershell
-pwsh ./scripts/publish.ps1 -Tag v0.2.0
+pwsh ./scripts/publish.ps1 -Tag v1.0.0
 # or
-pwsh ./scripts/publish.ps1 -Version 0.2.0
+pwsh ./scripts/publish.ps1 -Version 1.0.0
 ```
 
-If neither argument is given, the version is read from `Oriole.Desktop.csproj`.
-The script prints the absolute path of the zip and its SHA-256 hash. Output goes
-into `artifacts/`, which is gitignored.
+With no argument the version is read from `Oriole.Desktop.csproj`. The script
+runs the Core tests, publishes self-contained/single-file/win-x64, writes the
+notes and manifest, and prints absolute paths and SHA-256 hashes. Output goes
+into `artifacts/` (gitignored).
 
-## What is inside the zip
+## Optional per-user installer
 
-- `Oriole.exe` and the compiled app assemblies (including `Oriole.Core.dll`) for
-  `win-x64`, plus the `.runtimeconfig.json` / `.deps.json` files.
-- `README.md`.
-- `RELEASE-NOTES.txt` with a short summary and checksum context.
+Inno Setup is free and optional. See `tools/installer/README.md` and
+`tools/installer/build-installer.ps1`. It produces `oriole-<version>-setup.exe`
+that installs to `%LOCALAPPDATA%\Oriole`, adds Start menu/uninstall entries and
+reuses the app's own launch-at-sign-in setting. It is not built by CI by
+default.
 
-The build is **framework-dependent**: it targets `win-x64` but does not bundle the
-.NET runtime, so the target PC must have the .NET 10 Desktop Runtime installed.
+## Auto-update: what is built and what is NOT wired
+
+Built and shipped:
+
+- `tools/Oriole.Updater` — a separate console process that fetches
+  `update-manifest.json`, compares `version` against the running app's
+  `AssemblyInformationalVersion`, verifies SHA-256, and (on `apply`) waits for
+  the app to exit, backs up the old EXE, swaps in the new one and relaunches.
+  It is added to `Oriole.sln` and built by CI.
+- The release pipeline publishes the manifest and standalone EXE as assets.
+
+**Not wired (documented integration step):** the automatic version check is not
+yet called from the app. `App.xaml.cs` is owned by another agent. The exact
+integration, once that file is available for edit, is to call the updater in
+`OnStartup` after the tray is initialized and before/around showing the main
+window, for example:
+
+```csharp
+// In Oriole.Desktop/App.xaml.cs, inside OnStartup after Tray.Show(...):
+_ = Oriole.Desktop.Services.UpdateChecker.CheckOnStartupAsync();
+```
+
+Where `UpdateChecker.CheckOnStartupAsync()` is a thin wrapper that launches the
+bundled `Oriole.Updater.exe check` with `--exe <path to running Oriole.exe>`,
+parses the JSON `CheckResult` from stdout, and — if `updateAvailable` is true —
+offers the user a "Update now" action that launches
+`Oriole.Updater.exe apply --exe <path> --pid <current pid> --relaunch`, then
+shuts the app down so the updater can swap the file.
+
+Until that one-line call (and its wrapper) is added, users update manually by
+downloading the latest release. This is a deliberate boundary: the main app
+cannot overwrite its own running EXE, so the check and swap must live in the
+separate updater process.
 
 ## What is not inside the zip
 
-- No installer or setup executable (no `.msi`, no self-extracting installer).
-- No code signature; the app is unsigned.
-- No self-contained runtime (the .NET 10 Desktop Runtime is required).
-- No API keys, secrets, or other credentials.
-- No source code, tests, or macOS/Linux builds.
+- No installer (a separate, optional `.iss` builds one).
+- No code signature (see below).
+- No .NET runtime to install — the build is self-contained.
+- No API keys, secrets or other credentials.
+
+## Signing / SmartScreen — deferred, not ignored
+
+These binaries are **not code-signed**. Windows SmartScreen may warn on first
+run until the app builds reputation. Code signing requires a certificate that
+is not available yet; it is explicitly tracked as deferred rather than silently
+ignored. The SHA-256 checksums above let users verify integrity in the meantime.

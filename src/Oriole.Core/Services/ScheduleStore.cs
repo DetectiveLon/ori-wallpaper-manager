@@ -3,13 +3,21 @@ using System.Text.Json;
 namespace Oriole.Core.Services;
 
 /// <summary>Persisted state for one display's rotation schedule.</summary>
+/// <remarks>
+/// MonitorId is the volatile COM device path. MonitorFingerprint (device name +
+/// geometry) is the stable identity used to adopt a saved schedule after a driver,
+/// USB or GPU change gives the same panel a new path. The two trailing properties
+/// have defaults so older six-argument callers (and older saved files) stay valid.
+/// </remarks>
 public sealed record DisplayScheduleState(
     string MonitorId,
     string IntervalName,
     bool ShouldRun,
     bool UserPaused,
     DateTimeOffset? NextRunUtc,
-    string? LastAppliedId);
+    string? LastAppliedId,
+    bool PauseWhenFullscreen = true,
+    string? MonitorFingerprint = null);
 
 /// <summary>
 /// Small versioned JSON store for per-display schedules. A corrupt or unsupported
@@ -30,6 +38,19 @@ public sealed class ScheduleStore
             "Oriole", "schedules", "schedules.json");
         _path = Path.GetFullPath(target);
     }
+
+    /// <summary>
+    /// Builds a stable identity from the monitor's friendly name and geometry. Unlike the
+    /// COM device path this survives re-enumeration, so a saved schedule can be matched
+    /// back to the same physical panel after a driver/USB/GPU change.
+    /// </summary>
+    public static string BuildFingerprint(
+        string? deviceName,
+        int left,
+        int top,
+        int width,
+        int height) =>
+        $"{(deviceName ?? string.Empty).Trim()}|{left},{top},{width}x{height}";
 
     public async Task<IReadOnlyDictionary<string, DisplayScheduleState>> LoadAsync(
         CancellationToken cancellationToken = default)

@@ -7,21 +7,34 @@ namespace Oriole.Desktop.Views;
 /// <summary>XAML host for the Wallhaven discovery experience.</summary>
 public partial class DiscoverView : UserControl
 {
+    private readonly DiscoverViewModel _viewModel;
+
     public DiscoverView()
     {
         InitializeComponent();
-        DataContext = new DiscoverViewModel();
-        var vm = (DiscoverViewModel)DataContext;
+        _viewModel = new DiscoverViewModel();
+        DataContext = _viewModel;
 
         // PasswordBox does not support binding; bridge it to the view model explicitly.
-        ApiKeyBox.PasswordChanged += (_, _) => vm.ApiKey = ApiKeyBox.Password;
+        ApiKeyBox.PasswordChanged += OnApiKeyPasswordChanged;
 
-        Loaded += (_, _) =>
-        {
-            ApiKeyBox.Password = vm.ApiKey;
-            vm.OwnerWindow = Window.GetWindow(this);
-            vm.LoadDisplays();
-        };
-        Unloaded += (_, _) => vm.CancelSearch();
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
+
+    private void OnApiKeyPasswordChanged(object sender, RoutedEventArgs e) =>
+        _viewModel.ApiKey = ApiKeyBox.Password;
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        // Settings owns the stored key. Reload it on every visit so a key removed
+        // there is not written back by a stale view-model value. The PasswordChanged
+        // handler above will fire when assigning Password; refresh first, then assign.
+        _viewModel.RefreshApiKey();
+        ApiKeyBox.Password = _viewModel.ApiKey;
+        _viewModel.OwnerWindow = Window.GetWindow(this);
+        _viewModel.LoadDisplays();
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e) => _viewModel.CancelSearch();
 }

@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="1.0.0.0" name="Oriole.Desktop" />
+  <!-- Version and name match the single version source in Oriole.Desktop.csproj
+       (1.0.0 -> 1.0.0.0). scripts/publish.ps1 rewrites this identity version from
+       the release tag so the manifest, AssemblyVersion, FileVersion and
+       AssemblyInformationalVersion can never disagree. The user-facing version
+       shown in About comes from AssemblyInformationalVersion, not this field. -->
+  <assemblyIdentity version="1.0.0.0" name="Oriole" />
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>

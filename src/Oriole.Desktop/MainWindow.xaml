@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="Oriole" Height="780" Width="1240" MinHeight="680" MinWidth="1040"
+        Title="Oriole" Height="640" Width="1240" MinHeight="600" MinWidth="1040"
         WindowStartupLocation="CenterScreen" Background="{StaticResource WindowBrush}"
         WindowStyle="None" UseLayoutRounding="True" SnapsToDevicePixels="True">
     <shell:WindowChrome.WindowChrome>
@@ -50,7 +50,8 @@
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Stretch"
                             HorizontalAlignment="Right">
-                    <Button x:Name="MinimizeButton" AutomationProperties.Name="Minimize" ToolTip="Minimize"
+                    <Button x:Name="MinimizeButton" AutomationProperties.Name="Minimize" ToolTip="Minimize (Alt+M)"
+                            KeyboardNavigation.TabIndex="0"
                             Style="{StaticResource WindowButtonStyle}" Click="OnMinimizeClick"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True">
                         <TextBlock Text="&#xE921;" FontFamily="Segoe Fluent Icons"
@@ -58,7 +59,8 @@
                                    Foreground="{StaticResource WindowButtonForegroundBrush}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Button>
-                    <Button x:Name="MaximizeButton" AutomationProperties.Name="Maximize" ToolTip="Maximize"
+                    <Button x:Name="MaximizeButton" AutomationProperties.Name="Maximize" ToolTip="Maximize / Restore (Alt+R)"
+                            KeyboardNavigation.TabIndex="1"
                             Style="{StaticResource WindowButtonStyle}" Click="OnMaximizeClick"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True">
                         <TextBlock FontFamily="Segoe Fluent Icons"
@@ -77,7 +79,8 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </Button>
-                    <Button x:Name="CloseButton" AutomationProperties.Name="Close" ToolTip="Close"
+                    <Button x:Name="CloseButton" AutomationProperties.Name="Close" ToolTip="Close (Alt+C)"
+                            KeyboardNavigation.TabIndex="2"
                             Style="{StaticResource CloseWindowButtonStyle}" Click="OnCloseClick"
                             shell:WindowChrome.IsHitTestVisibleInChrome="True">
                         <TextBlock Text="&#xE8BB;" FontFamily="Segoe Fluent Icons"
@@ -101,7 +104,8 @@
                 <DockPanel LastChildFill="True" Margin="0,18,0,16">
                     <StackPanel DockPanel.Dock="Bottom" Margin="14,0,14,0">
                         <Border Height="1" Background="{StaticResource DividerBrush}" Margin="6,4,6,14" />
-                        <Button Style="{StaticResource NavButtonStyle}" Tag="Settings" Click="Navigate">
+                        <Button Style="{StaticResource NavButtonStyle}" Tag="Settings" Click="Navigate"
+                                KeyboardNavigation.TabIndex="7">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE713;" FontFamily="Segoe Fluent Icons"
                                            FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
@@ -117,19 +121,8 @@
 
                     <StackPanel DockPanel.Dock="Top" Margin="14,0,14,0">
                         <TextBlock Text="WORKSPACE" Style="{StaticResource EyebrowTextStyle}" Margin="12,6,0,14" />
-                        <Button x:Name="OverviewNav" Style="{StaticResource NavButtonStyle}" Tag="Overview"
-                                Click="Navigate" Background="{StaticResource NavSelectedBrush}"
-                                Foreground="{StaticResource TextBrush}">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE80F;" FontFamily="Segoe Fluent Icons"
-                                           FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                                <TextBlock Text="Overview" Margin="10,0,0,0" VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            </StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource NavButtonStyle}" Tag="Discover" Click="Navigate">
+                        <Button Style="{StaticResource NavButtonStyle}" Tag="Discover" Click="Navigate"
+                                KeyboardNavigation.TabIndex="3">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons"
                                            FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
@@ -139,7 +132,8 @@
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource NavButtonStyle}" Tag="Library" Click="Navigate">
+                        <Button Style="{StaticResource NavButtonStyle}" Tag="Library" Click="Navigate"
+                                KeyboardNavigation.TabIndex="4">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE8B7;" FontFamily="Segoe Fluent Icons"
                                            FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
@@ -149,7 +143,8 @@
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource NavButtonStyle}" Tag="Displays" Click="Navigate">
+                        <Button Style="{StaticResource NavButtonStyle}" Tag="Displays" Click="Navigate"
+                                KeyboardNavigation.TabIndex="5">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE7F4;" FontFamily="Segoe Fluent Icons"
                                            FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
@@ -159,7 +154,8 @@
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource NavButtonStyle}" Tag="Automation" Click="Navigate">
+                        <Button Style="{StaticResource NavButtonStyle}" Tag="Automation" Click="Navigate"
+                                KeyboardNavigation.TabIndex="6">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE8B3;" FontFamily="Segoe Fluent Icons"
                                            FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
@@ -169,17 +165,6 @@
                                            Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                             </StackPanel>
                         </Button>
-
-                        <Border Margin="12,26,0,0" Padding="14,13" CornerRadius="12"
-                                Background="{StaticResource PanelBrush}"
-                                BorderBrush="{StaticResource DividerBrush}" BorderThickness="1">
-                            <StackPanel>
-                                <TextBlock Text="A SMALL TIP" Style="{StaticResource EyebrowTextStyle}"
-                                           Foreground="{StaticResource AccentBrush}" Margin="0,0,0,7" />
-                                <TextBlock Text="Each display can have its own interval. Give your main screen a faster rotation than the second one."
-                                           Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
-                            </StackPanel>
-                        </Border>
                     </StackPanel>
                 </DockPanel>
             </Border>

@@ -6,6 +6,7 @@
              mc:Ignorable="d"
              d:DesignHeight="760" d:DesignWidth="960">
     <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <SolidColorBrush x:Key="RunningBrush" Color="#7FD1AE" />
         <SolidColorBrush x:Key="IdleBrush" Color="#8FA0B5" />
 
@@ -94,6 +95,24 @@
                     <Button Content="Clear cached images" Command="{Binding ClearCacheCommand}"
                             Padding="14,8,14,8" HorizontalAlignment="Left" Margin="0,14,0,0" />
                     <TextBlock Text="{Binding CacheStatus}" Style="{StaticResource StatusCaption}" />
+                    <Button Content="Clear orphan wallpaper files" Command="{Binding ClearOrphansCommand}"
+                            Padding="14,8,14,8" HorizontalAlignment="Left" Margin="0,10,0,0" />
+                    <Border Background="{StaticResource PanelAltBrush}" CornerRadius="8" Padding="12"
+                            BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1"
+                            Margin="0,10,0,0"
+                            Visibility="{Binding IsClearOrphansConfirmationOpen,
+                                Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding ClearOrphansConfirmationText}"
+                                       Style="{StaticResource MutedCaption}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <Button Content="Confirm clear" Command="{Binding ConfirmClearOrphansCommand}"
+                                        Style="{StaticResource PrimaryButtonStyle}" Padding="14,8,14,8" />
+                                <Button Content="Cancel" Command="{Binding CancelClearOrphansCommand}"
+                                        Padding="14,8,14,8" Margin="8,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </Border>
 
@@ -173,8 +192,14 @@
                             <Run Text="View the source on GitHub" />
                         </Hyperlink>
                     </TextBlock>
-                    <Button Content="Open data folder" Command="{Binding OpenDataFolderCommand}"
-                            Padding="14,8,14,8" HorizontalAlignment="Left" Margin="0,12,0,0" />
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <Button Content="Open data folder" Command="{Binding OpenDataFolderCommand}"
+                                Padding="14,8,14,8" />
+                        <Button Content="View error log" Command="{Binding ViewErrorLogCommand}"
+                                Padding="14,8,14,8" Margin="8,0,0,0" />
+                        <Button Content="Copy diagnostics" Command="{Binding CopyDiagnosticsCommand}"
+                                Padding="14,8,14,8" Margin="8,0,0,0" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
 

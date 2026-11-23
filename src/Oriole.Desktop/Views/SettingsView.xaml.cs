@@ -16,10 +16,28 @@ public partial class SettingsView : UserControl
         InitializeComponent();
         _viewModel = new SettingsViewModel();
         DataContext = _viewModel;
-        ApiKeyBox.Password = _viewModel.ApiKey;
-        ApiKeyBox.PasswordChanged += OnApiKeyPasswordChanged;
-        _viewModel.ApiKeyCleared += OnApiKeyCleared;
+        // NavigationService caches views: Loaded/Unloaded fire on every visit. Subscribe
+        // to the Loaded cycle here and (re)attach the callbacks on each load so typing a
+        // key or removing it keeps working after navigating away and back.
+        Loaded += OnLoaded;
         Unloaded += OnUnloaded;
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        ApiKeyBox.PasswordChanged -= OnApiKeyPasswordChanged; // no duplicate hooks
+        ApiKeyBox.PasswordChanged += OnApiKeyPasswordChanged;
+        _viewModel.ApiKeyCleared -= OnApiKeyCleared;
+        _viewModel.ApiKeyCleared += OnApiKeyCleared;
+
+        _viewModel.RefreshApiKey();
+        ApiKeyBox.Password = _viewModel.ApiKey;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        ApiKeyBox.PasswordChanged -= OnApiKeyPasswordChanged;
+        _viewModel.ApiKeyCleared -= OnApiKeyCleared;
     }
 
     private void OnApiKeyPasswordChanged(object sender, RoutedEventArgs e) =>
@@ -42,12 +60,5 @@ public partial class SettingsView : UserControl
             _viewModel.Status = $"Could not open link: {ex.Message}";
         }
         e.Handled = true;
-    }
-
-    private void OnUnloaded(object sender, RoutedEventArgs e)
-    {
-        ApiKeyBox.PasswordChanged -= OnApiKeyPasswordChanged;
-        _viewModel.ApiKeyCleared -= OnApiKeyCleared;
-        Unloaded -= OnUnloaded;
     }
 }

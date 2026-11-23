@@ -22,7 +22,10 @@ public partial class AutomationView : UserControl
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        Loaded -= OnLoaded;
+        // NavigationService caches this view, so Loaded fires again on every return
+        // visit. Keep the handler attached: InitializeAsync re-reads the library on
+        // each visit (so Start/Rotate recover after wallpapers are added elsewhere)
+        // while its own guard keeps the one-time schedule restore from running twice.
         await ViewModel.InitializeAsync();
     }
 

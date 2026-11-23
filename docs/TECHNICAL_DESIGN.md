@@ -2,9 +2,11 @@
 
 ## Layers
 
-- `Oriole.Core`: provider contracts and implementations, filter models, scheduling rules, persistent settings models, cache rules, and image metadata. No WPF references and no Windows COM types.
-- `Oriole.Desktop`: WPF user interface, Windows monitor discovery, wallpaper application, tray integration, startup registration, DPAPI, and Windows session/fullscreen detection.
+- `Oriole.Core`: provider contracts and implementations, filter models, scheduling rules, persistent settings models (including the rotation feed store), cache rules, library import/dedupe, and image metadata. No WPF references and no Windows COM types.
+- `Oriole.Desktop`: WPF user interface, Windows monitor discovery, wallpaper application, tray integration and notifications, startup registration, DPAPI (`CurrentUser`), and Windows session/fullscreen detection.
 - `Oriole.Core.Tests`: fast deterministic tests for all platform-independent behaviour.
+- `tools/Oriole.Updater`: a separate console process (in `Oriole.sln`) that checks a GitHub Releases JSON manifest, verifies SHA-256, and swaps the EXE after the app exits. It is not referenced by the app at runtime — the two communicate only through the manifest and process launch.
+- `tools/installer`: an optional Inno Setup `.iss` (per-user, `%LOCALAPPDATA%\Oriole`). Not built by CI by default.
 
 ## Provider boundary
 
@@ -24,10 +26,24 @@ Windows-only operations will be accessed through interfaces (monitor inventory, 
 
 Settings and collection metadata will be stored as versioned JSON with write-to-temp then atomic replace. Credentials are stored separately through DPAPI. The image library is ordinary image files plus a small metadata database; the initial version will use SQLite only if the actual data model requires transactional querying, otherwise JSON metadata remains simpler.
 
+## Persistence (current)
+
+- Settings, schedules, library metadata and rotation feeds are versioned JSON under `%LOCALAPPDATA%\Oriole`, written to temp then atomically replaced.
+- Credentials are stored separately through DPAPI with `DataProtectionScope.CurrentUser`.
+- `errors.log` rotates (bounded size/history) and redacts sensitive values; the path is surfaced in Settings.
+
+## Packaging and self-update
+
+- Release packaging is centralized in `scripts/publish.ps1`: self-contained + single-file + `win-x64`, tag-driven version, and a generated `update-manifest.json` with the EXE's SHA-256. `build.ps1 -Publish` delegates to it.
+- The updater downloads only over HTTPS, caps the asset at 200 MB, verifies SHA-256 before swapping, backs up the running EXE to `.bak` and restores it on failure. The main app cannot overwrite itself, hence the separate process.
+- The in-app version-check call is not yet implemented (`App.xaml.cs` is owned by another agent); the exact integration is recorded in `docs/RELEASING.md`.
+- Signing is deferred, not silently ignored.
+
 ## Safety limits
 
 - JSON API response: 2 MiB maximum.
 - Image download: 50 MiB maximum initially, configurable only downward until tested.
+- Update asset download: 200 MiB maximum.
 - Decoded image: reject unreasonable dimensions and total pixels before allocating render buffers.
-- Provider response URLs must be HTTPS and match the provider's approved host policy.
+- Provider response URLs and update manifest/asset URLs must be HTTPS; provider URLs must match the approved host policy.
 - Cancellation is passed through every network/disk operation.

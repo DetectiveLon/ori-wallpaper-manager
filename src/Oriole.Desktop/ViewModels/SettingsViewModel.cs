@@ -1,5 +1,10 @@
 using System.Diagnostics;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using System.Windows;
 using System.Windows.Input;
+using Oriole.Core.Services;
 using Oriole.Desktop.Mvvm;
 using Oriole.Desktop.Services;
 
@@ -13,6 +18,14 @@ public sealed class SettingsViewModel : ViewModelBase
     private static readonly string CacheDirectory = Path.Combine(DataRoot, "cache", "images");
     private static readonly string LibraryDirectory = Path.Combine(DataRoot, "library");
     private static readonly string LogDirectory = Path.Combine(DataRoot, "logs");
+    private static readonly string WallpapersDirectory = Path.Combine(DataRoot, "Wallpapers");
+    private static readonly string ErrorLogPath = Path.Combine(LogDirectory, "errors.log");
+
+    // Log entries start with an ISO-8601 timestamp (see App.LogFailure).
+    private static readonly Regex LogEntryPattern = new(
+        @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", RegexOptions.Compiled);
+    private static readonly Regex WindowsPathPattern = new(
+        @"(?:[A-Za-z]:\\|\\\\)[^\s""<>|]+", RegexOptions.Compiled);
 
     private string _apiKey = string.Empty;
     private string _keyStatus = string.Empty;
@@ -23,6 +36,7 @@ public sealed class SettingsViewModel : ViewModelBase
     private bool _startupEnabled;
     private string _startupToggleLabel = string.Empty;
     private string _startupStatus = string.Empty;
+    private bool _isClearOrphansConfirmationOpen;
     private readonly StartupService _startup = new();
 
     public SettingsViewModel()
@@ -32,6 +46,11 @@ public sealed class SettingsViewModel : ViewModelBase
         ClearCacheCommand = new RelayCommand(_ => ClearCache());
         OpenDataFolderCommand = new RelayCommand(_ => OpenDataFolder());
         ToggleStartupCommand = new RelayCommand(_ => ToggleStartup());
+        CopyDiagnosticsCommand = new RelayCommand(_ => CopyDiagnostics());
+        ViewErrorLogCommand = new RelayCommand(_ => ViewErrorLog());
+        ClearOrphansCommand = new RelayCommand(_ => OpenClearOrphansConfirmation());
+        ConfirmClearOrphansCommand = new RelayCommand(_ => { _ = ClearOrphansAsync(); });
+        CancelClearOrphansCommand = new RelayCommand(_ => IsClearOrphansConfirmationOpen = false);
 
         _startupEnabled = _startup.IsEnabled();
         _startupToggleLabel = _startupEnabled ? "Disable launch at login" : "Enable launch at login";
@@ -49,8 +68,10 @@ public sealed class SettingsViewModel : ViewModelBase
         get => _apiKey;
         set
         {
-            SetProperty(ref _apiKey, value, nameof(ApiKey));
-            KeyStatus = "Unsaved changes.";
+            // Views are cached and re-populate the box on every visit, which raises
+            // PasswordChanged with the same value. Only a real edit is "unsaved".
+            if (SetProperty(ref _apiKey, value, nameof(ApiKey)))
+                KeyStatus = "Unsaved changes.";
         }
     }
 
@@ -102,10 +123,19 @@ public sealed class SettingsViewModel : ViewModelBase
         private set => SetProperty(ref _startupStatus, value, nameof(StartupStatus));
     }
 
+    public bool IsClearOrphansConfirmationOpen
+    {
+        get => _isClearOrphansConfirmationOpen;
+        private set => SetProperty(ref _isClearOrphansConfirmationOpen, value, nameof(IsClearOrphansConfirmationOpen));
+    }
+
+    public string ClearOrphansConfirmationText =>
+        "Remove applied wallpaper files that are no longer in your library? Files still referenced by the library are kept.";
+
     public string LibraryPathText => $"Library: {Path.Combine(LibraryDirectory, "library.json")}";
     public string SchedulesPathText => $"Schedules: {Path.Combine(DataRoot, "schedules", "schedules.json")}";
-    public string LogPathText => $"Error log: {Path.Combine(LogDirectory, "errors.log")}";
-    public string VersionInfo => "Version 0.1.0 · preview build";
+    public string LogPathText => $"Error log: {ErrorLogPath}";
+    public string VersionInfo => $"Version {ReadVersion()}";
     public string GitHubUrl => "https://github.com/DetectiveLon/oriole-wallpaper-manager";
 
     public ICommand SaveApiKeyCommand { get; }
@@ -113,6 +143,11 @@ public sealed class SettingsViewModel : ViewModelBase
     public ICommand ClearCacheCommand { get; }
     public ICommand OpenDataFolderCommand { get; }
     public ICommand ToggleStartupCommand { get; }
+    public ICommand CopyDiagnosticsCommand { get; }
+    public ICommand ViewErrorLogCommand { get; }
+    public ICommand ClearOrphansCommand { get; }
+    public ICommand ConfirmClearOrphansCommand { get; }
+    public ICommand CancelClearOrphansCommand { get; }
 
     /// <summary>Raised when the stored key is removed so the view can clear its PasswordBox.</summary>
     public event Action? ApiKeyCleared;
@@ -133,7 +168,12 @@ public sealed class SettingsViewModel : ViewModelBase
 
     private void RemoveApiKey()
     {
-        ApiKeyStore.Clear();
+        if (!ApiKeyStore.Clear())
+        {
+            RefreshKeyStatus();
+            Status = "Could not remove the stored key. It may be locked by another program; try again.";
+            return;
+        }
         SetProperty(ref _apiKey, string.Empty, nameof(ApiKey));
         ApiKeyCleared?.Invoke();
         RefreshKeyStatus();
@@ -187,6 +227,105 @@ public sealed class SettingsViewModel : ViewModelBase
         }
     }
 
+    private void CopyDiagnostics()
+    {
+        try
+        {
+            var lastError = ReadLastErrorSummary();
+            var summary = string.Join(Environment.NewLine,
+                "Oriole diagnostics",
+                $"Version: {ReadVersion()}",
+                $"OS: {RuntimeInformation.OSDescription}",
+                $"Last error: {lastError}");
+            Clipboard.SetText(summary);
+            Status = "Redacted diagnostics copied to clipboard.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not copy diagnostics: {ex.Message}";
+        }
+    }
+
+    private void ViewErrorLog()
+    {
+        if (!File.Exists(ErrorLogPath))
+        {
+            Status = "No error log has been written yet.";
+            return;
+        }
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = ErrorLogPath, UseShellExecute = true });
+            Status = "Opened the error log.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not open the error log: {ex.Message}";
+        }
+    }
+
+    private void OpenClearOrphansConfirmation()
+    {
+        IsClearOrphansConfirmationOpen = true;
+        Status = "Review the confirmation below — nothing is deleted until you confirm.";
+    }
+
+    private async Task ClearOrphansAsync()
+    {
+        IsClearOrphansConfirmationOpen = false;
+        if (!Directory.Exists(WallpapersDirectory))
+        {
+            Status = "There is no applied-wallpapers folder to clean.";
+            return;
+        }
+
+        try
+        {
+            var files = Directory.EnumerateFiles(WallpapersDirectory, "*", SearchOption.TopDirectoryOnly).ToArray();
+            if (files.Length == 0)
+            {
+                Status = "No applied wallpaper files to clean.";
+                return;
+            }
+
+            var library = new WallpaperLibraryStore();
+            var referenced = new HashSet<string>(
+                (await library.GetAllAsync().ConfigureAwait(true))
+                    .Select(entry => Path.GetFullPath(entry.LocalPath)),
+                StringComparer.OrdinalIgnoreCase);
+
+            var removed = 0;
+            foreach (var file in files)
+            {
+                if (referenced.Contains(Path.GetFullPath(file)))
+                    continue;
+                try
+                {
+                    File.Delete(file);
+                    removed++;
+                }
+                catch
+                {
+                    // A locked file is left in place; the status reports the partial result.
+                }
+            }
+            Status = removed == 0
+                ? "No orphan wallpaper files found; every file is still in your library."
+                : $"Removed {removed} orphan wallpaper file(s).";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not clean wallpaper files: {ex.Message}";
+        }
+    }
+
+    /// <summary>Re-reads the stored key when the cached view is revisited.</summary>
+    public void RefreshApiKey()
+    {
+        SetProperty(ref _apiKey, ApiKeyStore.Load(), nameof(ApiKey));
+        RefreshKeyStatus();
+    }
+
     private void RefreshKeyStatus()
     {
         KeyStatus = ApiKeyStore.HasKey
@@ -219,4 +358,52 @@ public sealed class SettingsViewModel : ViewModelBase
         Directory.Exists(CacheDirectory)
             ? Directory.EnumerateFiles(CacheDirectory, "*", SearchOption.AllDirectories).ToArray()
             : [];
+
+    private static string ReadVersion()
+    {
+        try
+        {
+            var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+            var informational = assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (string.IsNullOrWhiteSpace(informational))
+                return "0.1.0 (fallback)";
+            // Strip source-revision metadata (e.g. "1.2.3+abc123" -> "1.2.3").
+            var plus = informational.IndexOf('+');
+            var version = plus >= 0 ? informational[..plus] : informational;
+            return version.Trim();
+        }
+        catch
+        {
+            return "0.1.0 (fallback)";
+        }
+    }
+
+    private static string ReadLastErrorSummary()
+    {
+        try
+        {
+            if (!File.Exists(ErrorLogPath) || new FileInfo(ErrorLogPath).Length > 2 * 1024 * 1024)
+                return "none recorded";
+            var lines = File.ReadAllLines(ErrorLogPath);
+            for (var i = lines.Length - 1; i >= 0; i--)
+            {
+                var match = LogEntryPattern.Match(lines[i]);
+                if (!match.Success)
+                    continue;
+                // The first physical line of an entry is "<timestamp> <ExceptionType>: <message>".
+                // Stack frames live on later lines, so this never includes a full stack.
+                var summary = lines[i][match.Length..].Trim();
+                return Redact(summary);
+            }
+            return "none recorded";
+        }
+        catch
+        {
+            return "unavailable";
+        }
+    }
+
+    private static string Redact(string value) =>
+        WindowsPathPattern.Replace(value, "<path>");
 }

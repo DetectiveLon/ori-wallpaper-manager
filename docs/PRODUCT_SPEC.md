@@ -6,12 +6,13 @@ A static-wallpaper manager for Windows 11 that makes finding, previewing, saving
 
 ## Information architecture
 
-1. **Overview** - currently applied image per display, upcoming rotation, pause state, and quick actions.
-2. **Discover** - search and curated filters; preview; set now; save to library; add to a collection.
-3. **Library** - all saved files, collections, favourites, local folders, and search.
-4. **Displays** - interactive monitor layout; select a display; choose source/image; fit mode; preview.
-5. **Automation** - global and per-display schedules, exact next-run time, skip, previous, pause, resume, and fullscreen deferral.
-6. **Settings** - appearance, startup, cache, download directory, provider credentials, and privacy.
+1. **Discover** (landing page) - search and curated filters; preview; set now; save to library; add to a collection; tag presets and automatic rotation feeds.
+2. **Library** - all saved files, collections, favourites, local-folder import, duplicate detection, and search.
+3. **Displays** - interactive monitor layout; select a display; choose source/image; fit mode; preview.
+4. **Automation** - global and per-display schedules, exact next-run time, skip, previous, pause, resume, and fullscreen deferral.
+5. **Settings** - appearance, startup, cache, provider credentials, and privacy.
+
+(The former **Overview** screen was removed in `v2-shell`; Discover is the landing page.)
 
 ## Discovery filters
 
@@ -52,5 +53,13 @@ Wallhaven provider requirements:
 - Idle app should be event-driven and use negligible CPU.
 - Bounded thumbnail cache and bounded full-size download cache.
 - No telemetry or account requirement.
-- API keys protected with Windows DPAPI; never written into plaintext settings.
+- API keys protected with Windows DPAPI scoped to `CurrentUser`; never written into plaintext settings. Discover no longer auto-saves the key; save it explicitly in Settings.
+- Application errors are written to a rotating, redacted `errors.log` under Local App Data.
 - No image is applied or downloaded without a visible user action or configured schedule.
+
+## Packaging and updates
+
+- The shipped build is self-contained and single-file for `win-x64`: no .NET runtime is required on the target PC.
+- A free, optional per-user installer installs to `%LOCALAPPDATA%\Oriole` and reuses the app's launch-at-sign-in setting.
+- Updates are checked by a **separate** process (`Oriole.Updater`) against a GitHub Releases JSON manifest; the new EXE's SHA-256 is verified before the app is closed, the file swapped and the app relaunched. The in-app check is documented as an integration step, not yet wired (see `docs/RELEASING.md`).
+- Binaries are not code-signed; SmartScreen reputation is deferred, not ignored.

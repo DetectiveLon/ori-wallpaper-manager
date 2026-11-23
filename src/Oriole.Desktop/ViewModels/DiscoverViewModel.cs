@@ -27,6 +27,27 @@ public sealed class FilterChoice
     public override string ToString() => Label;
 }
 
+/// <summary>A one-tap tag combination with sensible category/colour defaults.</summary>
+public sealed class TagPreset
+{
+    public TagPreset(string label, string tags, bool general, bool anime, bool people, params string[] colors)
+    {
+        Label = label;
+        Tags = tags;
+        General = general;
+        Anime = anime;
+        People = people;
+        Colors = colors;
+    }
+
+    public string Label { get; }
+    public string Tags { get; }
+    public bool General { get; }
+    public bool Anime { get; }
+    public bool People { get; }
+    public IReadOnlyList<string> Colors { get; }
+}
+
 /// <summary>One selectable Wallhaven palette colour.</summary>
 public sealed class ColorChoice : INotifyPropertyChanged
 {
@@ -98,19 +119,34 @@ public sealed class DiscoverViewModel : ViewModelBase
     private readonly DelegateCommand _previewCommand;
     private readonly DelegateCommand _saveCommand;
     private readonly DelegateCommand _applyCommand;
+    private readonly DelegateCommand _applySelectedCommand;
     private readonly DelegateCommand _openPageCommand;
+    private readonly DelegateCommand _applyPresetCommand;
+    private readonly DelegateCommand _applyTagCommand;
 
     private WallhavenSearchPage? _currentPage;
     private WallhavenFilters? _currentFilters;
     private CancellationTokenSource? _searchCts;
     private bool _busy;
+    private int _searchStarting;
     private string _status = "Choose filters and search.";
     private string _pageText = string.Empty;
     private WallpaperCard? _selectedCard;
     private DisplayMonitor? _selectedMonitor;
 
+    // Filter values that the view also writes from code (presets, API-key refresh,
+    // sorting enablement) need change notification so the controls stay in sync.
+    private string _tags = string.Empty;
+    private bool _general = true;
+    private bool _anime = true;
+    private bool _people = true;
+    private FilterChoice? _selectedSorting;
+
     public DiscoverViewModel()
     {
+        RecentTags = new ObservableCollection<string>(RecentTagsStore.Load());
+        TagPresets = BuildTagPresets();
+
         SortingChoices =
         [
             new FilterChoice("Random", WallhavenSort.Random),
@@ -173,28 +209,62 @@ public sealed class DiscoverViewModel : ViewModelBase
             ApiKey = string.Empty;
         }
 
-        _searchCommand = new DelegateCommand(_ => SearchFirstPageAsync(), _ => !_busy);
-        _previousCommand = new DelegateCommand(_ => ChangePageAsync(-1), _ => CanGoTo(-1));
-        _nextCommand = new DelegateCommand(_ => ChangePageAsync(1), _ => CanGoTo(1));
+        _searchCommand = new DelegateCommand(_ => SearchFirstPageAsync(), _ => !_busy, ReportCommandFailure);
+        _previousCommand = new DelegateCommand(_ => ChangePageAsync(-1), _ => CanGoTo(-1), ReportCommandFailure);
+        _nextCommand = new DelegateCommand(_ => ChangePageAsync(1), _ => CanGoTo(1), ReportCommandFailure);
         _previewCommand = new DelegateCommand(card => PreviewWallpaperAsync(card as WallpaperCard),
-            card => !_busy && card is WallpaperCard);
+            card => !_busy && card is WallpaperCard, ReportCommandFailure);
         _saveCommand = new DelegateCommand(card => SaveWallpaperAsync(card as WallpaperCard),
-            card => !_busy && card is WallpaperCard);
+            card => !_busy && card is WallpaperCard, ReportCommandFailure);
+        // A missing display must not disable this button forever: ApplyWallpaperAsync
+        // already reports a friendly status when no monitor is selected.
         _applyCommand = new DelegateCommand(card => ApplyWallpaperAsync(card as WallpaperCard),
-            card => !_busy && card is WallpaperCard && SelectedMonitor is not null);
+            card => !_busy && card is WallpaperCard, ReportCommandFailure);
+        // Keyboard-accessible counterpart: applies the highlighted result card.
+        _applySelectedCommand = new DelegateCommand(_ => ApplyWallpaperAsync(SelectedCard),
+            _ => !_busy && SelectedCard is not null, ReportCommandFailure);
         _openPageCommand = new DelegateCommand(card => OpenWallpaperPage(card as WallpaperCard),
-            card => !_busy && card is WallpaperCard);
+            card => !_busy && card is WallpaperCard, ReportCommandFailure);
+        _applyPresetCommand = new DelegateCommand(preset =>
+            {
+                ApplyTagPreset(preset as TagPreset);
+                return Task.CompletedTask;
+            },
+            preset => preset is TagPreset, ReportCommandFailure);
+        _applyTagCommand = new DelegateCommand(tag =>
+            {
+                ApplyRecentTag(tag as string);
+                return Task.CompletedTask;
+            },
+            tag => tag is string, ReportCommandFailure);
     }
 
-    // Filter state (plain auto-properties: two-way bindings write directly into them).
-    public string Tags { get; set; } = string.Empty;
+    // Filter state. Most values are plain auto-properties (two-way bindings write
+    // directly into them); the ones code also changes notify so the UI follows.
+    public string Tags
+    {
+        get => _tags;
+        set => SetProperty(ref _tags, value);
+    }
     public string MinimumResolution { get; set; } = string.Empty;
     public string ExactResolution { get; set; } = string.Empty;
     public string CustomColors { get; set; } = string.Empty;
     public string ApiKey { get; set; } = string.Empty;
-    public bool General { get; set; } = true;
-    public bool Anime { get; set; } = true;
-    public bool People { get; set; } = true;
+    public bool General
+    {
+        get => _general;
+        set => SetProperty(ref _general, value);
+    }
+    public bool Anime
+    {
+        get => _anime;
+        set => SetProperty(ref _anime, value);
+    }
+    public bool People
+    {
+        get => _people;
+        set => SetProperty(ref _people, value);
+    }
     public bool Safe { get; set; } = true;
     public bool Sketchy { get; set; }
     public bool Explicit { get; set; }
@@ -203,11 +273,36 @@ public sealed class DiscoverViewModel : ViewModelBase
     public IReadOnlyList<FilterChoice> TopRangeChoices { get; }
     public IReadOnlyList<FilterChoice> OrderChoices { get; }
     public IReadOnlyList<FilterChoice> RatioChoices { get; }
-    public FilterChoice? SelectedSorting { get; set; }
+    public FilterChoice? SelectedSorting
+    {
+        get => _selectedSorting;
+        set
+        {
+            if (SetProperty(ref _selectedSorting, value))
+            {
+                OnPropertyChanged(nameof(IsTopRangeEnabled));
+                OnPropertyChanged(nameof(TopRangeToolTip));
+            }
+        }
+    }
     public FilterChoice? SelectedTopRange { get; set; }
     public FilterChoice? SelectedOrder { get; set; }
     public FilterChoice? SelectedRatio { get; set; }
     public ObservableCollection<ColorChoice> ColorChoices { get; }
+
+    /// <summary>The Toplist period is only meaningful when Toplist sorting is chosen.</summary>
+    public bool IsTopRangeEnabled =>
+        ChoiceValue(SelectedSorting, WallhavenSort.Random) == WallhavenSort.Toplist;
+
+    public string TopRangeToolTip => IsTopRangeEnabled
+        ? "Choose the period for Toplist results."
+        : "Choose Toplist sorting to use this";
+
+    /// <summary>Preset tag chips offered in the filter rail.</summary>
+    public IReadOnlyList<TagPreset> TagPresets { get; }
+
+    /// <summary>Recently used tag queries, newest first, persisted by RecentTagsStore.</summary>
+    public ObservableCollection<string> RecentTags { get; }
 
     public ObservableCollection<DisplayMonitor> Monitors { get; } = [];
     public ObservableCollection<WallpaperCard> Results { get; } = [];
@@ -225,7 +320,11 @@ public sealed class DiscoverViewModel : ViewModelBase
     public WallpaperCard? SelectedCard
     {
         get => _selectedCard;
-        set => SetProperty(ref _selectedCard, value);
+        set
+        {
+            if (SetProperty(ref _selectedCard, value))
+                RefreshCommands();
+        }
     }
 
     /// <summary>Window used as the owner of the full-size preview dialog; set by the view.</summary>
@@ -243,7 +342,11 @@ public sealed class DiscoverViewModel : ViewModelBase
         private set => SetProperty(ref _pageText, value);
     }
 
-    public bool IsBusy => _busy;
+    public bool IsBusy
+    {
+        get => _busy;
+        private set => SetProperty(ref _busy, value);
+    }
 
     public ICommand SearchCommand => _searchCommand;
     public ICommand PreviousCommand => _previousCommand;
@@ -251,7 +354,10 @@ public sealed class DiscoverViewModel : ViewModelBase
     public ICommand PreviewCommand => _previewCommand;
     public ICommand SaveCommand => _saveCommand;
     public ICommand ApplyCommand => _applyCommand;
+    public ICommand ApplySelectedCommand => _applySelectedCommand;
     public ICommand OpenPageCommand => _openPageCommand;
+    public ICommand ApplyPresetCommand => _applyPresetCommand;
+    public ICommand ApplyTagCommand => _applyTagCommand;
 
     /// <summary>Enumerates displays once the view is loaded; detection failures stay non-fatal.</summary>
     public void LoadDisplays()
@@ -276,12 +382,43 @@ public sealed class DiscoverViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Re-reads the stored key on every visit. Settings owns saving/removing the key;
+    /// Discover must never resurrect a key that was removed there.
+    /// </summary>
+    public void RefreshApiKey()
+    {
+        try
+        {
+            ApiKey = ApiKeyStore.Load();
+        }
+        catch
+        {
+            ApiKey = string.Empty;
+        }
+    }
+
     /// <summary>Cancels any in-flight search; called when the view unloads.</summary>
     public void CancelSearch()
     {
         _searchCts?.Cancel();
         _searchCts?.Dispose();
         _searchCts = null;
+    }
+
+    /// <summary>
+    /// Last-resort handler for a command whose own operation threw outside its try block.
+    /// Releases the busy latch so no control stays disabled after a failure.
+    /// </summary>
+    private void ReportCommandFailure(Exception exception)
+    {
+        IsBusy = false;
+        Volatile.Write(ref _searchStarting, 0);
+        OnUiThread(() =>
+        {
+            Status = $"Could not complete the action: {exception.Message}";
+            RefreshCommands();
+        });
     }
 
     private bool CanGoTo(int delta)
@@ -300,37 +437,51 @@ public sealed class DiscoverViewModel : ViewModelBase
         _previewCommand.RaiseCanExecuteChanged();
         _saveCommand.RaiseCanExecuteChanged();
         _applyCommand.RaiseCanExecuteChanged();
+        _applySelectedCommand.RaiseCanExecuteChanged();
         _openPageCommand.RaiseCanExecuteChanged();
     }
 
     private async Task SearchFirstPageAsync()
     {
-        if (_busy)
+        if (_busy || Interlocked.Exchange(ref _searchStarting, 1) != 0)
             return;
 
-        // Keep the key entered in Discover in sync with the rest of the app.
         try
         {
-            ApiKeyStore.Save(ApiKey);
-        }
-        catch
-        {
-            // Saving the key is a convenience; it must never block a search.
-        }
+            WallhavenFilters filters;
+            try
+            {
+                filters = BuildFilters();
+            }
+            catch (Exception ex)
+            {
+                Status = ex.Message;
+                return;
+            }
 
-        WallhavenFilters filters;
-        try
-        {
-            filters = BuildFilters();
+            _currentFilters = filters;
+            var succeeded = await SearchPageAsync(1, null);
+            if (succeeded)
+            {
+                // Remember the query and persist the exact filters for automatic rotation.
+                // Settings is the single source of truth for the API key; searching never saves it.
+                RecordTags(filters.Query);
+                try
+                {
+                    WallhavenFeedStore.Save(filters, 60);
+                }
+                catch
+                {
+                    // Feed persistence is a convenience; it must not fail a completed search.
+                }
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            Status = ex.Message;
-            return;
+            // Release the guard even if a binder or status update throws, otherwise
+            // every subsequent Search click would be ignored forever.
+            Volatile.Write(ref _searchStarting, 0);
         }
-
-        _currentFilters = filters;
-        await SearchPageAsync(1, null);
     }
 
     private WallhavenFilters BuildFilters()
@@ -383,6 +534,63 @@ public sealed class DiscoverViewModel : ViewModelBase
             .Select(tag => tag.StartsWith('-') || tag.StartsWith('+') ? tag : "+" + tag));
     }
 
+    private static IReadOnlyList<TagPreset> BuildTagPresets() =>
+    [
+        new TagPreset("Nature", "nature, landscape", true, false, false, "77cc33", "669900"),
+        new TagPreset("Minimal", "minimal, minimalism", true, false, false, "ffffff", "cccccc", "000000"),
+        new TagPreset("Cyberpunk", "cyberpunk, neon", true, true, false, "993399", "0099cc", "ea4c88"),
+        new TagPreset("Abstract", "abstract", true, true, false, "663399", "ff6600", "333399"),
+        new TagPreset("Space", "space, galaxy, stars", true, false, false, "000000", "333399", "424153")
+    ];
+
+    private void ApplyTagPreset(TagPreset? preset)
+    {
+        if (preset is null)
+            return;
+        Tags = preset.Tags;
+        General = preset.General;
+        Anime = preset.Anime;
+        People = preset.People;
+        ApplyColors(preset.Colors);
+        Status = $"Preset “{preset.Label}” applied — search to see results.";
+    }
+
+    private void ApplyRecentTag(string? tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag))
+            return;
+        Tags = tag;
+        Status = $"Tag “{tag}” applied — search to see results.";
+    }
+
+    private void ApplyColors(IReadOnlyList<string> colors)
+    {
+        var selected = new HashSet<string>(colors, StringComparer.OrdinalIgnoreCase);
+        foreach (var choice in ColorChoices)
+            choice.IsSelected = selected.Contains(choice.Hex);
+    }
+
+    private void RecordTags(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return;
+        var normalized = query.Trim();
+        if (RecentTags.FirstOrDefault(item => string.Equals(item, normalized, StringComparison.OrdinalIgnoreCase))
+            is string existing)
+            RecentTags.Remove(existing);
+        RecentTags.Insert(0, normalized);
+        while (RecentTags.Count > RecentTagsStore.MaximumTags)
+            RecentTags.RemoveAt(RecentTags.Count - 1);
+        try
+        {
+            RecentTagsStore.Save(RecentTags);
+        }
+        catch
+        {
+            // Remembering tags is a convenience; never fail a search over it.
+        }
+    }
+
     private async Task ChangePageAsync(int delta)
     {
         if (!CanGoTo(delta))
@@ -393,21 +601,22 @@ public sealed class DiscoverViewModel : ViewModelBase
         await SearchPageAsync(target, _currentPage.Seed);
     }
 
-    private async Task SearchPageAsync(int page, string? seed)
+    private async Task<bool> SearchPageAsync(int page, string? seed)
     {
         if (_currentFilters is null || _busy)
-            return;
+            return false;
 
         CancelSearch();
         _searchCts = new CancellationTokenSource();
         var token = _searchCts.Token;
-        _busy = true;
+        IsBusy = true;
         RefreshCommands();
         Results.Clear();
         SelectedCard = null;
         PageText = string.Empty;
         Status = "Searching Wallhaven…";
 
+        var succeeded = false;
         try
         {
             var filters = _currentFilters with { Page = page, Seed = seed };
@@ -422,6 +631,7 @@ public sealed class DiscoverViewModel : ViewModelBase
                 : $"Found {result.Items.Count} wallpapers.";
             PageText = $"Page {result.CurrentPage} of {result.LastPage}";
             await LoadPreviewsAsync(Results.ToList(), token);
+            succeeded = true;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -433,10 +643,11 @@ public sealed class DiscoverViewModel : ViewModelBase
         }
         finally
         {
-            _busy = false;
+            IsBusy = false;
             CancelSearch();
             RefreshCommands();
         }
+        return succeeded;
     }
 
     private async Task LoadPreviewsAsync(IReadOnlyList<WallpaperCard> cards, CancellationToken cancellationToken)
@@ -475,7 +686,7 @@ public sealed class DiscoverViewModel : ViewModelBase
         if (card is null)
             return;
         var wallpaper = card.Wallpaper;
-        _busy = true;
+        IsBusy = true;
         RefreshCommands();
         Status = $"Saving wallpaper #{wallpaper.Id} to your library…";
         try
@@ -504,7 +715,7 @@ public sealed class DiscoverViewModel : ViewModelBase
         }
         finally
         {
-            _busy = false;
+            IsBusy = false;
             RefreshCommands();
         }
     }
@@ -514,7 +725,7 @@ public sealed class DiscoverViewModel : ViewModelBase
         if (card is null)
             return;
         var wallpaper = card.Wallpaper;
-        _busy = true;
+        IsBusy = true;
         RefreshCommands();
         Status = $"Loading full preview for wallpaper #{wallpaper.Id}…";
         try
@@ -558,7 +769,7 @@ public sealed class DiscoverViewModel : ViewModelBase
         }
         finally
         {
-            _busy = false;
+            IsBusy = false;
             RefreshCommands();
         }
     }
@@ -574,7 +785,7 @@ public sealed class DiscoverViewModel : ViewModelBase
         }
 
         var wallpaper = card.Wallpaper;
-        _busy = true;
+        IsBusy = true;
         RefreshCommands();
         Status = $"Downloading wallpaper for {monitor.DeviceName}…";
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
@@ -602,7 +813,31 @@ public sealed class DiscoverViewModel : ViewModelBase
                     File.Delete(temporary);
             }
             WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, path);
-            Status = $"Wallpaper applied to {monitor.DeviceName}. Saved locally at {path}";
+            // Register the applied image in the library so it can be favourited,
+            // collected and rotated (and so the file participates in cleanup).
+            try
+            {
+                await Library.UpsertAsync(new WallpaperLibraryEntry
+                {
+                    Id = wallpaper.Id,
+                    Title = $"Wallhaven #{wallpaper.Id}",
+                    PageUrl = wallpaper.PageUrl.ToString(),
+                    ImageUrl = wallpaper.ImageUrl.ToString(),
+                    LocalPath = path,
+                    Category = wallpaper.Category,
+                    Purity = wallpaper.Purity,
+                    Width = wallpaper.Width,
+                    Height = wallpaper.Height,
+                    Ratio = wallpaper.Ratio,
+                    SavedAtUtc = DateTimeOffset.UtcNow,
+                    Collection = "Unsorted"
+                });
+            }
+            catch
+            {
+                // The wallpaper is already applied; a library index failure is non-fatal.
+            }
+            Status = $"Wallpaper applied to {monitor.DeviceName}. Saved to your library at {path}";
         }
         catch (Exception ex)
         {
@@ -610,7 +845,7 @@ public sealed class DiscoverViewModel : ViewModelBase
         }
         finally
         {
-            _busy = false;
+            IsBusy = false;
             RefreshCommands();
         }
     }
@@ -726,11 +961,14 @@ public sealed class DiscoverViewModel : ViewModelBase
     {
         private readonly Func<object?, Task> _execute;
         private readonly Func<object?, bool> _canExecute;
+        private readonly Action<Exception> _onError;
 
-        public DelegateCommand(Func<object?, Task> execute, Func<object?, bool>? canExecute = null)
+        public DelegateCommand(Func<object?, Task> execute, Func<object?, bool>? canExecute,
+            Action<Exception>? onError = null)
         {
             _execute = execute;
             _canExecute = canExecute ?? (_ => true);
+            _onError = onError ?? (_ => { });
         }
 
         public event EventHandler? CanExecuteChanged;
@@ -743,9 +981,11 @@ public sealed class DiscoverViewModel : ViewModelBase
             {
                 await _execute(parameter);
             }
-            catch
+            catch (Exception ex)
             {
-                // Every operation reports its own failures through Status; stay non-fatal.
+                // Never swallow: surface the failure and release the busy latch so
+                // buttons cannot remain permanently disabled after an edge-case throw.
+                _onError(ex);
             }
         }
 

@@ -54,6 +54,38 @@ rewrite.
 - Automation + Settings: `Views/AutomationView.xaml`, `Views/SettingsView.xaml`.
 - Integrator owns all view models, services, Core, csproj and docs. Redesign is XAML-only except MainWindow code-behind for custom window buttons.
 
+## Wave 5 ownership (v2-shell) — hardening pass
+- Tray/window semantics: `App.xaml.cs`, `MainWindow.xaml.cs`, `Services/TrayIconService.cs`.
+- Navigation cleanup: `ViewModels/MainViewModel.cs`, `Services/NavigationService.cs`, `MainWindow.xaml` (remove Overview + filler, Discover becomes landing page).
+- Discover + Library interaction audit: `Views/DiscoverView.xaml(.cs)`, `ViewModels/DiscoverViewModel.cs`, `Views/LibraryView.xaml(.cs)`, `ViewModels/LibraryViewModel.cs`.
+- Automation + Displays interaction audit: `Views/AutomationView.xaml(.cs)`, `ViewModels/AutomationViewModel.cs`, `Views/DisplaysView.xaml(.cs)`, `ViewModels/DisplaysViewModel.cs`.
+- Inventory + static check: `docs/BUG-INVENTORY.md`, `scripts/check-buttons.ps1`.
+- Integrator owns App.xaml, triage, build, live verification and all other docs.
+
+## Wave 6 ownership (v2-shell) — packaging, SDK pin, version identity, guards
+- Release packaging: `scripts/publish.ps1` (single source of truth: self-contained,
+  single-file, win-x64), `build.ps1` (delegates `-Publish` to publish.ps1).
+- Installer: `tools/installer/**` (optional free Inno Setup `.iss`, per-user install
+  to `%LOCALAPPDATA%\Oriole`, reuses the app's HKCU Run setting).
+- Updater: `tools/Oriole.Updater/**` (separate process; checks GitHub Releases
+  manifest, verifies SHA-256, swaps the EXE after exit). Added to `Oriole.sln`.
+- Toolchain/version: `global.json` (exact SDK 10.0.404), `Directory.Build.props`
+  (pinned LangVersion/AnalysisLevel 10.0 while keeping TreatWarningsAsErrors —
+  LangVersion is set to 14.0 because C# 12 collection expressions are in use),
+  `Oriole.Core.csproj`, `Oriole.Desktop.csproj` + `app.manifest` (one tag-driven
+  version, `AssemblyInformationalVersion` retained for the About page).
+- CI/release: `.github/workflows/ci.yml` (adds `v2-shell` push branch, exact SDK,
+  full-solution build, guards), `.github/workflows/release.yml` (`verify` job
+  gates the release; publishes zip + standalone EXE + update manifest; signing
+  noted as deferred).
+- Guards: `scripts/check-tray.ps1` (tray Notify), `scripts/check-invariants.ps1`
+  (new: SDK pin, no hardcoded 0.1.0, version alignment, feed/import/dedupe,
+  editable ComboBox), plus `check-theme.ps1`/`check-buttons.ps1` unchanged.
+- Docs: all `docs/*.md`, `README.md`, `QA-FINDINGS.md` (scoped to the older
+  feature/library-automation branch).
+- NOT wired: the app-side version-check call in `App.xaml.cs` (owned by another
+  agent). The exact one-line integration is documented in `docs/RELEASING.md`.
+
 ## Build discipline
 - Do NOT run `build.ps1`, `dotnet build`, `dotnet test`, or launch Oriole.exe. The integrator builds once after all agents finish, to avoid file locks and conflicting obj/ writes.
 - Do NOT commit, push, or switch branches.

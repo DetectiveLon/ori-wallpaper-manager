@@ -15,8 +15,20 @@ public sealed class DisplaysViewModel : ViewModelBase
         RefreshCommand = new RelayCommand(_ => RefreshDisplays());
         ChooseImageCommand = new RelayCommand(parameter =>
         {
-            if (parameter is DisplayCardViewModel monitor)
-                ChooseImageRequested?.Invoke(monitor);
+            if (parameter is not DisplayCardViewModel monitor)
+            {
+                Status = "Could not identify the selected display. Use Refresh and try again.";
+                return;
+            }
+
+            // Never fail silently: if the view is not attached, say so inline.
+            if (ChooseImageRequested is null)
+            {
+                Status = $"The wallpaper picker is unavailable for {monitor.DeviceName}. Re-open Displays and try again.";
+                return;
+            }
+
+            ChooseImageRequested.Invoke(monitor);
         });
 
         RefreshDisplays();

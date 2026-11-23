@@ -61,16 +61,20 @@ public static class ApiKeyStore
         }
     }
 
-    public static void Clear()
+    /// <summary>Removes the stored key. Returns false when the file could not be
+    /// deleted (locked, ACL, ...), so callers never report a false success.</summary>
+    public static bool Clear()
     {
         try
         {
-            if (File.Exists(KeyPath))
-                File.Delete(KeyPath);
+            if (!File.Exists(KeyPath))
+                return true;
+            File.Delete(KeyPath);
+            return true;
         }
         catch (Exception)
         {
-            // Clearing is best-effort; the UI reports the stored state afterwards.
+            return false;
         }
     }
 }

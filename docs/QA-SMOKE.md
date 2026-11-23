@@ -8,15 +8,14 @@ Run this after the integrator produces a build: launch Oriole from the build out
 - [ ] **No white boxes.** Buttons, ComboBoxes, TextBoxes, PasswordBoxes, CheckBoxes, ListBox cards, ScrollBars, tooltips and dropdown popups stay dark in normal, hover, focus, selected **and disabled** states. Disabled controls are dimmed, never repainted white. A white rectangle on a control is a regression — stop and note the screen.
 - [ ] Text is legible: primary/muted/accent brushes, no white-on-white or dark-on-dark text.
 - [ ] Failures appear as inline status text with a refresh/retry action, never as a blocking modal dialog.
-- [ ] **Error log:** `%LOCALAPPDATA%\Oriole\logs\errors.log` (on this machine `C:\Users\eslam\AppData\Local\Oriole\logs\errors.log`). The same path is printed under **Settings → DATA & ABOUT → Error log**. If anything looks wrong, note the last timestamped entry there.
+- [ ] **Error log:** `%LOCALAPPDATA%\Oriole\logs\errors.log`. The same path is printed under **Settings → DATA & ABOUT → Error log**. The log rotates (bounded size/history) and is redacted so API keys and other sensitive values are not written in plaintext. If anything looks wrong, note the last timestamped entry there.
 - [ ] Optional static guard (not CI-wired): `pwsh -NoProfile -File scripts/check-theme.ps1` — exit 0 = clean, exit 1 = findings to review. It flags literal white/SystemColors brushes and disabled controls with no explicit Style.
 
-## Overview
+## Landing / navigation (Discover is the landing page)
 
-- [ ] Landing hero and the six navigation tiles render; no white cards.
-- [ ] Hero CTA ("Explore wallpapers") is accent-filled with legible text; hover/press stays dark.
-- [ ] Each tile (Overview, Discover, Library, Displays, Automation, Settings) navigates when clicked; tile text uses accent/muted brushes, not white blocks.
-- [ ] Status/preview copy is current (no stale "coming soon" text); footer banner is honest about the preview build.
+- [ ] On launch, **Discover** is shown (the old Overview screen was removed in `v2-shell`).
+- [ ] The sidebar nav items (Discover, Library, Displays, Automation, Settings) navigate when clicked; selected-state styling is visible.
+- [ ] Status/preview copy is current (no stale "coming soon" text); no orphaned Overview route remains.
 - [ ] Vertical ScrollBar, if present, is dark; scroll to the bottom and back with no white flash.
 
 ## Discover
@@ -67,4 +66,13 @@ Run this after the integrator produces a build: launch Oriole from the build out
 - [ ] "Start Oriole when I sign in" toggle button is dark with a readable Off/On label; toggling updates the status text.
 - [ ] DATA & ABOUT path text is legible, including **Error log: `%LOCALAPPDATA%\Oriole\logs\errors.log`**; copy that path for any issue found above.
 - [ ] Page ScrollBar and any tooltips are dark; no white panels after scrolling top to bottom.
-- [ ] Final pass: revisit Overview and confirm the dark theme survived all navigation; check `errors.log` one last time for entries timestamped during this run.
+- [ ] Confirm the About/version text shows the runtime-derived version (not a hard-coded preview string).
+- [ ] Final pass: revisit every screen and confirm the dark theme survived all navigation; check `errors.log` one last time for entries timestamped during this run.
+
+## Tray, import/auto-rotation and release (v2-shell additions)
+
+- [ ] Tray icon notifications (rotation/failure balloon tips) appear and are readable; a tray right-click shows Open/Exit without restoring the window.
+- [ ] Library folder import adds images and duplicate detection skips already-saved files; collections and the editable collection ComboBox work.
+- [ ] Tag presets / auto-rotation feed settings are present and the feed persists across a restart.
+- [ ] Portable release: download the self-contained zip, extract and run `Oriole.exe` on a PC **without** the .NET Desktop Runtime — it must start.
+- [ ] (Optional, if Inno Setup available) the per-user installer installs to `%LOCALAPPDATA%\Oriole`, adds Start menu/uninstall entries, and uninstall preserves library/logs.

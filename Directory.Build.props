@@ -2,9 +2,14 @@
   <PropertyGroup>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <LangVersion>latest</LangVersion>
+    <!-- Pinned instead of "latest" so a future SDK cannot silently change the
+         language. 14.0 is the C# version that ships with .NET 10. Setting this
+         to 10.0 would downgrade to C# 10 and break the collection expressions
+         (target-typed "[]") already used in the v2-shell view models. -->
+    <LangVersion>14.0</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <AnalysisLevel>latest</AnalysisLevel>
+    <!-- Pin analyzers to the .NET 10 rule set; "latest" floats with the SDK. -->
+    <AnalysisLevel>10.0</AnalysisLevel>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 </Project>

@@ -22,7 +22,6 @@ public sealed class NavigationService
 
         UserControl? view = key.ToLowerInvariant() switch
         {
-            "overview" => new OverviewView(),
             "discover" => new DiscoverView(),
             "library" => new LibraryView(),
             "displays" => new DisplaysView(),

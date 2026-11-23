@@ -1,7 +1,10 @@
+using System.Collections;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Oriole.Core.Services;
@@ -16,6 +19,8 @@ namespace Oriole.Desktop.ViewModels;
 /// </summary>
 public sealed class LibraryEntryViewModel : ViewModelBase
 {
+    private static readonly Regex HexColorPattern = new("\\b[0-9a-fA-F]{6}\\b", RegexOptions.Compiled);
+
     public LibraryEntryViewModel(WallpaperLibraryEntry entry)
     {
         Id = entry.Id;
@@ -25,6 +30,13 @@ public sealed class LibraryEntryViewModel : ViewModelBase
         FavoriteLabel = entry.IsFavorite ? "Unfavorite" : "Favorite";
         DetailText = $"{entry.Width:N0} × {entry.Height:N0} · {entry.Category} · {entry.Collection}";
         SelectedCollection = string.IsNullOrWhiteSpace(entry.Collection) ? "Unsorted" : entry.Collection;
+
+        // Tags and colours are formatted defensively: the store may model them as a
+        // delimited string or as a collection, and both render the same way here.
+        TagsText = TextOf(entry.Tags);
+        TagText = TagsText;
+        ColorsText = TextOf(entry.Colors);
+        ColorSwatches = BuildSwatches(ColorsText);
     }
 
     public string Id { get; }
@@ -38,6 +50,28 @@ public sealed class LibraryEntryViewModel : ViewModelBase
     public string FavoriteLabel { get; }
 
     public string DetailText { get; }
+
+    public string TagsText { get; }
+
+    public string ColorsText { get; }
+
+    public bool HasColors => ColorSwatches.Count > 0 || !string.IsNullOrWhiteSpace(ColorsText);
+
+    public IReadOnlyList<Brush> ColorSwatches { get; }
+
+    private string _tagText = string.Empty;
+    public string TagText
+    {
+        get => _tagText;
+        set => SetProperty(ref _tagText, value);
+    }
+
+    private string _tagStatus = string.Empty;
+    public string TagStatus
+    {
+        get => _tagStatus;
+        set => SetProperty(ref _tagStatus, value);
+    }
 
     private string _selectedCollection = "Unsorted";
     public string SelectedCollection
@@ -55,6 +89,50 @@ public sealed class LibraryEntryViewModel : ViewModelBase
         get => _thumbnail;
         set => SetProperty(ref _thumbnail, value);
     }
+
+    private static string TextOf(object? value) => value switch
+    {
+        null => string.Empty,
+        string text => text,
+        IEnumerable items => string.Join(", ", items.Cast<object?>().Where(item => item is not null)),
+        _ => value.ToString() ?? string.Empty
+    };
+
+    private static IReadOnlyList<Brush> BuildSwatches(string colors)
+    {
+        var swatches = new List<Brush>();
+        foreach (Match match in HexColorPattern.Matches(colors))
+        {
+            try
+            {
+                var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#" + match.Value)!);
+                brush.Freeze();
+                swatches.Add(brush);
+                if (swatches.Count == 8)
+                    break;
+            }
+            catch
+            {
+                // An unrecognised token is simply not shown as a swatch.
+            }
+        }
+        return swatches;
+    }
+}
+
+/// <summary>One row in the "Find duplicates" results panel.</summary>
+public sealed class DuplicateEntryViewModel
+{
+    public DuplicateEntryViewModel(string id, string path)
+    {
+        Id = id;
+        Path = path;
+        Name = System.IO.Path.GetFileName(path);
+    }
+
+    public string Id { get; }
+    public string Path { get; }
+    public string Name { get; }
 }
 
 public sealed class LibraryViewModel : ViewModelBase
@@ -75,6 +153,7 @@ public sealed class LibraryViewModel : ViewModelBase
     private IReadOnlyList<WallpaperLibraryEntry> _entries = Array.Empty<WallpaperLibraryEntry>();
     private IReadOnlyList<WallpaperLibraryEntry> _filtered = Array.Empty<WallpaperLibraryEntry>();
     private CancellationTokenSource? _renderDebounce;
+    private CancellationTokenSource? _importCts;
     private int _renderGeneration;
     private int _currentPage;
     private int _totalPages = 1;
@@ -89,6 +168,14 @@ public sealed class LibraryViewModel : ViewModelBase
         OpenCommand = new AsyncRelayCommand(p => OpenEntry(p as LibraryEntryViewModel), ex => Status = $"Could not open image: {ex.Message}");
         RemoveCommand = new AsyncRelayCommand(p => RemoveEntryAsync(p as LibraryEntryViewModel), ex => Status = $"Could not remove library entry: {ex.Message}");
         MoveToCollectionCommand = new AsyncRelayCommand(p => MoveToCollectionAsync(p as LibraryEntryViewModel), ex => Status = $"Could not move to collection: {ex.Message}");
+        CreateCollectionCommand = new AsyncRelayCommand(_ => CreateCollectionAsync(), ex => Status = $"Could not create collection: {ex.Message}");
+        ConfirmRemoveCommand = new AsyncRelayCommand(_ => ConfirmRemoveAsync(), ex => Status = $"Could not remove library entry: {ex.Message}");
+        CancelRemoveCommand = new AsyncRelayCommand(
+            _ => { CancelRemove(); return Task.CompletedTask; },
+            ex => Status = $"Could not cancel removal: {ex.Message}");
+        FindDuplicatesCommand = new AsyncRelayCommand(_ => FindDuplicatesAsync(), ex => Status = $"Could not find duplicates: {ex.Message}");
+        RemoveDuplicateCommand = new AsyncRelayCommand(p => RemoveDuplicateAsync(p as DuplicateEntryViewModel), ex => Status = $"Could not remove duplicate: {ex.Message}");
+        SetTagsCommand = new AsyncRelayCommand(p => SetTagsAsync(p as LibraryEntryViewModel), ex => Status = $"Could not update tags: {ex.Message}");
         PreviousPageCommand = new AsyncRelayCommand(
             _ => { GoPreviousPage(); return Task.CompletedTask; },
             ex => Status = $"Could not change page: {ex.Message}");
@@ -108,6 +195,13 @@ public sealed class LibraryViewModel : ViewModelBase
 
     public ObservableCollection<string> MoveTargets { get; } = new();
 
+    public ObservableCollection<DuplicateEntryViewModel> Duplicates { get; } = new();
+
+    public IReadOnlyList<string> SortOptions { get; } = new[]
+    {
+        "Date saved", "Title", "Resolution", "Collection", "Favourites"
+    };
+
     public ICommand RefreshCommand { get; }
 
     public ICommand ApplyCommand { get; }
@@ -119,6 +213,18 @@ public sealed class LibraryViewModel : ViewModelBase
     public ICommand RemoveCommand { get; }
 
     public ICommand MoveToCollectionCommand { get; }
+
+    public ICommand CreateCollectionCommand { get; }
+
+    public ICommand ConfirmRemoveCommand { get; }
+
+    public ICommand CancelRemoveCommand { get; }
+
+    public ICommand FindDuplicatesCommand { get; }
+
+    public ICommand RemoveDuplicateCommand { get; }
+
+    public ICommand SetTagsCommand { get; }
 
     public ICommand PreviousPageCommand { get; }
 
@@ -164,6 +270,31 @@ public sealed class LibraryViewModel : ViewModelBase
         }
     }
 
+    private string _selectedSort = "Date saved";
+    public string SelectedSort
+    {
+        get => _selectedSort;
+        set
+        {
+            if (SetProperty(ref _selectedSort, value))
+                ScheduleRender();
+        }
+    }
+
+    private LibraryEntryViewModel? _selectedEntry;
+    public LibraryEntryViewModel? SelectedEntry
+    {
+        get => _selectedEntry;
+        set => SetProperty(ref _selectedEntry, value);
+    }
+
+    private string _newCollectionName = string.Empty;
+    public string NewCollectionName
+    {
+        get => _newCollectionName;
+        set => SetProperty(ref _newCollectionName, value);
+    }
+
     private string _status = string.Empty;
     public string Status
     {
@@ -185,6 +316,58 @@ public sealed class LibraryViewModel : ViewModelBase
         set => SetProperty(ref _isRefreshEnabled, value);
     }
 
+    private bool _isRemoveConfirmationOpen;
+    public bool IsRemoveConfirmationOpen
+    {
+        get => _isRemoveConfirmationOpen;
+        set => SetProperty(ref _isRemoveConfirmationOpen, value);
+    }
+
+    private LibraryEntryViewModel? _pendingRemoveEntry;
+    public LibraryEntryViewModel? PendingRemoveEntry
+    {
+        get => _pendingRemoveEntry;
+        set
+        {
+            if (SetProperty(ref _pendingRemoveEntry, value))
+                OnPropertyChanged(nameof(RemoveConfirmationText));
+        }
+    }
+
+    public string RemoveConfirmationText => PendingRemoveEntry is null
+        ? "Remove this wallpaper from the library?"
+        : $"Remove \"{PendingRemoveEntry.Title}\" from the library?";
+
+    private bool _deleteFileOnRemove;
+    public bool DeleteFileOnRemove
+    {
+        get => _deleteFileOnRemove;
+        set => SetProperty(ref _deleteFileOnRemove, value);
+    }
+
+    private bool _isImporting;
+    public bool IsImporting
+    {
+        get => _isImporting;
+        set => SetProperty(ref _isImporting, value);
+    }
+
+    private string _importProgress = string.Empty;
+    public string ImportProgress
+    {
+        get => _importProgress;
+        set => SetProperty(ref _importProgress, value);
+    }
+
+    private string _duplicateStatus = string.Empty;
+    public string DuplicateStatus
+    {
+        get => _duplicateStatus;
+        set => SetProperty(ref _duplicateStatus, value);
+    }
+
+    public bool HasDuplicates => Duplicates.Count > 0;
+
     // Computed page state - raised explicitly by RefreshPageState().
     public int PageSizeValue => PageSize;
     public bool CanGoPrevious => _currentPage > 0;
@@ -193,13 +376,35 @@ public sealed class LibraryViewModel : ViewModelBase
 
     private void LoadDisplays()
     {
-        var detection = DisplayDetection.Read();
-        foreach (var monitor in detection.Monitors)
-            Displays.Add(monitor);
-        SelectedDisplay = detection.Monitors.FirstOrDefault(monitor => monitor.IsPrimary)
-            ?? detection.Monitors.FirstOrDefault();
-        if (!detection.Succeeded)
-            Status = $"Display detection unavailable: {detection.Error}";
+        Displays.Clear();
+        try
+        {
+            var detection = DisplayDetection.Read();
+            foreach (var monitor in detection.Monitors)
+                Displays.Add(monitor);
+            SelectedDisplay = detection.Monitors.FirstOrDefault(monitor => monitor.IsPrimary)
+                ?? detection.Monitors.FirstOrDefault();
+            if (!detection.Succeeded)
+                Status = $"Display detection unavailable: {detection.Error}";
+        }
+        catch (Exception ex)
+        {
+            // A detection failure must never prevent the library commands from loading.
+            Status = $"Display detection unavailable: {ex.Message}";
+        }
+    }
+
+    /// <summary>Called by the view on Unloaded: settles debounces, imports and any open dialog.</summary>
+    public void CancelOperations()
+    {
+        _renderDebounce?.Cancel();
+        _renderDebounce?.Dispose();
+        _renderDebounce = null;
+        _importCts?.Cancel();
+        _importCts?.Dispose();
+        _importCts = null;
+        if (IsRemoveConfirmationOpen)
+            CancelRemove();
     }
 
     private void ScheduleRender()
@@ -261,6 +466,21 @@ public sealed class LibraryViewModel : ViewModelBase
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+        // Clearing the ComboBox's ItemsSource momentarily drops its SelectedItem;
+        // with a TwoWay binding that writes null into the VM through the setter,
+        // which schedules a debounced render that would reset _currentPage to 0
+        // after ReloadAsync has already rendered. There is no other caller of
+        // this method, so cancelling the pending render loses nothing.
+        _renderDebounce?.Cancel();
+        _renderDebounce?.Dispose();
+        _renderDebounce = null;
+
+        // Remember the user's choice and restore it from the VM side after
+        // repopulating, without going through the setter (which reschedules).
+        var previousFilter = string.IsNullOrWhiteSpace(_selectedCollectionFilter)
+            ? AllCollections
+            : _selectedCollectionFilter;
+
         CollectionFilters.Clear();
         CollectionFilters.Add(AllCollections);
         CollectionFilters.Add(Unsorted);
@@ -272,8 +492,14 @@ public sealed class LibraryViewModel : ViewModelBase
         foreach (var name in names.Where(name => !string.Equals(name, Unsorted, StringComparison.OrdinalIgnoreCase)))
             MoveTargets.Add(name);
 
-        if (!CollectionFilters.Any(name => string.Equals(name, _selectedCollectionFilter, StringComparison.OrdinalIgnoreCase)))
-            SelectedCollectionFilter = AllCollections;
+        var restored = CollectionFilters.Any(name => string.Equals(name, previousFilter, StringComparison.OrdinalIgnoreCase))
+            ? previousFilter
+            : AllCollections;
+        if (!string.Equals(_selectedCollectionFilter, restored, StringComparison.OrdinalIgnoreCase))
+        {
+            _selectedCollectionFilter = restored;
+            OnPropertyChanged(nameof(SelectedCollectionFilter));
+        }
     }
 
     private void RenderEntries()
@@ -281,15 +507,17 @@ public sealed class LibraryViewModel : ViewModelBase
         ++_renderGeneration;
         var query = SearchText.Trim();
         var collectionFilter = _selectedCollectionFilter;
-        _filtered = _entries.Where(entry =>
+        var filtered = _entries.Where(entry =>
                 (!FavoritesOnly || entry.IsFavorite)
                 && (string.Equals(collectionFilter, AllCollections, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(entry.Collection, collectionFilter, StringComparison.OrdinalIgnoreCase))
                 && (query.Length == 0
                     || entry.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
                     || entry.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
-                    || entry.Collection.Contains(query, StringComparison.OrdinalIgnoreCase)))
-            .ToArray();
+                    || entry.Collection.Contains(query, StringComparison.OrdinalIgnoreCase)));
+
+        // Sorting happens before paging so every page follows the selected order.
+        _filtered = ApplySort(filtered).ToArray();
 
         _totalPages = Math.Max(1, (int)Math.Ceiling(_filtered.Count / (double)PageSize));
         if (_currentPage >= _totalPages)
@@ -300,6 +528,22 @@ public sealed class LibraryViewModel : ViewModelBase
         RenderCurrentPage();
         RefreshPageState();
     }
+
+    private IOrderedEnumerable<WallpaperLibraryEntry> ApplySort(IEnumerable<WallpaperLibraryEntry> source) =>
+        SelectedSort switch
+        {
+            "Title" => source.OrderBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.Id, StringComparer.OrdinalIgnoreCase),
+            "Resolution" => source.OrderByDescending(entry => (long)entry.Width * entry.Height)
+                .ThenByDescending(entry => entry.Height),
+            "Collection" => source.OrderBy(
+                    entry => string.IsNullOrWhiteSpace(entry.Collection) ? Unsorted : entry.Collection,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase),
+            "Favourites" => source.OrderByDescending(entry => entry.IsFavorite)
+                .ThenBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase),
+            _ => source.OrderByDescending(entry => entry.SavedAtUtc)
+        };
 
     // Build card view models for the current page only. Thumbnails are decoded lazily by
     // the view, so at most PageSize bitmaps are ever realized at once.
@@ -383,6 +627,7 @@ public sealed class LibraryViewModel : ViewModelBase
             if (!File.Exists(entry.LocalPath))
                 throw new FileNotFoundException("The image file is missing.", entry.LocalPath);
             Process.Start(new ProcessStartInfo(entry.LocalPath) { UseShellExecute = true });
+            Status = $"Opened {entry.Title} in the image viewer.";
         }
         catch (Exception ex)
         {
@@ -394,11 +639,16 @@ public sealed class LibraryViewModel : ViewModelBase
     private async Task ToggleFavoriteAsync(LibraryEntryViewModel? entry)
     {
         if (entry is null)
+        {
+            Status = "Could not update favorite: no wallpaper is selected.";
             return;
+        }
         try
         {
-            await _store.SetFavoriteAsync(entry.Id, !entry.IsFavorite);
+            var next = !entry.IsFavorite;
+            await _store.SetFavoriteAsync(entry.Id, next);
             await ReloadAsync();
+            Status = $"{entry.Title} {(next ? "added to" : "removed from")} favourites.";
         }
         catch (Exception ex)
         {
@@ -406,24 +656,59 @@ public sealed class LibraryViewModel : ViewModelBase
         }
     }
 
-    private async Task RemoveEntryAsync(LibraryEntryViewModel? entry)
+    // Removal is a two-step flow now: this only opens the themed confirmation panel.
+    // Nothing is deleted (metadata or file) until the user explicitly confirms.
+    private Task RemoveEntryAsync(LibraryEntryViewModel? entry)
     {
         if (entry is null)
-            return;
+        {
+            Status = "Could not remove library entry: no wallpaper is selected.";
+            return Task.CompletedTask;
+        }
 
-        var answer = MessageBox.Show(
-            Application.Current?.MainWindow,
-            "Remove this item from the Oriole library? The downloaded image file will be kept on disk.",
-            "Remove library entry",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
-        if (answer != MessageBoxResult.Yes)
-            return;
+        PendingRemoveEntry = entry;
+        DeleteFileOnRemove = false;
+        IsRemoveConfirmationOpen = true;
+        Status = $"Confirm removal of \"{entry.Title}\" — nothing has been deleted yet.";
+        return Task.CompletedTask;
+    }
 
+    private void CancelRemove()
+    {
+        IsRemoveConfirmationOpen = false;
+        PendingRemoveEntry = null;
+        DeleteFileOnRemove = false;
+        Status = "Removal cancelled. Nothing was deleted.";
+    }
+
+    private async Task ConfirmRemoveAsync()
+    {
+        var entry = PendingRemoveEntry;
+        if (entry is null)
+        {
+            IsRemoveConfirmationOpen = false;
+            Status = "Nothing to remove.";
+            return;
+        }
+
+        var deleteFile = DeleteFileOnRemove;
         try
         {
-            await _store.RemoveAsync(entry.Id);
+            var removed = await _store.DeleteEntryAsync(entry.Id, deleteFile, CancellationToken.None);
+            IsRemoveConfirmationOpen = false;
+            PendingRemoveEntry = null;
+            DeleteFileOnRemove = false;
+            if (!removed)
+            {
+                Status = "That library entry no longer exists.";
+                return;
+            }
+
+            SelectedEntry = null;
             await ReloadAsync();
+            Status = deleteFile
+                ? $"Removed \"{entry.Title}\" from the library and deleted its image file."
+                : $"Removed \"{entry.Title}\" from the library (image file kept on disk).";
         }
         catch (Exception ex)
         {
@@ -434,7 +719,10 @@ public sealed class LibraryViewModel : ViewModelBase
     private async Task MoveToCollectionAsync(LibraryEntryViewModel? entry)
     {
         if (entry is null)
+        {
+            Status = "Could not move to collection: no wallpaper is selected.";
             return;
+        }
 
         var target = string.IsNullOrWhiteSpace(entry.SelectedCollection)
             ? Unsorted
@@ -448,7 +736,7 @@ public sealed class LibraryViewModel : ViewModelBase
                 return;
             }
 
-            // Reload entries and collection lists so a newly used collection is
+            // Reload entries and collection lists so a newly typed collection is
             // immediately available to the filter and every card.
             await ReloadAsync();
             Status = $"Moved {entry.Title} to {target}.";
@@ -456,6 +744,160 @@ public sealed class LibraryViewModel : ViewModelBase
         catch (Exception ex)
         {
             Status = $"Could not move to collection: {ex.Message}";
+        }
+    }
+
+    private async Task CreateCollectionAsync()
+    {
+        var name = NewCollectionName?.Trim();
+        if (string.IsNullOrWhiteSpace(name) || string.Equals(name, Unsorted, StringComparison.OrdinalIgnoreCase))
+        {
+            Status = "Enter a new collection name (other than 'Unsorted').";
+            return;
+        }
+        if (SelectedEntry is null)
+        {
+            Status = "Select a wallpaper first, then choose New collection.";
+            return;
+        }
+
+        var title = SelectedEntry.Title;
+        try
+        {
+            var changed = await _store.SetCollectionAsync(SelectedEntry.Id, name);
+            if (!changed)
+            {
+                Status = "That library entry no longer exists.";
+                return;
+            }
+
+            NewCollectionName = string.Empty;
+            await ReloadAsync();
+            Status = $"Created \"{name}\" and moved {title} into it.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not create collection: {ex.Message}";
+        }
+    }
+
+    /// <summary>Invoked by the view's folder picker; progress is reported inline.</summary>
+    public async Task ImportFolderAsync(string folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            Status = "No folder was selected.";
+            return;
+        }
+        if (IsImporting)
+        {
+            Status = "An import is already running.";
+            return;
+        }
+
+        _importCts?.Cancel();
+        _importCts?.Dispose();
+        _importCts = new CancellationTokenSource();
+        var token = _importCts.Token;
+        var progress = new Progress<string>(message => ImportProgress = message);
+
+        IsImporting = true;
+        ImportProgress = "Starting import…";
+        Status = $"Importing wallpapers from \"{folderPath}\"…";
+        try
+        {
+            var count = await _store.ImportFolderAsync(folderPath, progress, token);
+            await ReloadAsync();
+            Status = $"Imported {count} wallpaper(s).";
+            ImportProgress = $"Imported {count} wallpaper(s).";
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            Status = "Import cancelled.";
+            ImportProgress = "Import cancelled.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not import folder: {ex.Message}";
+            ImportProgress = "Import failed.";
+        }
+        finally
+        {
+            IsImporting = false;
+            _importCts?.Dispose();
+            _importCts = null;
+        }
+    }
+
+    private async Task FindDuplicatesAsync()
+    {
+        using var cancellation = new CancellationTokenSource();
+        try
+        {
+            Status = "Scanning for duplicate wallpapers…";
+            var found = await _store.FindDuplicatesAsync(cancellation.Token);
+            Duplicates.Clear();
+            foreach (var (id, path) in found)
+                Duplicates.Add(new DuplicateEntryViewModel(id, path));
+            OnPropertyChanged(nameof(HasDuplicates));
+
+            DuplicateStatus = found.Count == 0
+                ? "No duplicates found."
+                : $"{found.Count} duplicate(s) found. Remove only the ones you want gone.";
+            Status = DuplicateStatus;
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not find duplicates: {ex.Message}";
+        }
+    }
+
+    private async Task RemoveDuplicateAsync(DuplicateEntryViewModel? item)
+    {
+        if (item is null)
+            return;
+        try
+        {
+            // Explicit, metadata-only removal: a duplicate row never deletes a file.
+            var removed = await _store.DeleteEntryAsync(item.Id, false, CancellationToken.None);
+            if (removed)
+                Duplicates.Remove(item);
+            OnPropertyChanged(nameof(HasDuplicates));
+            await ReloadAsync();
+            DuplicateStatus = $"{Duplicates.Count} duplicate(s) remaining.";
+            Status = removed
+                ? $"Removed duplicate \"{item.Name}\" from the library (file kept on disk)."
+                : "That library entry no longer exists.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not remove duplicate: {ex.Message}";
+        }
+    }
+
+    private async Task SetTagsAsync(LibraryEntryViewModel? card)
+    {
+        if (card is null)
+        {
+            Status = "Could not update tags: no wallpaper is selected.";
+            return;
+        }
+        try
+        {
+            var changed = await _store.SetTagsAsync(card.Id, card.TagText ?? string.Empty, CancellationToken.None);
+            if (!changed)
+            {
+                card.TagStatus = "Entry no longer exists.";
+                Status = "Could not update tags: entry no longer exists.";
+                return;
+            }
+            card.TagStatus = "Tags saved.";
+            Status = $"Tags saved for {card.Title}.";
+        }
+        catch (Exception ex)
+        {
+            card.TagStatus = "Save failed.";
+            Status = $"Could not update tags: {ex.Message}";
         }
     }
 

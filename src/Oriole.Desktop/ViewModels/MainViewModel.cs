@@ -47,7 +47,6 @@ public sealed class MainViewModel : ViewModelBase
 
         Items = new ObservableCollection<NavigationItem>
         {
-            new("Overview", "Overview", "\uE80F"),   // home
             new("Discover", "Discover", "\uE721"),   // search
             new("Library", "My library", "\uE8B7"),  // library
             new("Displays", "Displays", "\uE7F4"),   // monitor
@@ -57,7 +56,7 @@ public sealed class MainViewModel : ViewModelBase
 
         NavigateCommand = new RelayCommand(parameter => Navigate(parameter as string));
 
-        // Start on the overview.
+        // Discover is the landing page.
         SelectedItem = Items[0];
     }
 
@@ -101,9 +100,9 @@ public sealed class MainViewModel : ViewModelBase
     {
         var view = _navigation.CreateView(key);
 
-        // Give self-contained views (e.g. OverviewView) a data context so their
-        // bindings work without the host having to wire it up. Views that set
-        // their own view model keep it.
+        // Give self-contained views a data context so their bindings work
+        // without the host having to wire it up. Views that set their own
+        // view model keep it.
         if (view is not null && view.DataContext is null)
             view.DataContext = this;
 

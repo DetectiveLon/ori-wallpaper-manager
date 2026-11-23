@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace Oriole.Core.Services;
@@ -17,18 +18,37 @@ public sealed record WallpaperLibraryEntry
     public DateTimeOffset SavedAtUtc { get; init; } = DateTimeOffset.UtcNow;
     public bool IsFavorite { get; init; }
     public string Collection { get; init; } = "Unsorted";
+
+    // Schema v2: provenance and discovery metadata. Older indexes are migrated to
+    // empty strings so no entry is lost when the schema is upgraded.
+    public string Tags { get; init; } = string.Empty;
+    public string Colors { get; init; } = string.Empty;
+    public string SourceQuery { get; init; } = string.Empty;
+    public string SourceId { get; init; } = string.Empty;
+    public string ContentHash { get; init; } = string.Empty;
 }
 
 /// <summary>
 /// Small versioned JSON index for the local wallpaper library. Removing an entry never
-/// deletes its image file; library metadata and user files are kept separate.
+/// deletes its image file unless explicitly requested; library metadata and user files
+/// are otherwise kept separate.
 /// </summary>
 public sealed class WallpaperLibraryStore
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
+    private const int LegacySchemaVersion = 1;
+    private const int MaximumEntries = 5000;
     private const long MaximumIndexBytes = 8 * 1024 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private static readonly SemaphoreSlim Gate = new(1, 1);
+    private static readonly StringComparison PathComparison = OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+    private static readonly HashSet<string> ImportableExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".webp", ".bmp"
+    };
+
     private readonly string _indexPath;
 
     public WallpaperLibraryStore(string? indexPath = null)
@@ -90,7 +110,7 @@ public sealed class WallpaperLibraryStore
                 entries.Add(entry);
             }
 
-            if (entries.Count > 5000)
+            if (entries.Count > MaximumEntries)
                 throw new InvalidOperationException("The wallpaper library reached its 5,000-item safety limit.");
 
             await WriteCoreAsync(entries, cancellationToken).ConfigureAwait(false);
@@ -153,6 +173,36 @@ public sealed class WallpaperLibraryStore
         }
     }
 
+    public async Task<bool> SetTagsAsync(
+        string id,
+        string tags,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        ArgumentNullException.ThrowIfNull(tags);
+        var normalized = string.Join(", ", tags
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var entries = await ReadCoreAsync(cancellationToken).ConfigureAwait(false);
+            var index = entries.FindIndex(existing =>
+                string.Equals(existing.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+                return false;
+
+            entries[index] = entries[index] with { Tags = normalized };
+            await WriteCoreAsync(entries, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
     public async Task<bool> RemoveAsync(
         string id,
         CancellationToken cancellationToken = default)
@@ -174,6 +224,318 @@ public sealed class WallpaperLibraryStore
         }
     }
 
+    /// <summary>
+    /// Removes an entry and, when requested, its image file. Returns false when the
+    /// entry does not exist or the file could not be deleted (in which case the index
+    /// is left untouched).
+    /// </summary>
+    public async Task<bool> DeleteEntryAsync(
+        string id,
+        bool deleteFile,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var entries = await ReadCoreAsync(cancellationToken).ConfigureAwait(false);
+            var entry = entries.FirstOrDefault(existing =>
+                string.Equals(existing.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (entry is null)
+                return false;
+
+            if (deleteFile && !string.IsNullOrWhiteSpace(entry.LocalPath))
+            {
+                var path = Path.GetFullPath(entry.LocalPath);
+                if (File.Exists(path))
+                {
+                    try
+                    {
+                        File.Delete(path);
+                    }
+                    catch (IOException)
+                    {
+                        return false;
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            entries.Remove(entry);
+            await WriteCoreAsync(entries, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Recursively imports jpg/jpeg/png/webp/bmp files, hashing each one with SHA-256
+    /// and skipping files whose hash already exists in the library (or in this batch).
+    /// Reparse points are never traversed, so a symlink/junction cannot escape the folder.
+    /// Returns the number of entries added.
+    /// </summary>
+    public async Task<int> ImportFolderAsync(
+        string folderPath,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folderPath);
+        var root = Path.GetFullPath(folderPath);
+        if (!Directory.Exists(root))
+            throw new DirectoryNotFoundException($"The folder '{folderPath}' does not exist.");
+
+        var rootWithSeparator = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+
+        // Hashing happens before the lock so large folders do not block other callers.
+        var candidates = new List<WallpaperLibraryEntry>();
+        var hashesInBatch = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in EnumerateImageFilesSafely(root, rootWithSeparator, cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Report($"Hashing {Path.GetFileName(file)}…");
+
+            string hash;
+            try
+            {
+                await using var stream = new FileStream(
+                    file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                    64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false));
+            }
+            catch (IOException)
+            {
+                progress?.Report($"Skipped locked file {Path.GetFileName(file)}.");
+                continue;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            if (!hashesInBatch.Add(hash))
+                continue;
+
+            candidates.Add(new WallpaperLibraryEntry
+            {
+                Id = "local-" + hash.ToLowerInvariant()[..24],
+                Title = Path.GetFileNameWithoutExtension(file),
+                LocalPath = file,
+                ContentHash = hash,
+                Category = "Local",
+                Collection = "Unsorted"
+            });
+        }
+
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var entries = await ReadCoreAsync(cancellationToken).ConfigureAwait(false);
+            var knownHashes = new HashSet<string>(
+                entries.Where(entry => !string.IsNullOrWhiteSpace(entry.ContentHash))
+                    .Select(entry => entry.ContentHash),
+                StringComparer.OrdinalIgnoreCase);
+            var knownIds = new HashSet<string>(entries.Select(entry => entry.Id), StringComparer.OrdinalIgnoreCase);
+
+            var imported = 0;
+            foreach (var candidate in candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!knownHashes.Add(candidate.ContentHash))
+                    continue;
+                if (entries.Count + imported >= MaximumEntries)
+                {
+                    // Commit what already fits instead of throwing away the whole
+                    // batch. The caller reports how many were imported so the user
+                    // knows the remainder was skipped at the safety cap.
+                    break;
+                }
+
+                var id = knownIds.Add(candidate.Id) ? candidate.Id : "local-" + Guid.NewGuid().ToString("N");
+                entries.Add(candidate with { Id = id });
+                imported++;
+            }
+
+            if (imported > 0)
+                await WriteCoreAsync(entries, cancellationToken).ConfigureAwait(false);
+            return imported;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Returns the redundant copies (every entry after the first in each duplicate
+    /// group) as (Id, LocalPath) pairs. Entries are grouped by ContentHash, with a
+    /// normalized-path-plus-size fallback for older entries without a hash.
+    /// </summary>
+    public async Task<List<(string Id, string Path)>> FindDuplicatesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var entries = await ReadCoreAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var byHash = new Dictionary<string, List<WallpaperLibraryEntry>>(StringComparer.OrdinalIgnoreCase);
+            var unhashed = new List<WallpaperLibraryEntry>();
+            foreach (var entry in entries)
+            {
+                if (!string.IsNullOrWhiteSpace(entry.ContentHash))
+                {
+                    if (!byHash.TryGetValue(entry.ContentHash, out var group))
+                        byHash[entry.ContentHash] = group = [];
+                    group.Add(entry);
+                }
+                else
+                {
+                    unhashed.Add(entry);
+                }
+            }
+
+            var duplicates = new List<(string Id, string Path)>();
+            foreach (var group in byHash.Values.Where(group => group.Count > 1))
+                duplicates.AddRange(group.Skip(1).Select(entry => (entry.Id, entry.LocalPath)));
+
+            var byFallback = new Dictionary<string, List<WallpaperLibraryEntry>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in unhashed)
+            {
+                var key = BuildFallbackKey(entry);
+                if (key is null)
+                    continue;
+                if (!byFallback.TryGetValue(key, out var group))
+                    byFallback[key] = group = [];
+                group.Add(entry);
+            }
+            foreach (var group in byFallback.Values.Where(group => group.Count > 1))
+                duplicates.AddRange(group.Skip(1).Select(entry => (entry.Id, entry.LocalPath)));
+
+            return duplicates;
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    private static IEnumerable<string> EnumerateImageFilesSafely(
+        string root,
+        string rootWithSeparator,
+        CancellationToken cancellationToken)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
+
+        while (pending.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var directory = pending.Pop();
+
+            string[] files;
+            try
+            {
+                files = [.. Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)];
+            }
+            catch (UnauthorizedAccessException)
+            {
+                files = [];
+            }
+
+            foreach (var file in files)
+            {
+                if (IsReparsePoint(file))
+                    continue;
+                var fullPath = Path.GetFullPath(file);
+                if (!IsInsideRoot(fullPath, root, rootWithSeparator))
+                    continue;
+                if (ImportableExtensions.Contains(Path.GetExtension(fullPath)))
+                    yield return fullPath;
+            }
+
+            string[] children;
+            try
+            {
+                children = [.. Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly)];
+            }
+            catch (UnauthorizedAccessException)
+            {
+                children = [];
+            }
+
+            foreach (var child in children)
+            {
+                // Never traverse a reparse point: a junction or symlink could lead
+                // outside the folder the user chose to import.
+                if (IsReparsePoint(child))
+                    continue;
+                var fullPath = Path.GetFullPath(child);
+                if (!IsInsideRoot(fullPath, root, rootWithSeparator))
+                    continue;
+                pending.Push(fullPath);
+            }
+        }
+    }
+
+    private static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (IOException)
+        {
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    private static bool IsInsideRoot(string candidate, string root, string rootWithSeparator) =>
+        string.Equals(candidate, root, PathComparison)
+        || candidate.StartsWith(rootWithSeparator, PathComparison);
+
+    private static string? BuildFallbackKey(WallpaperLibraryEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.LocalPath))
+            return null;
+
+        string path;
+        try
+        {
+            path = Path.GetFullPath(entry.LocalPath);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+
+        long size = -1;
+        try
+        {
+            if (File.Exists(path))
+                size = new FileInfo(path).Length;
+        }
+        catch (IOException)
+        {
+            // Keep the size unknown; the normalized path still participates.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return $"{path}\u001f{size}";
+    }
+
     private async Task<List<WallpaperLibraryEntry>> ReadCoreAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_indexPath))
@@ -191,11 +553,33 @@ public sealed class WallpaperLibraryStore
 
         if (document is null)
             return [];
-        if (document.Version != SchemaVersion)
+        if (document.Version != LegacySchemaVersion && document.Version != SchemaVersion)
             throw new InvalidDataException($"Unsupported wallpaper library version: {document.Version}.");
 
-        return document.Entries ?? [];
+        // Version-1 entries simply lacked the new fields. Applying the normalizer to
+        // both versions fills safe defaults and keeps every existing entry intact.
+        return (document.Entries ?? []).Select(NormalizeForCurrentSchema).ToList();
     }
+
+    /// <summary>Fills safe defaults for fields that did not exist in older schemas.</summary>
+    private static WallpaperLibraryEntry NormalizeForCurrentSchema(WallpaperLibraryEntry entry) => entry with
+    {
+        Title = Safe(entry.Title),
+        PageUrl = Safe(entry.PageUrl),
+        ImageUrl = Safe(entry.ImageUrl),
+        LocalPath = Safe(entry.LocalPath),
+        Category = Safe(entry.Category),
+        Purity = Safe(entry.Purity),
+        Ratio = Safe(entry.Ratio),
+        Collection = string.IsNullOrWhiteSpace(entry.Collection) ? "Unsorted" : entry.Collection,
+        Tags = Safe(entry.Tags),
+        Colors = Safe(entry.Colors),
+        SourceQuery = Safe(entry.SourceQuery),
+        SourceId = Safe(entry.SourceId),
+        ContentHash = Safe(entry.ContentHash)
+    };
+
+    private static string Safe(string? value) => value ?? string.Empty;
 
     private async Task WriteCoreAsync(
         List<WallpaperLibraryEntry> entries,
