@@ -8,6 +8,20 @@ namespace Oriole.Core.Services;
 public sealed class RotationLoop(TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly SemaphoreSlim _resetSignal = new(0, 1);
+
+    /// <summary>Restarts the pending interval after a successful manual rotation.</summary>
+    public void ResetNextRun()
+    {
+        try
+        {
+            _resetSignal.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+            // Multiple manual requests collapse into one reset instead of building a queue.
+        }
+    }
 
     public static DateTimeOffset CalculateNextRun(
         DateTimeOffset now,
@@ -38,6 +52,10 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
         if (interval < TimeSpan.FromMinutes(1) || interval > TimeSpan.FromDays(7))
             throw new ArgumentOutOfRangeException(nameof(interval));
 
+        while (_resetSignal.Wait(0))
+        {
+        }
+
         var nextRun = _timeProvider.GetUtcNow() + interval;
         if (nextRunChanged is not null)
             await nextRunChanged(nextRun).ConfigureAwait(false);
@@ -47,7 +65,33 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
         {
             var remaining = nextRun - _timeProvider.GetUtcNow();
             if (remaining > TimeSpan.Zero)
-                await Task.Delay(remaining, _timeProvider, cancellationToken).ConfigureAwait(false);
+            {
+                using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var delayTask = Task.Delay(remaining, _timeProvider, waitCancellation.Token);
+                var resetTask = _resetSignal.WaitAsync(waitCancellation.Token);
+                await Task.WhenAny(delayTask, resetTask).ConfigureAwait(false);
+
+                if (resetTask.IsCompletedSuccessfully)
+                {
+                    await resetTask.ConfigureAwait(false);
+                    waitCancellation.Cancel();
+                    nextRun = _timeProvider.GetUtcNow() + interval;
+                    if (nextRunChanged is not null)
+                        await nextRunChanged(nextRun).ConfigureAwait(false);
+                    continue;
+                }
+
+                waitCancellation.Cancel();
+                await delayTask.ConfigureAwait(false);
+            }
+
+            if (_resetSignal.Wait(0))
+            {
+                nextRun = _timeProvider.GetUtcNow() + interval;
+                if (nextRunChanged is not null)
+                    await nextRunChanged(nextRun).ConfigureAwait(false);
+                continue;
+            }
 
             while (shouldPause())
             {
