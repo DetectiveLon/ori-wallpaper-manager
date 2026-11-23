@@ -16,6 +16,8 @@ public sealed class DiscoverPage : UserControl
 {
     private static readonly WallhavenClient Api = new(WallhavenClient.CreateHttpClient());
     private static readonly WallhavenImageDownloader Images = new();
+    private static readonly WallpaperImageCache LibraryImages = new();
+    private static readonly WallpaperLibraryStore Library = new();
 
     private readonly CheckBox _general = Check("General", true);
     private readonly CheckBox _anime = Check("Anime", true);
@@ -26,7 +28,17 @@ public sealed class DiscoverPage : UserControl
     private readonly TextBox _tags = CreateTextBox("Example: landscape, nature, -people");
     private readonly TextBox _minimum = CreateTextBox("1920x1080");
     private readonly TextBox _exact = CreateTextBox("3840x2160");
-    private readonly TextBox _colors = CreateTextBox("660000,0066cc,ffffff");
+    private readonly TextBox _colors = CreateTextBox("Custom hex colors, comma-separated");
+    private readonly ListBox _colorPalette = new()
+    {
+        Height = 82,
+        SelectionMode = SelectionMode.Multiple,
+        Background = Brush("#202B39"),
+        Foreground = Brush("#F1F4F8"),
+        BorderBrush = Brush("#344254"),
+        Padding = new Thickness(4),
+        ScrollViewer = { VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
+    };
     private readonly PasswordBox _apiKey = new() { Height = 32, Margin = new Thickness(0, 5, 0, 12), Padding = new Thickness(8, 5), Background = Brush("#202B39"), Foreground = Brush("#F1F4F8"), BorderBrush = Brush("#344254") };
     private readonly ComboBox _sorting = CreateCombo();
     private readonly ComboBox _topRange = CreateCombo();
@@ -48,6 +60,7 @@ public sealed class DiscoverPage : UserControl
     public DiscoverPage()
     {
         ConfigureChoices();
+        ConfigureColorPalette();
         Content = BuildLayout();
         _searchButton.Click += async (_, _) => await SearchFirstPageAsync();
         _previous.Click += async (_, _) => await ChangePageAsync(-1);
@@ -86,7 +99,8 @@ public sealed class DiscoverPage : UserControl
         filterStack.Children.Add(StyleTextBox(_exact));
         AddSection(filterStack, "Aspect ratio");
         filterStack.Children.Add(StyleCombo(_ratio));
-        AddSection(filterStack, "Colours (hex, comma-separated)");
+        AddSection(filterStack, "Colours (select palette colours or enter custom hex values)");
+        filterStack.Children.Add(_colorPalette);
         filterStack.Children.Add(StyleTextBox(_colors));
         _searchButton.Margin = new Thickness(0, 16, 0, 0);
         filterStack.Children.Add(_searchButton);
@@ -151,6 +165,7 @@ public sealed class DiscoverPage : UserControl
         AddChoice(_sorting, "Most viewed", WallhavenSort.Views);
         AddChoice(_sorting, "Most favourited", WallhavenSort.Favorites);
         AddChoice(_sorting, "Toplist", WallhavenSort.Toplist);
+        AddChoice(_sorting, "Hot", WallhavenSort.Hot);
 
         AddChoice(_topRange, "Day", WallhavenTopRange.Day);
         AddChoice(_topRange, "3 days", WallhavenTopRange.ThreeDays);
@@ -168,8 +183,50 @@ public sealed class DiscoverPage : UserControl
         AddChoice(_ratio, "Landscape · 16:10", "16x10");
         AddChoice(_ratio, "Ultrawide · 21:9", "21x9");
         AddChoice(_ratio, "Ultrawide · 32:9", "32x9");
+        AddChoice(_ratio, "Super ultrawide · 48:9", "48x9");
         AddChoice(_ratio, "Portrait · 9:16", "9x16");
+        AddChoice(_ratio, "Portrait · 10:16", "10x16");
+        AddChoice(_ratio, "Portrait · 9:18", "9x18");
+        AddChoice(_ratio, "Classic · 3:2", "3x2");
+        AddChoice(_ratio, "Classic · 4:3", "4x3");
+        AddChoice(_ratio, "Classic · 5:4", "5x4");
         AddChoice(_ratio, "Square · 1:1", "1x1");
+    }
+
+
+    private void ConfigureColorPalette()
+    {
+        var itemPanel = new FrameworkElementFactory(typeof(WrapPanel));
+        _colorPalette.ItemsPanel = new ItemsPanelTemplate(itemPanel);
+        foreach (var color in WallhavenColors.Allowed.OrderBy(value => value, StringComparer.Ordinal))
+        {
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            content.Children.Add(new Border
+            {
+                Width = 13,
+                Height = 13,
+                CornerRadius = new CornerRadius(2),
+                Background = Brush("#" + color),
+                BorderBrush = Brush("#718096"),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 0, 4, 0)
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = color,
+                FontSize = 9,
+                Foreground = Brush("#F1F4F8"),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            _colorPalette.Items.Add(new ListBoxItem
+            {
+                Content = content,
+                Tag = color,
+                Padding = new Thickness(3),
+                Margin = new Thickness(2),
+                Background = Brushes.Transparent
+            });
+        }
     }
 
     private void LoadDisplays()
@@ -224,8 +281,14 @@ public sealed class DiscoverPage : UserControl
         var order = SelectedValue(_order, WallhavenOrder.Descending);
         var range = SelectedValue(_topRange, WallhavenTopRange.Month);
         var ratio = SelectedValue(_ratio, string.Empty);
-        var colors = _colors.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(value => value.Trim().TrimStart('#')).ToArray();
+        var customColors = _colors.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(value => value.Trim().TrimStart('#'));
+        var colors = _colorPalette.SelectedItems.Cast<ListBoxItem>()
+            .Select(item => item.Tag?.ToString() ?? string.Empty)
+            .Concat(customColors)
+            .Where(value => value.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
         var filters = new WallhavenFilters
         {
@@ -335,14 +398,26 @@ public sealed class DiscoverPage : UserControl
         stack.Children.Add(Label($"{wallpaper.Width:N0} × {wallpaper.Height:N0}", 12, "#F1F4F8", FontWeights.SemiBold, new Thickness(1, 9, 0, 2)));
         stack.Children.Add(Label($"{wallpaper.Category} · {wallpaper.Purity} · {wallpaper.FileType}", 10, "#9AA8B8", margin: new Thickness(1, 0, 0, 8)));
 
-        var actions = new UniformGrid { Columns = 2 };
+        var actions = new UniformGrid { Columns = 2, Rows = 2 };
         var open = CreateButton("Open page");
-        open.Margin = new Thickness(0, 0, 4, 0);
+        open.Margin = new Thickness(0, 0, 4, 4);
         open.Click += (_, _) => OpenWallpaperPage(wallpaper);
-        var apply = CreateButton("Apply", true);
-        apply.Margin = new Thickness(4, 0, 0, 0);
+
+        var preview = CreateButton("Preview");
+        preview.Margin = new Thickness(4, 0, 0, 4);
+        preview.Click += async (_, _) => await PreviewWallpaperAsync(wallpaper, preview);
+
+        var save = CreateButton("Save to library", true);
+        save.Margin = new Thickness(0, 4, 4, 0);
+        save.Click += async (_, _) => await SaveWallpaperAsync(wallpaper, save);
+
+        var apply = CreateButton("Apply");
+        apply.Margin = new Thickness(4, 4, 0, 0);
         apply.Click += async (_, _) => await ApplyWallpaperAsync(wallpaper, apply);
+
         actions.Children.Add(open);
+        actions.Children.Add(preview);
+        actions.Children.Add(save);
         actions.Children.Add(apply);
         stack.Children.Add(actions);
         card.Child = stack;
@@ -378,6 +453,127 @@ public sealed class DiscoverPage : UserControl
             }
         });
         await Task.WhenAll(tasks);
+    }
+
+
+    private async Task SaveWallpaperAsync(WallhavenWallpaper wallpaper, Button button)
+    {
+        button.IsEnabled = false;
+        _status.Text = $"Saving wallpaper #{wallpaper.Id} to your library…";
+        try
+        {
+            var path = await LibraryImages.SaveToLibraryAsync(wallpaper);
+            await Library.UpsertAsync(new WallpaperLibraryEntry
+            {
+                Id = wallpaper.Id,
+                Title = $"Wallhaven #{wallpaper.Id}",
+                PageUrl = wallpaper.PageUrl.ToString(),
+                ImageUrl = wallpaper.ImageUrl.ToString(),
+                LocalPath = path,
+                Category = wallpaper.Category,
+                Purity = wallpaper.Purity,
+                Width = wallpaper.Width,
+                Height = wallpaper.Height,
+                Ratio = wallpaper.Ratio,
+                SavedAtUtc = DateTimeOffset.UtcNow,
+                Collection = "Unsorted"
+            });
+            _status.Text = $"Wallpaper #{wallpaper.Id} saved to your local library.";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"Could not save wallpaper #{wallpaper.Id}: {ex.Message}";
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private async Task PreviewWallpaperAsync(WallhavenWallpaper wallpaper, Button button)
+    {
+        button.IsEnabled = false;
+        _status.Text = $"Loading full preview for wallpaper #{wallpaper.Id}…";
+        try
+        {
+            var path = await LibraryImages.DownloadOriginalAsync(wallpaper);
+            var previewImage = new Image
+            {
+                Source = LoadBitmap(path, 1800),
+                Stretch = Stretch.Uniform,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+
+            var previewWindow = new Window
+            {
+                Title = $"Oriole preview · #{wallpaper.Id}",
+                Owner = Window.GetWindow(this),
+                Width = 1050,
+                Height = 760,
+                MinWidth = 720,
+                MinHeight = 520,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Background = Brush("#0F151E")
+            };
+            var frame = new Border
+            {
+                Margin = new Thickness(12),
+                Padding = new Thickness(8),
+                CornerRadius = new CornerRadius(10),
+                Background = Brush("#151D28"),
+                Child = previewImage
+            };
+            previewWindow.Content = frame;
+            _status.Text = $"Previewing wallpaper #{wallpaper.Id}.";
+            previewWindow.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"Could not preview wallpaper #{wallpaper.Id}: {ex.Message}";
+        }
+        finally
+        {
+            button.IsEnabled = true;
+        }
+    }
+
+    private static BitmapImage LoadBitmap(string path, int decodeWidth)
+    {
+        var bitmap = new BitmapImage();
+        bitmap.BeginInit();
+        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+        bitmap.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+        bitmap.DecodePixelWidth = decodeWidth;
+        bitmap.UriSource = new Uri(path, UriKind.Absolute);
+        bitmap.EndInit();
+        bitmap.Freeze();
+        return bitmap;
+    }
+
+    private static BitmapSource DecodeImage(byte[] bytes, int decodeWidth)
+    {
+        using var stream = new MemoryStream(bytes, writable: false);
+        var decoder = BitmapDecoder.Create(
+            stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+        var frame = decoder.Frames.FirstOrDefault()
+            ?? throw new InvalidDataException("The downloaded preview does not contain an image frame.");
+
+        if (frame.PixelWidth <= 0 || frame.PixelHeight <= 0
+            || frame.PixelWidth > 32_768 || frame.PixelHeight > 32_768
+            || (long)frame.PixelWidth * frame.PixelHeight > 50_000_000)
+        {
+            throw new InvalidDataException("The thumbnail dimensions exceed Oriole's image limits.");
+        }
+
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.DecodePixelWidth = decodeWidth;
+        image.StreamSource = new MemoryStream(bytes, writable: false);
+        image.EndInit();
+        image.Freeze();
+        return image;
     }
 
     private async Task ApplyWallpaperAsync(WallhavenWallpaper wallpaper, Button button)
