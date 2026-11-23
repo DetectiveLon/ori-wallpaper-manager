@@ -32,9 +32,11 @@ This is a progress record, not a release-readiness claim.
 
 ## V2 shell branch
 
-`v2-shell` replaces the code-built pages with XAML views and view models (`ViewModels/`, `Views/*View.xaml`, `Mvvm/`) while reusing the unchanged services and Core libraries. All six screens were smoke-tested on a two-monitor Windows desktop; the old page classes were removed on that branch. It is a presentation-layer rewrite, not a feature release — installer and a proper release package are the remaining follow-ups.
+`v2-shell` replaces the code-built pages with XAML views and view models (`ViewModels/`, `Views/*View.xaml`, `Mvvm/`) while reusing the unchanged services and Core libraries. All six screens were smoke-tested on a two-monitor Windows desktop; the old page classes were removed on that branch. It is a presentation-layer rewrite, not a feature release — a real installer is still outstanding, but a portable release zip can now be produced.
 
-Wave 2 on the same branch adds a virtualized library list (recycled rows, lazy thumbnail decode) with a collection filter and per-card move-to collection, plus a system-tray icon (Open/Exit, minimize-to-tray) and a launch-at-login toggle in Settings backed by the HKCU Run key.
+Wave 2 adds a library list with lazy thumbnail decode, collection filter and move-to collection, plus a system-tray icon (Open/Exit, minimize-to-tray) and a launch-at-login toggle in Settings backed by the HKCU Run key.
+
+Wave 3 adds app-wide dark implicit styles for CheckBox, TextBox, PasswordBox, ListBox, ToolTip and other standard controls (no more white checkbox squares), a bounded paged card grid for the library, a launch-at-login status pill, a `scripts/check-theme.ps1` regression guard, and a tag-triggered release workflow that produces a portable win-x64 zip. The release script was exercised locally: 45 tests pass and `oriole-0.2.0-local-win-x64.zip` contains `Oriole.exe`, `README.md` and `RELEASE-NOTES.txt`.
 
 ## Validation
 

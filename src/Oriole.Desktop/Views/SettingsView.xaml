@@ -58,10 +58,29 @@
                     <DockPanel Margin="0,10,0,6">
                         <Button DockPanel.Dock="Right" Content="{Binding StartupToggleLabel}"
                                 Command="{Binding ToggleStartupCommand}" Padding="14,8,14,8" Margin="8,0,0,0" />
-                        <CheckBox Content="Start Oriole when I sign in"
-                                  IsChecked="{Binding StartupEnabled, Mode=OneWay}"
-                                  Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"
-                                  IsEnabled="False" />
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Start Oriole when I sign in:"
+                                       Foreground="{StaticResource TextBrush}" FontSize="12"
+                                       VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <Border CornerRadius="10" Padding="9,4" VerticalAlignment="Center"
+                                    Background="{StaticResource PanelAltBrush}"
+                                    BorderBrush="{StaticResource MutedBrush}" BorderThickness="1">
+                                <TextBlock FontSize="11" FontWeight="SemiBold">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+                                            <Setter Property="Text" Value="Off" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding StartupEnabled}" Value="True">
+                                                    <Setter Property="Text" Value="On" />
+                                                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Border>
+                        </StackPanel>
                     </DockPanel>
                     <TextBlock Text="{Binding StartupStatus}" Foreground="{StaticResource MutedBrush}"
                                FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" />
@@ -86,7 +105,8 @@
                                FontSize="11" Margin="0,6,0,0" />
                     <TextBlock Margin="0,10,0,0">
                         <Hyperlink NavigateUri="{Binding GitHubUrl}"
-                                   RequestNavigate="OnRequestNavigate">
+                                   RequestNavigate="OnRequestNavigate"
+                                   Foreground="{StaticResource AccentBrush}">
                             <Run Text="View the source on GitHub" />
                         </Hyperlink>
                     </TextBlock>

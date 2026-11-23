@@ -60,6 +60,12 @@ public sealed class LibraryEntryViewModel : ViewModelBase
 public sealed class LibraryViewModel : ViewModelBase
 {
     private const int ThumbnailDecodeWidth = 480;
+
+    // The grid shows at most this many cards at once. The filtered library is kept as
+    // lightweight metadata only; card view models (and their decoded thumbnails) are
+    // created for the current page alone, so memory stays bounded for any library size.
+    private const int PageSize = 48;
+
     private static readonly TimeSpan RenderDebounce = TimeSpan.FromMilliseconds(180);
     private const string AllCollections = "All collections";
     private const string Unsorted = "Unsorted";
@@ -67,8 +73,11 @@ public sealed class LibraryViewModel : ViewModelBase
     private readonly WallpaperLibraryStore _store = new();
     private readonly Dispatcher _dispatcher;
     private IReadOnlyList<WallpaperLibraryEntry> _entries = Array.Empty<WallpaperLibraryEntry>();
+    private IReadOnlyList<WallpaperLibraryEntry> _filtered = Array.Empty<WallpaperLibraryEntry>();
     private CancellationTokenSource? _renderDebounce;
     private int _renderGeneration;
+    private int _currentPage;
+    private int _totalPages = 1;
 
     public LibraryViewModel(Dispatcher? dispatcher = null)
     {
@@ -80,10 +89,17 @@ public sealed class LibraryViewModel : ViewModelBase
         OpenCommand = new AsyncRelayCommand(p => OpenEntry(p as LibraryEntryViewModel), ex => Status = $"Could not open image: {ex.Message}");
         RemoveCommand = new AsyncRelayCommand(p => RemoveEntryAsync(p as LibraryEntryViewModel), ex => Status = $"Could not remove library entry: {ex.Message}");
         MoveToCollectionCommand = new AsyncRelayCommand(p => MoveToCollectionAsync(p as LibraryEntryViewModel), ex => Status = $"Could not move to collection: {ex.Message}");
+        PreviousPageCommand = new AsyncRelayCommand(
+            _ => { GoPreviousPage(); return Task.CompletedTask; },
+            ex => Status = $"Could not change page: {ex.Message}");
+        NextPageCommand = new AsyncRelayCommand(
+            _ => { GoNextPage(); return Task.CompletedTask; },
+            ex => Status = $"Could not change page: {ex.Message}");
 
         LoadDisplays();
     }
 
+    // Only the current page's cards live here.
     public ObservableCollection<LibraryEntryViewModel> Entries { get; } = new();
 
     public ObservableCollection<DisplayMonitor> Displays { get; } = new();
@@ -103,6 +119,10 @@ public sealed class LibraryViewModel : ViewModelBase
     public ICommand RemoveCommand { get; }
 
     public ICommand MoveToCollectionCommand { get; }
+
+    public ICommand PreviousPageCommand { get; }
+
+    public ICommand NextPageCommand { get; }
 
     private DisplayMonitor? _selectedDisplay;
     public DisplayMonitor? SelectedDisplay
@@ -165,6 +185,12 @@ public sealed class LibraryViewModel : ViewModelBase
         set => SetProperty(ref _isRefreshEnabled, value);
     }
 
+    // Computed page state - raised explicitly by RefreshPageState().
+    public int PageSizeValue => PageSize;
+    public bool CanGoPrevious => _currentPage > 0;
+    public bool CanGoNext => _currentPage < _totalPages - 1;
+    public string PageLabel => $"Page {_currentPage + 1} of {_totalPages}";
+
     private void LoadDisplays()
     {
         var detection = DisplayDetection.Read();
@@ -191,7 +217,11 @@ public sealed class LibraryViewModel : ViewModelBase
         {
             await Task.Delay(RenderDebounce, cancellation.Token);
             if (!cancellation.IsCancellationRequested)
+            {
+                // A changed filter always starts from the first page.
+                _currentPage = 0;
                 RenderEntries();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -251,7 +281,7 @@ public sealed class LibraryViewModel : ViewModelBase
         ++_renderGeneration;
         var query = SearchText.Trim();
         var collectionFilter = _selectedCollectionFilter;
-        var filtered = _entries.Where(entry =>
+        _filtered = _entries.Where(entry =>
                 (!FavoritesOnly || entry.IsFavorite)
                 && (string.Equals(collectionFilter, AllCollections, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(entry.Collection, collectionFilter, StringComparison.OrdinalIgnoreCase))
@@ -261,8 +291,22 @@ public sealed class LibraryViewModel : ViewModelBase
                     || entry.Collection.Contains(query, StringComparison.OrdinalIgnoreCase)))
             .ToArray();
 
+        _totalPages = Math.Max(1, (int)Math.Ceiling(_filtered.Count / (double)PageSize));
+        if (_currentPage >= _totalPages)
+            _currentPage = _totalPages - 1;
+        if (_currentPage < 0)
+            _currentPage = 0;
+
+        RenderCurrentPage();
+        RefreshPageState();
+    }
+
+    // Build card view models for the current page only. Thumbnails are decoded lazily by
+    // the view, so at most PageSize bitmaps are ever realized at once.
+    private void RenderCurrentPage()
+    {
         Entries.Clear();
-        if (filtered.Length == 0)
+        if (_filtered.Count == 0)
         {
             EmptyMessage = _entries.Count == 0
                 ? "Your library is empty. Save wallpapers from Discover to keep them available offline."
@@ -270,12 +314,37 @@ public sealed class LibraryViewModel : ViewModelBase
             return;
         }
 
-        foreach (var entry in filtered)
+        foreach (var entry in _filtered.Skip(_currentPage * PageSize).Take(PageSize))
             Entries.Add(new LibraryEntryViewModel(entry));
     }
 
-    // Called from the view when a card row is realized. Tying decode to realization means a
-    // 5,000-item library never creates 5,000 decoded cards up front.
+    private void GoPreviousPage()
+    {
+        if (_currentPage <= 0)
+            return;
+        --_currentPage;
+        RenderCurrentPage();
+        RefreshPageState();
+    }
+
+    private void GoNextPage()
+    {
+        if (_currentPage >= _totalPages - 1)
+            return;
+        ++_currentPage;
+        RenderCurrentPage();
+        RefreshPageState();
+    }
+
+    private void RefreshPageState()
+    {
+        OnPropertyChanged(nameof(CanGoPrevious));
+        OnPropertyChanged(nameof(CanGoNext));
+        OnPropertyChanged(nameof(PageLabel));
+    }
+
+    // Called from the view when a card is realized. Tying decode to realization means a
+    // large library never creates a decoded bitmap for a card outside the current page.
     public void RequestThumbnail(LibraryEntryViewModel? card)
     {
         if (card is null || card.ThumbnailRequested || !File.Exists(card.LocalPath))

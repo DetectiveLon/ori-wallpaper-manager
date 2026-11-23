@@ -38,6 +38,14 @@ rewrite.
 - Tray + startup services: `Services/TrayIconService.cs`, `Services/StartupService.cs` only.
 - Integrator owns `App.xaml.cs`, `MainWindow.xaml(.cs)`, project/CI files and all docs.
 
+## Wave 3 ownership (v2-shell)
+- Global dark theme: `App.xaml` only (CheckBox, TextBox, PasswordBox, ListBox, ToolTip, Hyperlink, etc.).
+- Library grid: `Views/LibraryView.xaml(.cs)`, `ViewModels/LibraryViewModel.cs`, `Views/Controls/VirtualizingWrapPanel.cs`.
+- Release package: `scripts/publish.ps1`, `.github/workflows/release.yml`, `docs/RELEASING.md`.
+- Per-view UX polish: `Views/DiscoverView.xaml`, `Views/DisplaysView.xaml`, `Views/AutomationView.xaml`, `Views/SettingsView.xaml` (no view models).
+- Theme audit script: `scripts/check-theme.ps1`, `docs/QA-SMOKE.md`.
+- Integrator still owns App.xaml.cs, MainWindow, csproj, Core, services and other docs.
+
 ## Build discipline
 - Do NOT run `build.ps1`, `dotnet build`, `dotnet test`, or launch Oriole.exe. The integrator builds once after all agents finish, to avoid file locks and conflicting obj/ writes.
 - Do NOT commit, push, or switch branches.

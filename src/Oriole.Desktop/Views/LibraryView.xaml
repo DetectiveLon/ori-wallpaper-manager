@@ -36,24 +36,27 @@
         </StackPanel>
 
         <Grid Grid.Row="1">
-            <!-- Virtualized card list: only realized rows get a container / decoded image. -->
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Multi-column card grid. The VM realizes at most one page (48 cards) at a
+                 time, so a WrapPanel keeps memory bounded without a custom virtualizing panel. -->
             <ListBox x:Name="EntriesListBox"
+                     Grid.Row="0"
                      ItemsSource="{Binding Entries}"
                      Background="Transparent"
                      BorderThickness="0"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     ScrollViewer.CanContentScroll="True"
-                     VirtualizingPanel.IsVirtualizing="True"
-                     VirtualizingPanel.VirtualizationMode="Recycling"
-                     VirtualizingPanel.ScrollUnit="Pixel">
+                     ScrollViewer.CanContentScroll="False">
                 <ListBox.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <VirtualizingStackPanel Orientation="Vertical" />
+                        <WrapPanel Orientation="Horizontal" />
                     </ItemsPanelTemplate>
                 </ListBox.ItemsPanel>
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
-                        <Setter Property="Height" Value="230" />
                         <Setter Property="Margin" Value="0,0,12,8" />
                         <Setter Property="Padding" Value="0" />
                         <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -67,7 +70,7 @@
                             </Setter.Value>
                         </Setter>
                         <!-- Lazy thumbnail decode: fire only for realized cards.
-                             Loaded covers first realization; DataContextChanged covers recycled rows. -->
+                             Loaded covers first realization; DataContextChanged covers recycled cards. -->
                         <EventSetter Event="Loaded" Handler="OnCardLoaded" />
                     </Style>
                 </ListBox.ItemContainerStyle>
@@ -114,7 +117,7 @@
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <Border Padding="20" CornerRadius="12" Background="{StaticResource PanelBrush}"
+            <Border Grid.Row="0" Padding="20" CornerRadius="12" Background="{StaticResource PanelBrush}"
                     HorizontalAlignment="Left" VerticalAlignment="Top" MaxWidth="740"
                     IsHitTestVisible="False">
                 <Border.Style>
@@ -130,6 +133,18 @@
                 <TextBlock Text="{Binding EmptyMessage}" Foreground="{StaticResource MutedBrush}"
                            TextWrapping="Wrap" MaxWidth="700" />
             </Border>
+
+            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center"
+                        Margin="0,10,0,0">
+                <Button Content="Previous page" Padding="12,6,12,6"
+                        IsEnabled="{Binding CanGoPrevious}"
+                        Command="{Binding PreviousPageCommand}" />
+                <TextBlock Text="{Binding PageLabel}" Foreground="{StaticResource MutedBrush}"
+                           VerticalAlignment="Center" Margin="14,0,14,0" />
+                <Button Content="Next page" Padding="12,6,12,6"
+                        IsEnabled="{Binding CanGoNext}"
+                        Command="{Binding NextPageCommand}" />
+            </StackPanel>
         </Grid>
     </Grid>
 </UserControl>

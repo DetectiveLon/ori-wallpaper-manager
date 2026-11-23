@@ -68,7 +68,7 @@
                                         Padding="16,10,16,10"
                                         VerticalAlignment="Center"
                                         Background="{StaticResource AccentBrush}"
-                                        Foreground="White"
+                                        Foreground="{StaticResource WindowBrush}"
                                         BorderBrush="{StaticResource AccentBrush}"
                                         Command="{Binding DataContext.ChooseImageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         CommandParameter="{Binding}" />

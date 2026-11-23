@@ -15,7 +15,7 @@
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
-        <Style x:Key="FieldTextBox" TargetType="TextBox">
+        <Style x:Key="FieldTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="Height" Value="33" />
             <Setter Property="Padding" Value="8,5,8,5" />
             <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
@@ -23,11 +23,11 @@
             <Setter Property="BorderBrush" Value="{StaticResource MutedBrush}" />
             <Setter Property="Margin" Value="0,4,0,8" />
         </Style>
-        <Style x:Key="FieldCombo" TargetType="ComboBox">
+        <Style x:Key="FieldCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
             <Setter Property="Height" Value="32" />
             <Setter Property="Margin" Value="0,4,0,8" />
         </Style>
-        <Style x:Key="FilterCheckBox" TargetType="CheckBox">
+        <Style x:Key="FilterCheckBox" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="Margin" Value="0,3,12,3" />
         </Style>
