@@ -1,34 +1,39 @@
 # Oriole
 
-A clean-room Windows wallpaper manager. **Foundation / early preview — not yet installable.**
+A clean-room Windows 11 wallpaper manager. Working source is developed in reviewable branches and proposed through pull requests. This is not yet a release build or installer.
 
-## Status
+## Current implementation
 
-The `foundation/0.1.0` branch contains the initial source package and two usable Windows feature slices.
+The `foundation/0.1.0` branch provides the WPF shell, Wallhaven API client and query builder, Windows monitor detection, per-monitor wallpaper assignment, a sequential rotation engine, initial tests, and build scaffolding.
 
-- Native WPF interface with six sections.
-- Wallhaven v1 API client and query builder.
-- Discovery page with categories, content levels, tag operators, sorting/toplist period, order, minimum or exact resolution, aspect-ratio presets, colour filters and pagination.
-- Bounded thumbnail and full-image downloads restricted to Wallhaven HTTPS hosts.
-- Image preview cards, browser links, and direct apply-to-display action. Applied downloads are saved under the user's local Oriole wallpaper folder.
-- Sequential scheduling engine designed to avoid overlapping changes and timer backlogs.
-- Windows monitor discovery and per-monitor local wallpaper assignment through the desktop wallpaper API.
-- Unit tests, Windows CI workflow, build script, product specification, technical design and clean-room provenance notes.
+The `feature/library-automation` branch builds on that foundation and preserves the existing Wallhaven discovery page and image downloader. It adds:
 
-Windows exposes one shared wallpaper fit mode. Independent fit modes per monitor still require an image-composition layer.
+- Wallhaven discovery filters for categories, purity, tags, sorting (including Hot), toplist period, order, custom minimum/exact resolution, aspect ratio, and color palette.
+- Search pagination, thumbnail previews, full-image preview, save-to-library, and selected-display apply.
+- Bounded image download and decode limits.
+- A versioned local library index, offline saved images, search, favourites, apply, open-file, and metadata-only removal.
+- App-session wallpaper rotation from the local library with a visible countdown, manual rotate, pause/resume, and stop.
 
-The source is available on [the foundation branch](https://github.com/DetectiveLon/oriole-wallpaper-manager/tree/foundation/0.1.0). Draft PR #1 is open for review and has not been merged.
+## Known gaps
 
-## Not implemented yet
+- Rotation currently targets one selected display and runs only during the current app session.
+- Fullscreen-game detection, per-display schedules, schedule persistence across restarts, and automatic startup are not implemented.
+- Library collections, local-folder import, duplicate detection, tray controls, and release packaging are not implemented.
+- Windows exposes one shared wallpaper fit mode through `IDesktopWallpaper`; independent per-monitor fit modes need an image-composition layer.
+- Successful Windows compile and test results are still required before merging.
 
-- Persistent searchable library, favourites, collections and metadata
-- Per-display automation UI, persisted schedules, pause/resume and fullscreen-game deferral
-- Tray controls and startup integration
-- Independent fit modes per monitor
-- Installer and release packaging
+## Build
 
-The Wallhaven API key entered in the discovery page is used for requests and is not persisted. Images fetched from Wallhaven remain subject to their original owners' rights.
+Requires the .NET 10 SDK and Windows desktop targeting support.
 
-## Repository layout
+```powershell
+.\build.ps1
+```
 
-`main` retains the project-status README. Working source is developed on separate branches and proposed through pull requests.
+To publish a self-contained win-x64 folder:
+
+```powershell
+.\build.ps1 -Publish
+```
+
+Wallhaven images remain the property of their original owners. The API key is currently kept in memory by the Discover page and is not saved to disk.
