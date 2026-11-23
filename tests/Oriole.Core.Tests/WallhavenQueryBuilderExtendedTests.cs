@@ -5,15 +5,20 @@ namespace Oriole.Core.Tests;
 
 public sealed class WallhavenQueryBuilderExtendedTests
 {
-    [Fact]
-    public void HotSortIsExposedAsWallhavenHot()
+    [Theory]
+    [InlineData(WallhavenSort.DateAdded, "date_added")]
+    [InlineData(WallhavenSort.Relevance, "relevance")]
+    [InlineData(WallhavenSort.Random, "random")]
+    [InlineData(WallhavenSort.Views, "views")]
+    [InlineData(WallhavenSort.Favorites, "favorites")]
+    [InlineData(WallhavenSort.Toplist, "toplist")]
+    public void SupportedSortsAreSerializedToDocumentedWallhavenValues(
+        WallhavenSort sorting,
+        string expectedValue)
     {
-        var uri = WallhavenQueryBuilder.Build(new WallhavenFilters
-        {
-            Sorting = WallhavenSort.Hot
-        });
+        var uri = WallhavenQueryBuilder.Build(new WallhavenFilters { Sorting = sorting });
 
-        Assert.Contains("sorting=hot", uri.Query);
+        Assert.Contains($"sorting={expectedValue}", uri.Query);
     }
 
     [Fact]
