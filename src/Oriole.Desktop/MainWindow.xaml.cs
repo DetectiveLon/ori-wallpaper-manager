@@ -19,7 +19,7 @@ public partial class MainWindow : Window
             ["Discover"] = ("Find something worth keeping.", "Search first. Filter properly. Preview before anything touches your desktop.", "Search Wallhaven, filter results, preview wallpapers, save them to your library, and apply them to a selected display."),
             ["Library"] = ("Your wallpaper library.", "Saved images stay on your PC and remain available offline.", "Search saved wallpapers, filter favourites, apply a saved image, open its file, or remove its library entry without deleting the image."),
             ["Displays"] = ("One setup for every display.", "See your actual monitor layout and configure each screen independently.", "Choose and apply a different image to each connected monitor."),
-            ["Automation"] = ("Rotation, without timer surprises.", "A visible countdown, one pending change at a time, and proper pause handling.", "App-session rotation from the local library is available for one selected display. Fullscreen-game detection and schedule persistence across app restarts are not implemented yet."),
+            ["Automation"] = ("Independent rotation for every screen.", "Separate schedules, clear countdowns, and full-screen app pause detection.", "Each connected display has its own app-session schedule and controls. Schedules rotate local library images and can pause while a full-screen foreground window covers that display. Schedule settings do not persist after Oriole closes."),
             ["Settings"] = ("Preferences.", "Keep the controls that matter. Leave the rest out of the way.", "Theme, startup behaviour, cache limits, download folder, API keys, and privacy controls will live here.")
         };
 
