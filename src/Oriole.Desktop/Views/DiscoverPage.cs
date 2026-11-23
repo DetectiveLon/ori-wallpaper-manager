@@ -36,8 +36,7 @@ public sealed class DiscoverPage : UserControl
         Background = Brush("#202B39"),
         Foreground = Brush("#F1F4F8"),
         BorderBrush = Brush("#344254"),
-        Padding = new Thickness(4),
-        ScrollViewer = { VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
+        Padding = new Thickness(4)
     };
     private readonly PasswordBox _apiKey = new() { Height = 32, Margin = new Thickness(0, 5, 0, 12), Padding = new Thickness(8, 5), Background = Brush("#202B39"), Foreground = Brush("#F1F4F8"), BorderBrush = Brush("#344254") };
     private readonly ComboBox _sorting = CreateCombo();
@@ -196,6 +195,8 @@ public sealed class DiscoverPage : UserControl
 
     private void ConfigureColorPalette()
     {
+        ScrollViewer.SetVerticalScrollBarVisibility(_colorPalette, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollBarVisibility(_colorPalette, ScrollBarVisibility.Disabled);
         var itemPanel = new FrameworkElementFactory(typeof(WrapPanel));
         _colorPalette.ItemsPanel = new ItemsPanelTemplate(itemPanel);
         foreach (var color in WallhavenColors.Allowed.OrderBy(value => value, StringComparer.Ordinal))
@@ -566,11 +567,12 @@ public sealed class DiscoverPage : UserControl
             throw new InvalidDataException("The thumbnail dimensions exceed Oriole's image limits.");
         }
 
+        stream.Position = 0;
         var image = new BitmapImage();
         image.BeginInit();
         image.CacheOption = BitmapCacheOption.OnLoad;
         image.DecodePixelWidth = decodeWidth;
-        image.StreamSource = new MemoryStream(bytes, writable: false);
+        image.StreamSource = stream;
         image.EndInit();
         image.Freeze();
         return image;
