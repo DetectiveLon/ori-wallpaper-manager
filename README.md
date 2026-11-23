@@ -12,15 +12,16 @@ The `feature/library-automation` branch builds on that foundation and preserves 
 - Search pagination, thumbnail previews, full-image preview, save-to-library, and selected-display apply.
 - Bounded image download and decode limits.
 - A versioned local library index, offline saved images, search, favourites, apply, open-file, and metadata-only removal.
-- App-session wallpaper rotation from the local library with a visible countdown, manual rotate, pause/resume, and stop.
+- Independent app-session rotation schedules for each connected display, each with its own interval, countdown, manual rotate, pause/resume, and stop controls.
+- Optional per-display pause while a full-screen foreground window covers that screen. Detection is based on window geometry, so it applies to full-screen apps generally rather than identifying games by process name.
 
 ## Known gaps
 
-- Rotation currently targets one selected display and runs only during the current app session.
-- Fullscreen-game detection, per-display schedules, schedule persistence across restarts, and automatic startup are not implemented.
+- Rotation schedules run only during the current app session and are not restored after Oriole restarts.
+- Full-screen detection uses the foreground window's bounds. It does not identify game executables or detect background full-screen windows.
 - Library collections, local-folder import, duplicate detection, tray controls, and release packaging are not implemented.
 - Windows exposes one shared wallpaper fit mode through `IDesktopWallpaper`; independent per-monitor fit modes need an image-composition layer.
-- Successful Windows compile and test results are still required before merging.
+- Latest CI for the current feature branch has passed Core tests and the Windows desktop build. A user-side interactive check on a multi-monitor Windows desktop is still needed before treating the new automation UI as release-ready.
 
 ## Build
 
