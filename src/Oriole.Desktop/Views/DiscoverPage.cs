@@ -29,15 +29,7 @@ public sealed class DiscoverPage : UserControl
     private readonly TextBox _minimum = CreateTextBox("1920x1080");
     private readonly TextBox _exact = CreateTextBox("3840x2160");
     private readonly TextBox _colors = CreateTextBox("Custom hex colors, comma-separated");
-    private readonly ListBox _colorPalette = new()
-    {
-        Height = 82,
-        SelectionMode = SelectionMode.Multiple,
-        Background = Brush("#202B39"),
-        Foreground = Brush("#F1F4F8"),
-        BorderBrush = Brush("#344254"),
-        Padding = new Thickness(4)
-    };
+    private readonly WrapPanel _colorPalette = new();
     private readonly PasswordBox _apiKey = new() { Height = 32, Margin = new Thickness(0, 5, 0, 12), Padding = new Thickness(8, 5), Background = Brush("#202B39"), Foreground = Brush("#F1F4F8"), BorderBrush = Brush("#344254") };
     private readonly ComboBox _sorting = CreateCombo();
     private readonly ComboBox _topRange = CreateCombo();
@@ -99,7 +91,13 @@ public sealed class DiscoverPage : UserControl
         AddSection(filterStack, "Aspect ratio");
         filterStack.Children.Add(StyleCombo(_ratio));
         AddSection(filterStack, "Colours (select palette colours or enter custom hex values)");
-        filterStack.Children.Add(_colorPalette);
+        filterStack.Children.Add(new ScrollViewer
+        {
+            MaxHeight = 105,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = _colorPalette
+        });
         filterStack.Children.Add(StyleTextBox(_colors));
         _searchButton.Margin = new Thickness(0, 16, 0, 0);
         filterStack.Children.Add(_searchButton);
@@ -195,10 +193,6 @@ public sealed class DiscoverPage : UserControl
 
     private void ConfigureColorPalette()
     {
-        ScrollViewer.SetVerticalScrollBarVisibility(_colorPalette, ScrollBarVisibility.Auto);
-        ScrollViewer.SetHorizontalScrollBarVisibility(_colorPalette, ScrollBarVisibility.Disabled);
-        var itemPanel = new FrameworkElementFactory(typeof(WrapPanel));
-        _colorPalette.ItemsPanel = new ItemsPanelTemplate(itemPanel);
         foreach (var color in WallhavenColors.Allowed.OrderBy(value => value, StringComparer.Ordinal))
         {
             var content = new StackPanel { Orientation = Orientation.Horizontal };
@@ -219,13 +213,19 @@ public sealed class DiscoverPage : UserControl
                 Foreground = Brush("#F1F4F8"),
                 VerticalAlignment = VerticalAlignment.Center
             });
-            _colorPalette.Items.Add(new ListBoxItem
+
+            _colorPalette.Children.Add(new ToggleButton
             {
                 Content = content,
                 Tag = color,
-                Padding = new Thickness(3),
+                ToolTip = $"Filter by #{color}",
+                Padding = new Thickness(4),
                 Margin = new Thickness(2),
-                Background = Brushes.Transparent
+                Background = Brush("#202B39"),
+                Foreground = Brush("#F1F4F8"),
+                BorderBrush = Brush("#344254"),
+                BorderThickness = new Thickness(1),
+                Cursor = System.Windows.Input.Cursors.Hand
             });
         }
     }
@@ -284,7 +284,8 @@ public sealed class DiscoverPage : UserControl
         var ratio = SelectedValue(_ratio, string.Empty);
         var customColors = _colors.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(value => value.Trim().TrimStart('#'));
-        var colors = _colorPalette.SelectedItems.Cast<ListBoxItem>()
+        var colors = _colorPalette.Children.OfType<ToggleButton>()
+            .Where(item => item.IsChecked == true)
             .Select(item => item.Tag?.ToString() ?? string.Empty)
             .Concat(customColors)
             .Where(value => value.Length > 0)
