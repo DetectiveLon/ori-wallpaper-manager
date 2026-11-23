@@ -60,6 +60,7 @@ public sealed class AutomationPage : UserControl
     private volatile bool _paused;
     private bool _isStarting;
     private bool _manualRotationRunning;
+    private bool _shutdownRequested;
     private readonly SemaphoreSlim _rotationGate = new(1, 1);
 
     public AutomationPage()
@@ -167,6 +168,7 @@ public sealed class AutomationPage : UserControl
 
     public void RequestStop()
     {
+        _shutdownRequested = true;
         _paused = false;
         _countdownTimer.Stop();
         _nextRunUtc = null;
@@ -196,6 +198,9 @@ public sealed class AutomationPage : UserControl
         try
         {
             var entries = await _library.GetAllAsync();
+            if (_shutdownRequested)
+                return;
+
             var available = entries.Where(entry => File.Exists(entry.LocalPath)).ToArray();
             if (available.Length == 0)
             {
@@ -298,6 +303,8 @@ public sealed class AutomationPage : UserControl
         try
         {
             await RotateFromLibraryAsync(CancellationToken.None, respectPause: false);
+            if (_rotationTask is { IsCompleted: false })
+                _rotationLoop.ResetNextRun();
         }
         catch (Exception ex)
         {
