@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Oriole.Core.Services;
 using Oriole.Desktop.Services;
 
 namespace Oriole.Desktop.Pages;
