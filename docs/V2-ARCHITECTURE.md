@@ -46,6 +46,14 @@ rewrite.
 - Theme audit script: `scripts/check-theme.ps1`, `docs/QA-SMOKE.md`.
 - Integrator still owns App.xaml.cs, MainWindow, csproj, Core, services and other docs.
 
+## Wave 4 ownership (v2-shell) — visual redesign
+- Shell/design system: `App.xaml`, `MainWindow.xaml`, `MainWindow.xaml.cs`.
+- Overview: `Views/OverviewView.xaml`.
+- Discover: `Views/DiscoverView.xaml`.
+- Library + Displays: `Views/LibraryView.xaml`, `Views/DisplaysView.xaml`.
+- Automation + Settings: `Views/AutomationView.xaml`, `Views/SettingsView.xaml`.
+- Integrator owns all view models, services, Core, csproj and docs. Redesign is XAML-only except MainWindow code-behind for custom window buttons.
+
 ## Build discipline
 - Do NOT run `build.ps1`, `dotnet build`, `dotnet test`, or launch Oriole.exe. The integrator builds once after all agents finish, to avoid file locks and conflicting obj/ writes.
 - Do NOT commit, push, or switch branches.

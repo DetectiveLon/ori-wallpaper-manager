@@ -38,6 +38,8 @@ Wave 2 adds a library list with lazy thumbnail decode, collection filter and mov
 
 Wave 3 adds app-wide dark implicit styles for CheckBox, TextBox, PasswordBox, ListBox, ToolTip and other standard controls (no more white checkbox squares), a bounded paged card grid for the library, a launch-at-login status pill, a `scripts/check-theme.ps1` regression guard, and a tag-triggered release workflow that produces a portable win-x64 zip. The release script was exercised locally: 45 tests pass and `oriole-0.2.0-local-win-x64.zip` contains `Oriole.exe`, `README.md` and `RELEASE-NOTES.txt`.
 
+Wave 4 is a visual redesign: custom window chrome with an in-app title bar and icon navigation, a named typography/spacing system, elevated cards, real empty states, a hero page, and a refined accent/contrast palette. Build verified: 45 tests, 0 warnings, six-page live sweep with no logged errors.
+
 ## Validation
 
 GitHub Actions now allocates hosted runners after the repository became public. The latest PR validation passed the Core test job and the Windows desktop build. This confirms compilation and the automated Core tests, but does not replace an interactive check on a real multi-monitor Windows desktop. A live two-monitor session verified detection, grid cards, per-display controls, and schedule restore after restart. The app has not yet been packaged or released.

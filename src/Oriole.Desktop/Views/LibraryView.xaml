@@ -1,48 +1,109 @@
 <UserControl x:Class="Oriole.Desktop.Views.LibraryView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Background="{StaticResource WindowBrush}">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="680" d:DesignWidth="960"
+             Background="{StaticResource WindowBrush}">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
+        <Style x:Key="Glyph" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="ToolbarLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="CardTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style x:Key="CardMeta" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Margin="0,0,0,12">
-            <WrapPanel Margin="0,0,0,12">
-                <TextBlock Text="Search library" VerticalAlignment="Center" Margin="0,0,8,0" />
-                <TextBox Width="240" Height="34" VerticalContentAlignment="Center"
-                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
-                <TextBlock Text="Collection" VerticalAlignment="Center" Margin="12,0,8,0" />
-                <ComboBox Width="170" Height="34"
+        <!-- Compact toolbar: search, collection filter, favourites, refresh, apply target. -->
+        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" CornerRadius="14"
+                Padding="12,11" Margin="0,0,0,10">
+            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Grid Width="238" Height="34" Margin="0,0,12,4">
+                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             Padding="32,5,10,5" FontSize="12" />
+                    <TextBlock Text="&#xE721;" Style="{StaticResource Glyph}" FontSize="14"
+                               Foreground="{StaticResource MutedBrush}" IsHitTestVisible="False"
+                               HorizontalAlignment="Left" Margin="10,0,0,0" />
+                </Grid>
+
+                <TextBlock Text="Collection" Style="{StaticResource ToolbarLabel}" Margin="0,0,8,4" />
+                <ComboBox Width="164" Height="34" Margin="0,0,12,4"
                           ItemsSource="{Binding CollectionFilters}"
                           SelectedItem="{Binding SelectedCollectionFilter}" />
-                <CheckBox Content="Favorites only" Margin="12,0,12,0" VerticalAlignment="Center"
-                          Foreground="{StaticResource TextBrush}"
-                          IsChecked="{Binding FavoritesOnly}" />
-                <Button Content="Refresh" Padding="12,7,12,7"
-                        IsEnabled="{Binding IsRefreshEnabled}"
-                        Command="{Binding RefreshCommand}" />
-            </WrapPanel>
 
-            <WrapPanel Margin="0,0,0,12">
-                <TextBlock Text="Apply target" VerticalAlignment="Center" Margin="0,0,9,0" />
-                <ComboBox Width="200" Height="34"
-                          ItemsSource="{Binding Displays}"
-                          SelectedItem="{Binding SelectedDisplay}"
-                          DisplayMemberPath="DeviceName" />
-                <TextBlock Text="{Binding Status}" Foreground="{StaticResource MutedBrush}"
-                           TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0" />
-            </WrapPanel>
-        </StackPanel>
+                <CheckBox IsChecked="{Binding FavoritesOnly}" Margin="0,0,14,4"
+                          VerticalAlignment="Center" Cursor="Hand">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE734;" Style="{StaticResource Glyph}" FontSize="13"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,6,0" />
+                        <TextBlock Text="Favourites only" FontSize="11" VerticalAlignment="Center" />
+                    </StackPanel>
+                </CheckBox>
 
-        <Grid Grid.Row="1">
+                <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding IsRefreshEnabled}"
+                        Padding="12,7,12,7" Margin="0,0,14,4" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE72C;" Style="{StaticResource Glyph}" FontSize="13"
+                                   Margin="0,0,7,0" />
+                        <TextBlock Text="Refresh" FontSize="11" />
+                    </StackPanel>
+                </Button>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,4">
+                    <TextBlock Text="Apply to" Style="{StaticResource ToolbarLabel}" Margin="0,0,8,0" />
+                    <ComboBox Width="164" Height="34"
+                              ItemsSource="{Binding Displays}"
+                              SelectedItem="{Binding SelectedDisplay}"
+                              DisplayMemberPath="DeviceName" />
+                </StackPanel>
+            </WrapPanel>
+        </Border>
+
+        <!-- Inline status strip. -->
+        <Border Grid.Row="1" Background="#18212C" CornerRadius="9" Padding="11,8"
+                Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="&#xE946;" Style="{StaticResource Glyph}" FontSize="13"
+                           Foreground="{StaticResource AccentBrush}" Margin="0,0,9,0" />
+                <TextBlock Text="{Binding Status}" FontSize="11" Foreground="{StaticResource MutedBrush}"
+                           TextWrapping="Wrap" VerticalAlignment="Center" />
+            </StackPanel>
+        </Border>
+
+        <!-- Gallery grid + empty state overlay. -->
+        <Grid Grid.Row="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- Multi-column card grid. The VM realizes at most one page (48 cards) at a
-                 time, so a WrapPanel keeps memory bounded without a custom virtualizing panel. -->
+            <!-- The VM realizes at most one page (48 cards) at a time, so a WrapPanel keeps
+                 memory bounded without a custom virtualizing panel. -->
             <ListBox x:Name="EntriesListBox"
                      Grid.Row="0"
                      ItemsSource="{Binding Entries}"
@@ -57,7 +118,7 @@
                 </ListBox.ItemsPanel>
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
-                        <Setter Property="Margin" Value="0,0,12,8" />
+                        <Setter Property="Margin" Value="0,0,14,14" />
                         <Setter Property="Padding" Value="0" />
                         <Setter Property="HorizontalContentAlignment" Value="Left" />
                         <Setter Property="VerticalContentAlignment" Value="Top" />
@@ -76,49 +137,160 @@
                 </ListBox.ItemContainerStyle>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <Border Width="264" Height="222" Padding="9" CornerRadius="12"
-                                Background="{StaticResource PanelBrush}"
-                                BorderBrush="{StaticResource PanelAltBrush}" BorderThickness="1">
+                        <Border Width="272" CornerRadius="14" Padding="10"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.Effect>
+                                <DropShadowEffect Color="#000000" BlurRadius="10"
+                                                  ShadowDepth="2" Opacity="0.30" />
+                            </Border.Effect>
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+                                    <Setter Property="BorderBrush" Value="#2D3C50" />
+                                    <Setter Property="BorderThickness" Value="1" />
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="#243449" />
+                                            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                            <Setter Property="RenderTransform">
+                                                <Setter.Value>
+                                                    <TranslateTransform Y="-2" />
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <StackPanel>
-                                <Border Height="104" CornerRadius="8" ClipToBounds="True"
-                                        Background="{StaticResource WindowBrush}">
-                                    <Image Source="{Binding Thumbnail}" Height="104" Width="244"
-                                           Stretch="UniformToFill" />
-                                </Border>
-                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold"
-                                           Margin="2,4,0,2" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding DetailText}" FontSize="10"
-                                           Foreground="{StaticResource MutedBrush}"
-                                           Margin="2,0,0,3" TextTrimming="CharacterEllipsis" />
-                                <WrapPanel>
-                                    <Button Content="Set" Margin="0,0,4,3" Padding="7,4,7,4"
+                                <!-- Larger thumbnail with a favourite badge overlay. -->
+                                <Grid Height="134">
+                                    <Border CornerRadius="9" ClipToBounds="True" Background="#151E29">
+                                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                                    </Border>
+                                    <Border CornerRadius="6" Background="#CC101722" Padding="7,3"
+                                            HorizontalAlignment="Right" VerticalAlignment="Top"
+                                            Margin="0,8,8,0"
+                                            Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE734;" Style="{StaticResource Glyph}"
+                                                       FontSize="11" Foreground="{StaticResource AccentBrush}"
+                                                       Margin="0,0,5,0" />
+                                            <TextBlock Text="Saved" FontSize="10" Foreground="{StaticResource TextBrush}" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+
+                                <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitle}"
+                                           Margin="1,8,0,2" />
+                                <TextBlock Text="{Binding DetailText}" Style="{StaticResource CardMeta}"
+                                           Margin="1,0,0,7" />
+
+                                <!-- Clear collection / favourite meta row. -->
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Border CornerRadius="5" Background="#233149" Padding="7,3"
+                                            Margin="0,0,6,0">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE8B7;" Style="{StaticResource Glyph}"
+                                                       FontSize="11" Foreground="{StaticResource AccentBrush}"
+                                                       Margin="0,0,5,0" />
+                                            <TextBlock Text="{Binding SelectedCollection}" FontSize="10"
+                                                       Foreground="{StaticResource TextBrush}" MaxWidth="118"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border CornerRadius="5" Background="#233149" Padding="7,3"
+                                            Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE734;" Style="{StaticResource Glyph}"
+                                                       FontSize="11" Foreground="{StaticResource AccentBrush}"
+                                                       Margin="0,0,5,0" />
+                                            <TextBlock Text="Favourite" FontSize="10"
+                                                       Foreground="{StaticResource TextBrush}" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- Primary action + icon actions. -->
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button Grid.Column="0"
+                                            Style="{StaticResource PrimaryButtonStyle}"
+                                            Padding="8,6,8,6" FontSize="11"
                                             Command="{Binding DataContext.ApplyCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                            CommandParameter="{Binding}" />
-                                    <Button Content="{Binding FavoriteLabel}" Margin="0,0,4,3" Padding="7,4,7,4"
-                                            Command="{Binding DataContext.FavoriteCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                            CommandParameter="{Binding}" />
-                                    <Button Content="Open" Margin="0,0,4,3" Padding="7,4,7,4"
-                                            Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                            CommandParameter="{Binding}" />
-                                    <Button Content="Remove" Margin="0,0,4,3" Padding="7,4,7,4"
-                                            Command="{Binding DataContext.RemoveCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                            CommandParameter="{Binding}" />
-                                    <ComboBox Width="96" Height="24" Margin="0,0,4,3"
+                                            CommandParameter="{Binding}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE73E;" Style="{StaticResource Glyph}"
+                                                       FontSize="12" Margin="0,0,5,0" />
+                                            <TextBlock Text="Set wallpaper" FontSize="11" />
+                                        </StackPanel>
+                                    </Button>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <Button Padding="7,5,7,5" Margin="5,0,0,0" FontSize="10"
+                                                ToolTip="Toggle favourite"
+                                                Command="{Binding DataContext.FavoriteCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
+                                                CommandParameter="{Binding}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE734;" Style="{StaticResource Glyph}"
+                                                           FontSize="12" Margin="0,0,4,0" />
+                                                <TextBlock Text="{Binding FavoriteLabel}" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Padding="7,5,7,5" Margin="5,0,0,0" FontSize="10"
+                                                ToolTip="Open in viewer"
+                                                Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
+                                                CommandParameter="{Binding}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE8A7;" Style="{StaticResource Glyph}"
+                                                           FontSize="12" Margin="0,0,4,0" />
+                                                <TextBlock Text="Open" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Padding="7,5,7,5" Margin="5,0,0,0" FontSize="10"
+                                                ToolTip="Remove from library"
+                                                Command="{Binding DataContext.RemoveCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
+                                                CommandParameter="{Binding}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE74D;" Style="{StaticResource Glyph}"
+                                                           FontSize="12" Margin="0,0,4,0" />
+                                                <TextBlock Text="Remove" />
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Collection move row. -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox Grid.Column="0" Height="26" FontSize="10"
                                               ToolTip="Move to collection"
                                               ItemsSource="{Binding DataContext.MoveTargets, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
                                               SelectedItem="{Binding SelectedCollection, Mode=TwoWay}" />
-                                    <Button Content="Move" Margin="0,0,4,3" Padding="7,4,7,4"
+                                    <Button Grid.Column="1" Margin="6,0,0,0" Padding="8,5,8,5"
+                                            FontSize="10" ToolTip="Move to selected collection"
                                             Command="{Binding DataContext.MoveToCollectionCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                            CommandParameter="{Binding}" />
-                                </WrapPanel>
+                                            CommandParameter="{Binding}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE8DE;" Style="{StaticResource Glyph}"
+                                                       FontSize="12" Margin="0,0,4,0" />
+                                            <TextBlock Text="Move" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
                             </StackPanel>
                         </Border>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <Border Grid.Row="0" Padding="20" CornerRadius="12" Background="{StaticResource PanelBrush}"
-                    HorizontalAlignment="Left" VerticalAlignment="Top" MaxWidth="740"
+            <!-- Polished empty state, shown only when the current page has no cards. -->
+            <Border Grid.Row="0" Padding="28" CornerRadius="16" Background="#18212C"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="460"
                     IsHitTestVisible="False">
                 <Border.Style>
                     <Style TargetType="Border">
@@ -130,21 +302,48 @@
                         </Style.Triggers>
                     </Style>
                 </Border.Style>
-                <TextBlock Text="{Binding EmptyMessage}" Foreground="{StaticResource MutedBrush}"
-                           TextWrapping="Wrap" MaxWidth="700" />
+                <StackPanel HorizontalAlignment="Center">
+                    <Border Width="58" Height="58" CornerRadius="15" Background="#243449"
+                            HorizontalAlignment="Center">
+                        <TextBlock Text="&#xE7AA;" Style="{StaticResource Glyph}" FontSize="30"
+                                   Foreground="{StaticResource AccentBrush}" />
+                    </Border>
+                    <TextBlock Text="Your library is waiting" FontSize="16" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" Margin="0,14,0,8" />
+                    <TextBlock Text="{Binding EmptyMessage}" Foreground="{StaticResource MutedBrush}"
+                               FontSize="12" TextWrapping="Wrap" TextAlignment="Center"
+                               HorizontalAlignment="Center" MaxWidth="380" />
+                    <TextBlock Text="Save wallpapers from Discover or clear a filter to see more."
+                               FontSize="10" Foreground="#738195" TextWrapping="Wrap"
+                               TextAlignment="Center" HorizontalAlignment="Center"
+                               Margin="0,12,0,0" MaxWidth="360" />
+                </StackPanel>
             </Border>
-
-            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center"
-                        Margin="0,10,0,0">
-                <Button Content="Previous page" Padding="12,6,12,6"
-                        IsEnabled="{Binding CanGoPrevious}"
-                        Command="{Binding PreviousPageCommand}" />
-                <TextBlock Text="{Binding PageLabel}" Foreground="{StaticResource MutedBrush}"
-                           VerticalAlignment="Center" Margin="14,0,14,0" />
-                <Button Content="Next page" Padding="12,6,12,6"
-                        IsEnabled="{Binding CanGoNext}"
-                        Command="{Binding NextPageCommand}" />
-            </StackPanel>
         </Grid>
+
+        <!-- Pager. -->
+        <Border Grid.Row="3" BorderBrush="#2A3442" BorderThickness="0,1,0,0"
+                Padding="0,12,0,0" Margin="0,2,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button Command="{Binding PreviousPageCommand}" IsEnabled="{Binding CanGoPrevious}"
+                        Padding="10,7,10,7">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE76B;" Style="{StaticResource Glyph}" FontSize="13"
+                                   Margin="0,0,6,0" />
+                        <TextBlock Text="Previous" FontSize="11" />
+                    </StackPanel>
+                </Button>
+                <TextBlock Text="{Binding PageLabel}" Foreground="{StaticResource MutedBrush}"
+                           FontSize="11" VerticalAlignment="Center" Margin="16,0,16,0" />
+                <Button Command="{Binding NextPageCommand}" IsEnabled="{Binding CanGoNext}"
+                        Padding="10,7,10,7">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Next" FontSize="11" />
+                        <TextBlock Text="&#xE76C;" Style="{StaticResource Glyph}" FontSize="13"
+                                   Margin="6,0,0,0" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>

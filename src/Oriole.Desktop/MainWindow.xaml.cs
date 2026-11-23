@@ -1,7 +1,9 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shell;
 using Oriole.Desktop.ViewModels;
 using Oriole.Desktop.Views;
 
@@ -50,6 +52,62 @@ public partial class MainWindow : Window
             // Shutdown must finish even if a loop fails to stop cleanly.
         }
     }
+
+    // Custom window chrome -------------------------------------------------
+
+    private void OnMinimizeClick(object sender, RoutedEventArgs e)
+    {
+        var window = sender is DependencyObject element ? Window.GetWindow(element) ?? this : this;
+        SystemCommands.MinimizeWindow(window);
+    }
+
+    private void OnMaximizeClick(object sender, RoutedEventArgs e)
+    {
+        var window = sender is DependencyObject element ? Window.GetWindow(element) ?? this : this;
+        if (window.WindowState == WindowState.Maximized)
+            SystemCommands.RestoreWindow(window);
+        else
+            SystemCommands.MaximizeWindow(window);
+    }
+
+    private void OnCloseClick(object sender, RoutedEventArgs e)
+    {
+        var window = sender is DependencyObject element ? Window.GetWindow(element) ?? this : this;
+        SystemCommands.CloseWindow(window);
+    }
+
+    private void OnTitleBarMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed)
+            return;
+        // Caption buttons live in the title bar too; never start a drag from one.
+        if (FindAncestor<Button>(e.OriginalSource as DependencyObject) is not null)
+            return;
+        DragMove();
+    }
+
+    private void OnTitleBarMouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (FindAncestor<Button>(e.OriginalSource as DependencyObject) is not null)
+            return;
+        if (WindowState == WindowState.Maximized)
+            SystemCommands.RestoreWindow(this);
+        else
+            SystemCommands.MaximizeWindow(this);
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
+    {
+        while (current is not null)
+        {
+            if (current is T match)
+                return match;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return null;
+    }
+
+    // Navigation -----------------------------------------------------------
 
     private void Navigate(object sender, RoutedEventArgs e)
     {
