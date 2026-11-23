@@ -1,28 +1,55 @@
+using System.ComponentModel;
 using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Oriole.Desktop.Services;
 using Oriole.Desktop.Views;
+using Oriole.Desktop.Pages;
 
 namespace Oriole.Desktop;
 
 public partial class MainWindow : Window
 {
+    private AutomationPage? _automationPage;
+    private bool _closingHandled;
+
     private static readonly IReadOnlyDictionary<string, (string Title, string Subtitle, string Description)> Pages =
         new Dictionary<string, (string, string, string)>(StringComparer.OrdinalIgnoreCase)
         {
             ["Overview"] = ("Your desktop, in order.", "Choose what you want to see. Or let Oriole take care of the rotation.", "Your workspace overview will live here."),
-            ["Discover"] = ("Find something worth keeping.", "Search first. Filter properly. Preview before anything touches your desktop.", "Search Wallhaven, preview results, and apply a wallpaper to a selected display."),
-            ["Library"] = ("Your wallpaper library.", "Saved images stay on your PC and remain available offline.", "Collections, favourites, duplicates, metadata, and local folders will be managed here."),
+            ["Discover"] = ("Find something worth keeping.", "Search first. Filter properly. Preview before anything touches your desktop.", "Search Wallhaven, filter results, preview wallpapers, save them to your library, and apply them to a selected display."),
+            ["Library"] = ("Your wallpaper library.", "Saved images stay on your PC and remain available offline.", "Search saved wallpapers, filter favourites, apply a saved image, open its file, or remove its library entry without deleting the image."),
             ["Displays"] = ("One setup for every display.", "See your actual monitor layout and configure each screen independently.", "Choose and apply a different image to each connected monitor."),
-            ["Automation"] = ("Rotation, without timer surprises.", "A visible countdown, one pending change at a time, and proper pause handling.", "Per-display schedules, next-run status, pause/resume, previous/next, and fullscreen-game deferral are being implemented in the scheduling module."),
-            ["Settings"] = ("Preferences.", "Keep the controls that matter. Leave the rest out of the way.", "Theme, startup behaviour, cache limits, download folder, API keys, and privacy controls will live here.")
+            ["Automation"] = ("Independent rotation for every screen.", "Separate schedules, clear countdowns, and full-screen app pause detection.", "Each connected display has its own schedule and controls. Schedules rotate local library images, can pause while a full-screen foreground window covers that display, and resume after Oriole restarts. Schedules whose deadline has passed restart with a fresh full interval."),
+            ["Settings"] = ("Preferences.", "Keep the controls that matter. Leave the rest out of the way.", "Manage your Wallhaven API key, clear cached images, and find Oriole's local data.")
         };
 
     public MainWindow()
     {
         InitializeComponent();
+        Closing += OnClosing;
+    }
+
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (_closingHandled || _automationPage is null)
+            return;
+
+        // Let the rotation loops unwind before the dispatcher shuts down, with a
+        // hard timeout so a stuck COM call cannot prevent the window from closing.
+        // Called from Closing itself: calling Close() from an async continuation
+        // here is rejected by WPF while the window is still marked closing.
+        _closingHandled = true;
+        try
+        {
+            _automationPage.RequestStop();
+            _automationPage.StopAsync().Wait(TimeSpan.FromSeconds(3));
+        }
+        catch (Exception)
+        {
+            // Shutdown must finish even if a loop fails to stop cleanly.
+        }
     }
 
     private void Navigate(object sender, RoutedEventArgs e)
@@ -38,12 +65,26 @@ public partial class MainWindow : Window
             BuildDisplaysPage();
         else if (string.Equals(key, "Discover", StringComparison.OrdinalIgnoreCase))
             PageBody.Children.Add(new DiscoverPage());
+        else if (string.Equals(key, "Library", StringComparison.OrdinalIgnoreCase))
+            PageBody.Children.Add(new LibraryPage());
+        else if (string.Equals(key, "Automation", StringComparison.OrdinalIgnoreCase))
+        {
+            _automationPage ??= new AutomationPage();
+            PageBody.Children.Add(_automationPage);
+        }
+        else if (string.Equals(key, "Settings", StringComparison.OrdinalIgnoreCase))
+            PageBody.Children.Add(new SettingsPage());
         else
             BuildPlaceholderPage(key, page.Description);
 
         foreach (var button in FindVisualChildren<Button>(this))
         {
             if (button.Tag is not string buttonKey)
+                continue;
+
+            // The Overview CTA is a primary button with the same tag; only sidebar
+            // navigation buttons should show the selected state.
+            if (!ReferenceEquals(button.Style, FindResource("NavButtonStyle")))
                 continue;
 
             var isSelected = string.Equals(buttonKey, key, StringComparison.OrdinalIgnoreCase);
@@ -123,7 +164,13 @@ public partial class MainWindow : Window
             cards.Children.Clear();
             try
             {
-                var monitors = WindowsDesktopWallpaper.GetMonitors();
+                var detection = DisplayDetection.Read();
+                if (!detection.Succeeded)
+                {
+                    status.Text = $"Could not read display information: {detection.Error}";
+                    return;
+                }
+                var monitors = detection.Monitors;
                 if (monitors.Count == 0)
                 {
                     status.Text = "Windows did not report any connected displays.";
@@ -137,8 +184,7 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                status.Text = "Could not read display information.";
-                MessageBox.Show(this, ex.Message, "Display detection failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                status.Text = $"Could not read display information: {ex.Message}";
             }
         }
 
