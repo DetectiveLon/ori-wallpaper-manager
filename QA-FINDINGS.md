@@ -8,8 +8,10 @@ Screenshots live under `C:\Users\eslam\AppData\Local\hermes\cache\images\`.
 - Fixed 14 issues; 9 new regression tests. 45/45 core tests pass, WPF build 0 warnings/0 errors.
 - Final smoke: app launches, both monitors detected, Displays and Automation render, no modal; a seeded schedule restored with a live countdown; graceful close now exits cleanly. Live close testing found and fixed a WPF re-entrant `Close()` bug in the first shutdown implementation.
 - Fixed in addition to item 1 below: silent process exit (global exception handlers + wrapped library handlers); Library UI decoded every image on the UI thread and re-rendered per keystroke (now background decode + 180 ms debounce); Start error overwritten by cleanup; wallpaper apply forcing global Fill fit mode; Discover Search button off-screen; blocking detection modal; reset-during-pause double notification; throwing loop callbacks killing rotation; API key forwarded on auto-redirecting HttpClient; no path back to "Unsorted"; relative index path crash; invalid WallhavenOrder silently mapping to "desc"; stale Overview copy; CTA highlighted as nav.
-- Still open: duplicated detection presentation in three pages (detection itself now shares one service); primary-monitor fallback by index; two disagreeing image pipelines; dead Settings page; foreground-only full-screen detection; schedule persistence does not survive moving to a different monitor ID.
+- Still open: duplicated detection presentation in three pages (detection itself now shares one service); two disagreeing image pipelines; foreground-only full-screen detection; schedule persistence does not survive moving to a different monitor ID; library has no virtualization or collections UI.
 - Not tested: real Wallhaven search/download, full-screen pause with a game, installer.
+
+- UI pass: Settings was a dead placeholder — now has a DPAPI-protected Wallhaven API key field, cache clearing, data paths, and version info; key save/remove verified live. Default WPF buttons/comboboxes rendered as white blocks (disabled state overrode local colours); added dark implicit styles and verified the interval dropdown still opens/selects and disabled buttons stay dark. Docs updated.
 
 ## Fixed during this session
 

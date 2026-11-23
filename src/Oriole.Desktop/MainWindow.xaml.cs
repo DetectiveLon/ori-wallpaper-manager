@@ -22,7 +22,7 @@ public partial class MainWindow : Window
             ["Library"] = ("Your wallpaper library.", "Saved images stay on your PC and remain available offline.", "Search saved wallpapers, filter favourites, apply a saved image, open its file, or remove its library entry without deleting the image."),
             ["Displays"] = ("One setup for every display.", "See your actual monitor layout and configure each screen independently.", "Choose and apply a different image to each connected monitor."),
             ["Automation"] = ("Independent rotation for every screen.", "Separate schedules, clear countdowns, and full-screen app pause detection.", "Each connected display has its own schedule and controls. Schedules rotate local library images, can pause while a full-screen foreground window covers that display, and resume after Oriole restarts. Schedules whose deadline has passed restart with a fresh full interval."),
-            ["Settings"] = ("Preferences.", "Keep the controls that matter. Leave the rest out of the way.", "Theme, startup behaviour, cache limits, download folder, API keys, and privacy controls will live here.")
+            ["Settings"] = ("Preferences.", "Keep the controls that matter. Leave the rest out of the way.", "Manage your Wallhaven API key, clear cached images, and find Oriole's local data.")
         };
 
     public MainWindow()
@@ -72,6 +72,8 @@ public partial class MainWindow : Window
             _automationPage ??= new AutomationPage();
             PageBody.Children.Add(_automationPage);
         }
+        else if (string.Equals(key, "Settings", StringComparison.OrdinalIgnoreCase))
+            PageBody.Children.Add(new SettingsPage());
         else
             BuildPlaceholderPage(key, page.Description);
 

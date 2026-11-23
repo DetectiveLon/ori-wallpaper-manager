@@ -18,6 +18,8 @@ This is a progress record, not a release-readiness claim.
 - Versioned per-display schedule state under Local AppData; running schedules resume after an app restart, and missed deadlines restart with a fresh full interval.
 - Optional pause when a full-screen foreground window covers the target display. Geometry matching tolerates small window-frame rounding but rejects ordinary maximized windows that leave the taskbar area.
 - App navigation does not stop rotation; main-window close requests cancellation.
+- Settings page with DPAPI-protected Wallhaven API key storage, cache clearing, data folders, and version information.
+- Dark-theme styles for buttons, combo boxes and scrollbars, including disabled states.
 
 ## Not implemented
 
@@ -26,7 +28,7 @@ This is a progress record, not a release-readiness claim.
 - Library collections, local-folder import, and duplicate detection.
 - Independent per-monitor fit modes.
 - Tray controls, startup registration, installer, and release packaging.
-- Encrypted persistent storage for the Wallhaven API key.
+- Library virtualization and a collections UI (the library decodes thumbnails off the UI thread and debounces filtering, but renders all matching cards).
 
 ## Validation
 

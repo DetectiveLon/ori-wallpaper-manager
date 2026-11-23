@@ -56,7 +56,11 @@ public sealed class DiscoverPage : UserControl
         _searchButton.Click += async (_, _) => await SearchFirstPageAsync();
         _previous.Click += async (_, _) => await ChangePageAsync(-1);
         _next.Click += async (_, _) => await ChangePageAsync(1);
-        Loaded += (_, _) => LoadDisplays();
+        Loaded += (_, _) =>
+        {
+            LoadDisplays();
+            _apiKey.Password = ApiKeyStore.Load();
+        };
         Unloaded += (_, _) => CancelSearch();
     }
 
@@ -257,6 +261,8 @@ public sealed class DiscoverPage : UserControl
     {
         if (_searching)
             return;
+        // Keep the key entered here in sync with the Settings page.
+        try { ApiKeyStore.Save(_apiKey.Password); } catch { }
         try
         {
             _currentFilters = BuildFilters();
