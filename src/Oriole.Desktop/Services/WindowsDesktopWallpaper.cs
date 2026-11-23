@@ -94,6 +94,18 @@ public static class WindowsDesktopWallpaper
                     string.IsNullOrWhiteSpace(currentWallpaper) ? null : currentWallpaper));
             }
 
+            // If geometry matching failed for a stale path, the index fallback can
+            // mark a second monitor primary. Keep exactly one PRIMARY card.
+            var primary = result.FirstOrDefault(monitor => monitor.IsPrimary);
+            if (primary is not null)
+            {
+                for (var index = 0; index < result.Count; index++)
+                {
+                    if (!ReferenceEquals(result[index], primary) && result[index].IsPrimary)
+                        result[index] = result[index] with { IsPrimary = false };
+                }
+            }
+
             return (IReadOnlyList<DisplayMonitor>)result;
         });
     }
