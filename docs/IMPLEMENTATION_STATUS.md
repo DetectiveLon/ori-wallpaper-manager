@@ -8,7 +8,6 @@ This is a progress record, not a release-readiness claim.
 
 - Existing Wallhaven discovery page retained from the foundation branch.
 - Wallhaven search categories, purity, query expressions, sorting, toplist periods, order, resolution, aspect ratio, and color filters.
-- Hot sorting exposed in the Discover UI and query builder.
 - Search pagination and thumbnail previews.
 - Full-size preview, local saving, and apply to a selected display.
 - Bounded original/thumbnail downloads and image decode limits.
