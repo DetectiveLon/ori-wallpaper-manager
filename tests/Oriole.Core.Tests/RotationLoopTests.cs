@@ -35,4 +35,43 @@ public sealed class RotationLoopTests
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             RotationLoop.CalculateNextRun(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(minutes), null));
     }
+    [Fact]
+    public async Task ManualResetMovesDeadlineWithoutRunningARotation()
+    {
+        var loop = new RotationLoop();
+        using var cancellation = new CancellationTokenSource();
+        var initialDeadline = new TaskCompletionSource<DateTimeOffset>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resetDeadline = new TaskCompletionSource<DateTimeOffset>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackCount = 0;
+        var rotationCount = 0;
+
+        var run = loop.RunAsync(
+            TimeSpan.FromHours(1),
+            shouldPause: () => false,
+            rotateAsync: _ =>
+            {
+                Interlocked.Increment(ref rotationCount);
+                return Task.CompletedTask;
+            },
+            nextRunChanged: nextRun =>
+            {
+                if (Interlocked.Increment(ref callbackCount) == 1)
+                    initialDeadline.TrySetResult(nextRun);
+                else
+                    resetDeadline.TrySetResult(nextRun);
+                return Task.CompletedTask;
+            },
+            cancellationToken: cancellation.Token);
+
+        var initial = await initialDeadline.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        loop.ResetNextRun();
+        var reset = await resetDeadline.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(reset > initial);
+        Assert.Equal(0, rotationCount);
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+    }
+
 }
