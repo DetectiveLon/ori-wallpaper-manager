@@ -8,7 +8,7 @@ The `foundation/0.1.0` branch provides the WPF shell, Wallhaven API client and q
 
 The `feature/library-automation` branch builds on that foundation and preserves the existing Wallhaven discovery page and image downloader. It adds:
 
-- Wallhaven discovery filters for categories, purity, tags, sorting (including Hot), toplist period, order, custom minimum/exact resolution, aspect ratio, and color palette.
+- Wallhaven discovery filters for categories, purity, tags, sorting, toplist period, order, custom minimum/exact resolution, aspect ratio, and color palette.
 - Search pagination, thumbnail previews, full-image preview, save-to-library, and selected-display apply.
 - Bounded image download and decode limits.
 - A versioned local library index, offline saved images, search, favourites, apply, open-file, and metadata-only removal.
