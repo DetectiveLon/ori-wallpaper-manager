@@ -1,12 +1,13 @@
 namespace Oriole.Core.Services;
 
 /// <summary>
-/// Sequential, one-shot rotation loop. It never queues timer ticks while a download or
-/// wallpaper apply is in progress. The next interval starts after the previous attempt ends.
-/// A pause that lasts past a due time defers the change and starts a fresh interval on resume.
+/// Sequential, one-shot rotation loop. It never queues timer ticks while a wallpaper change
+/// is in progress. Pause is polled during the countdown; once resumed, a fresh full interval
+/// starts instead of applying immediately or replaying missed intervals.
 /// </summary>
 public sealed class RotationLoop(TimeProvider? timeProvider = null)
 {
+    private static readonly TimeSpan PausePollInterval = TimeSpan.FromSeconds(2);
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly SemaphoreSlim _resetSignal = new(0, 1);
 
@@ -63,11 +64,33 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
         var deferredByPause = false;
         while (!cancellationToken.IsCancellationRequested)
         {
+            if (shouldPause())
+            {
+                deferredByPause = true;
+                await Task.Delay(PausePollInterval, _timeProvider, cancellationToken)
+                    .ConfigureAwait(false);
+                continue;
+            }
+
+            if (deferredByPause)
+            {
+                // Do not apply immediately after a pause (for example, after a game exits).
+                nextRun = _timeProvider.GetUtcNow() + interval;
+                deferredByPause = false;
+                if (nextRunChanged is not null)
+                    await nextRunChanged(nextRun).ConfigureAwait(false);
+                continue;
+            }
+
             var remaining = nextRun - _timeProvider.GetUtcNow();
             if (remaining > TimeSpan.Zero)
             {
+                var waitDuration = remaining < PausePollInterval
+                    ? remaining
+                    : PausePollInterval;
+
                 using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                var delayTask = Task.Delay(remaining, _timeProvider, waitCancellation.Token);
+                var delayTask = Task.Delay(waitDuration, _timeProvider, waitCancellation.Token);
                 var resetTask = _resetSignal.WaitAsync(waitCancellation.Token);
                 await Task.WhenAny(delayTask, resetTask).ConfigureAwait(false);
 
@@ -78,11 +101,14 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
                     nextRun = _timeProvider.GetUtcNow() + interval;
                     if (nextRunChanged is not null)
                         await nextRunChanged(nextRun).ConfigureAwait(false);
-                    continue;
+                }
+                else
+                {
+                    waitCancellation.Cancel();
+                    await delayTask.ConfigureAwait(false);
                 }
 
-                waitCancellation.Cancel();
-                await delayTask.ConfigureAwait(false);
+                continue;
             }
 
             if (_resetSignal.Wait(0))
@@ -93,20 +119,10 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
                 continue;
             }
 
-            while (shouldPause())
+            // Pause can begin between the last poll and the deadline check.
+            if (shouldPause())
             {
                 deferredByPause = true;
-                await Task.Delay(TimeSpan.FromSeconds(15), _timeProvider, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            if (deferredByPause)
-            {
-                // Do not apply immediately after a long pause (for example, after a game exits).
-                nextRun = _timeProvider.GetUtcNow() + interval;
-                deferredByPause = false;
-                if (nextRunChanged is not null)
-                    await nextRunChanged(nextRun).ConfigureAwait(false);
                 continue;
             }
 
