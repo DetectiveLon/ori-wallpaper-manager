@@ -64,13 +64,29 @@ public sealed class ScheduleStore
             if (new FileInfo(_path).Length > MaximumIndexBytes)
                 return Empty();
 
-            await using var stream = new FileStream(
-                _path, FileMode.Open, FileAccess.Read, FileShare.Read,
-                16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-            var document = await JsonSerializer.DeserializeAsync<ScheduleDocument>(
-                stream, JsonOptions, cancellationToken).ConfigureAwait(false);
-            if (document is null || document.Version != SchemaVersion || document.Entries is null)
+            ScheduleDocument? document;
+            try
+            {
+                await using var stream = new FileStream(
+                    _path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                    16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                document = await JsonSerializer.DeserializeAsync<ScheduleDocument>(
+                    stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+            }
+            catch (JsonException)
+            {
+                // Saving over a file we cannot read would destroy the schedules for
+                // good, so keep a copy and start clean instead.
+                Quarantine();
                 return Empty();
+            }
+
+            if (document is null || document.Version != SchemaVersion || document.Entries is null)
+            {
+                if (document is null || document.Version != SchemaVersion)
+                    Quarantine();
+                return Empty();
+            }
 
             return document.Entries
                 .Where(entry => !string.IsNullOrWhiteSpace(entry.MonitorId))
@@ -127,6 +143,20 @@ public sealed class ScheduleStore
 
     private static Dictionary<string, DisplayScheduleState> Empty() =>
         new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Keeps a copy of an unreadable schedule file so the next save cannot erase it.</summary>
+    private void Quarantine()
+    {
+        var backup = _path + ".corrupt-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss");
+        try
+        {
+            File.Move(_path, backup, overwrite: false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Nothing better is possible here; the next save will replace the file.
+        }
+    }
 
     private sealed record ScheduleDocument(int Version, DisplayScheduleState[]? Entries);
 }

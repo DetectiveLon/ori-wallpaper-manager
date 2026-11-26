@@ -182,6 +182,188 @@ public sealed class WallpaperLibraryStoreFeatureTests
         Assert.Equal("landscape, NATURE", entry.Tags);
     }
 
+    [Fact]
+    public async Task MovedDataFolderRebasesLibraryPathsOntoTheCurrentRoot()
+    {
+        using var temp = new TemporaryDirectory();
+        var images = Path.Combine(temp.Path, "images");
+        Directory.CreateDirectory(images);
+        var realFile = WriteFile(images, "wallhaven-abc123.png", [0x01, 0x02]);
+        var stalePath = Path.Combine(
+            temp.Path, "old-root", "library", "images", "wallhaven-abc123.png");
+        var index = Path.Combine(temp.Path, "library.json");
+        await File.WriteAllTextAsync(index, JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Entries = new[]
+            {
+                new { Id = "abc123", Title = "Moved", LocalPath = stalePath, Collection = "Unsorted" }
+            }
+        }));
+
+        var entry = Assert.Single(await new WallpaperLibraryStore(index).GetAllAsync());
+
+        Assert.Equal(realFile, entry.LocalPath);
+        Assert.True(File.Exists(entry.LocalPath));
+    }
+
+    [Fact]
+    public async Task MissingFileWithNoMatchInTheLibraryKeepsItsStoredPath()
+    {
+        using var temp = new TemporaryDirectory();
+        var index = Path.Combine(temp.Path, "library.json");
+        var stalePath = Path.Combine(temp.Path, "old-root", "images", "gone.png");
+        await File.WriteAllTextAsync(index, JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Entries = new[]
+            {
+                new { Id = "gone", Title = "Gone", LocalPath = stalePath, Collection = "Unsorted" }
+            }
+        }));
+
+        var entry = Assert.Single(await new WallpaperLibraryStore(index).GetAllAsync());
+
+        Assert.Equal(stalePath, entry.LocalPath);
+    }
+
+    [Fact]
+    public async Task ImportedFileOutsideTheLibraryKeepsItsPath()
+    {
+        using var temp = new TemporaryDirectory();
+        var imported = WriteFile(temp.Path, "imported.jpg", [0x01]);
+        var index = Path.Combine(temp.Path, "library.json");
+        await File.WriteAllTextAsync(index, JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Entries = new[]
+            {
+                new { Id = "imp-1", Title = "Imported", LocalPath = imported, Collection = "Unsorted" }
+            }
+        }));
+
+        var entry = Assert.Single(await new WallpaperLibraryStore(index).GetAllAsync());
+
+        Assert.Equal(imported, entry.LocalPath);
+    }
+
+    [Fact]
+    public async Task ReSavingAnExistingEntryKeepsUserMetadata()
+    {
+        using var temp = new TemporaryDirectory();
+        var image = WriteFile(temp.Path, "saved.jpg", [0x01]);
+        var store = new WallpaperLibraryStore(Path.Combine(temp.Path, "library.json"));
+        var savedAt = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        await store.UpsertAsync(new WallpaperLibraryEntry
+        {
+            Id = "keep-1",
+            Title = "Kept",
+            LocalPath = image,
+            Tags = "night, city",
+            Colors = "#112233",
+            ContentHash = "abc",
+            SavedAtUtc = savedAt
+        });
+
+        // Discover re-applies an entry after a fresh download and sends only the
+        // basics, which used to wipe tags, colours, hash and the save date.
+        await store.UpsertAsync(new WallpaperLibraryEntry
+        {
+            Id = "keep-1",
+            Title = "Kept again",
+            LocalPath = image
+        });
+
+        var entry = Assert.Single(await store.GetAllAsync());
+        Assert.Equal("night, city", entry.Tags);
+        Assert.Equal("#112233", entry.Colors);
+        Assert.Equal("abc", entry.ContentHash);
+        Assert.Equal(savedAt, entry.SavedAtUtc);
+    }
+
+    [Fact]
+    public async Task DeleteEntryKeepsAnImportedFileOutsideTheLibrary()
+    {
+        using var temp = new TemporaryDirectory();
+        var library = Path.Combine(temp.Path, "Ori", "library");
+        var pictures = Path.Combine(temp.Path, "Pictures");
+        Directory.CreateDirectory(library);
+        Directory.CreateDirectory(pictures);
+        var imported = WriteFile(pictures, "mine.jpg", [0x01]);
+        var store = new WallpaperLibraryStore(Path.Combine(library, "library.json"));
+        await store.UpsertAsync(new WallpaperLibraryEntry { Id = "mine", LocalPath = imported });
+
+        Assert.True(await store.DeleteEntryAsync("mine", deleteFile: true));
+
+        Assert.Empty(await store.GetAllAsync());
+        Assert.True(File.Exists(imported));
+    }
+
+    [Fact]
+    public async Task DeleteEntryRemovesAnImageInsideTheLibrary()
+    {
+        using var temp = new TemporaryDirectory();
+        var library = Path.Combine(temp.Path, "Ori", "library");
+        var images = Path.Combine(library, "images");
+        Directory.CreateDirectory(images);
+        var stored = WriteFile(images, "wallhaven-del.png", [0x01]);
+        var store = new WallpaperLibraryStore(Path.Combine(library, "library.json"));
+        await store.UpsertAsync(new WallpaperLibraryEntry { Id = "del", LocalPath = stored });
+
+        Assert.True(await store.DeleteEntryAsync("del", deleteFile: true));
+
+        Assert.Empty(await store.GetAllAsync());
+        Assert.False(File.Exists(stored));
+    }
+
+    [Fact]
+    public async Task WallpaperAppliedIntoTheWallpapersFolderIsRebasedThere()
+    {
+        using var temp = new TemporaryDirectory();
+        var wallpapers = Path.Combine(temp.Path, "Wallpapers");
+        var images = Path.Combine(temp.Path, "library", "images");
+        Directory.CreateDirectory(wallpapers);
+        Directory.CreateDirectory(images);
+        // The same file name exists in both places, so the stored parent folder
+        // must decide where the entry is re-pointed.
+        WriteFile(images, "wallhaven-dup.jpg", [0x02]);
+        var applied = WriteFile(wallpapers, "wallhaven-dup.jpg", [0x01]);
+        var index = Path.Combine(temp.Path, "library", "library.json");
+        await File.WriteAllTextAsync(index, JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Entries = new[]
+            {
+                new
+                {
+                    Id = "dup",
+                    Title = "Applied",
+                    LocalPath = Path.Combine(temp.Path, "old-root", "Wallpapers", "wallhaven-dup.jpg"),
+                    Collection = "Unsorted"
+                }
+            }
+        }));
+
+        var entry = Assert.Single(await new WallpaperLibraryStore(index).GetAllAsync());
+
+        Assert.Equal(applied, entry.LocalPath);
+    }
+
+    [Fact]
+    public async Task CorruptIndexIsMovedAsideSoTheNextReadWorks()
+    {
+        using var temp = new TemporaryDirectory();
+        var index = Path.Combine(temp.Path, "library.json");
+        await File.WriteAllTextAsync(index, "{ not json");
+
+        var store = new WallpaperLibraryStore(index);
+        await Assert.ThrowsAsync<JsonException>(() => store.GetAllAsync());
+
+        Assert.False(File.Exists(index));
+        Assert.Single(Directory.GetFiles(temp.Path, "library.json.corrupt-*"));
+        Assert.Empty(await store.GetAllAsync());
+    }
+
     private static string WriteFile(string directory, string name, byte[] content)
     {
         var path = Path.Combine(directory, name);

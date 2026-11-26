@@ -289,8 +289,23 @@ public sealed class SettingsViewModel : ViewModelBase
             }
 
             var library = new WallpaperLibraryStore();
+            var entries = await library.GetAllAsync().ConfigureAwait(true);
+
+            // A stored path that no longer exists means the index and the disk
+            // disagree (a moved data folder, an offline drive). Deleting on that
+            // evidence would remove wallpapers the library still references, so
+            // refuse and tell the user instead.
+            var unresolved = entries.Count(entry =>
+                !string.IsNullOrWhiteSpace(entry.LocalPath) && !File.Exists(entry.LocalPath));
+            if (unresolved > 0)
+            {
+                Status = $"Nothing deleted: {unresolved} library entr{(unresolved == 1 ? "y points" : "ies point")} at a file that is missing. Re-add those wallpapers from the Library first.";
+                return;
+            }
+
             var referenced = new HashSet<string>(
-                (await library.GetAllAsync().ConfigureAwait(true))
+                entries
+                    .Where(entry => !string.IsNullOrWhiteSpace(entry.LocalPath))
                     .Select(entry => Path.GetFullPath(entry.LocalPath)),
                 StringComparer.OrdinalIgnoreCase);
 

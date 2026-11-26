@@ -113,12 +113,39 @@ public static class WallhavenFeedStore
             using var stream = new FileStream(
                 Path, FileMode.Open, FileAccess.Read, FileShare.Read,
                 16 * 1024, FileOptions.SequentialScan);
-            return JsonSerializer.Deserialize<FeedDocument>(stream, JsonOptions);
+            var document = JsonSerializer.Deserialize<FeedDocument>(stream, JsonOptions);
+            if (document is null || document.Version != SchemaVersion)
+            {
+                // An unreadable record would otherwise be silently overwritten by the
+                // next save, losing the user's Discover filters and opt-in for good.
+                Quarantine();
+                return null;
+            }
+            return document;
         }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException
+        catch (JsonException)
+        {
+            Quarantine();
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                       or NotSupportedException or ArgumentException)
         {
             return null;
+        }
+    }
+
+    /// <summary>Keeps a copy of an unreadable feed file so the next save cannot erase it.</summary>
+    private static void Quarantine()
+    {
+        var backup = Path + ".corrupt-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss");
+        try
+        {
+            File.Move(Path, backup, overwrite: false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Nothing better is possible here; the next save will replace the file.
         }
     }
 

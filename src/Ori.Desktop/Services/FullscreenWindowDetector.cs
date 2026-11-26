@@ -92,6 +92,7 @@ public static class FullscreenWindowDetector
 
         var current = new List<FullscreenWindow>();
         var shellWindow = GetShellWindow();
+        var seenPids = new HashSet<int>();
 
         lock (Gate)
         {
@@ -106,6 +107,7 @@ public static class FullscreenWindowDetector
                     if (pid == 0 || pid == ownPid)
                         return true;
 
+                    seenPids.Add((int)pid);
                     var name = GetProcessName((int)pid);
                     if (name is not null && ExemptProcessNames.Contains(name))
                         return true;
@@ -126,6 +128,11 @@ public static class FullscreenWindowDetector
                 }
                 return true;
             }, IntPtr.Zero);
+
+            // Windows recycles process IDs, so a name cached for a dead process would
+            // otherwise live for the whole session and mislabel the blocker.
+            foreach (var cachedPid in ProcessNames.Keys.Where(pid => !seenPids.Contains(pid)).ToArray())
+                ProcessNames.Remove(cachedPid);
 
             FullscreenWindow? blocker;
 

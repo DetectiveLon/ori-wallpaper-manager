@@ -707,7 +707,7 @@ public sealed class LibraryViewModel : ViewModelBase
             SelectedEntry = null;
             await ReloadAsync();
             Status = deleteFile
-                ? $"Removed \"{entry.Title}\" from the library and deleted its image file."
+                ? $"Removed \"{entry.Title}\" from the library and deleted its image from Ori's folder."
                 : $"Removed \"{entry.Title}\" from the library (image file kept on disk).";
         }
         catch (Exception ex)

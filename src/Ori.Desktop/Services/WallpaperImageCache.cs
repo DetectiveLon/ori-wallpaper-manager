@@ -24,6 +24,13 @@ public sealed class WallpaperImageCache
     public const int MaximumDimension = 32768;
 
     private const int MaximumRedirects = 4;
+
+    // The download cache is a convenience, never the user's library. Cap it so months
+    // of browsing cannot fill the disk; prune once per process, before the first
+    // download, rather than on every request.
+    private const long MaximumCacheBytes = 512L * 1024 * 1024;
+    private static int _cachePruned;
+
     private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
     private static readonly HttpClient Http = new(new SocketsHttpHandler
@@ -140,6 +147,8 @@ public sealed class WallpaperImageCache
 
         var prefix = $"wallhaven-{SafeKey(id)}-{kind}";
         Directory.CreateDirectory(_cacheDirectory);
+        if (Interlocked.Exchange(ref _cachePruned, 1) == 0)
+            PruneCache();
 
         var existing = Directory.EnumerateFiles(_cacheDirectory, prefix + ".*")
             .FirstOrDefault(path => !path.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
@@ -210,6 +219,44 @@ public sealed class WallpaperImageCache
                 if (File.Exists(temporaryPath))
                     File.Delete(temporaryPath);
             }
+        }
+    }
+
+    /// <summary>
+    /// Keeps cache\images bounded: the oldest files and any leftover partial downloads
+    /// go until the folder is back under 80% of the cap. Library images are never
+    /// touched, so a wallpaper the user saved always keeps its file.
+    /// </summary>
+    private void PruneCache()
+    {
+        try
+        {
+            var files = new DirectoryInfo(_cacheDirectory)
+                .EnumerateFiles("*", SearchOption.TopDirectoryOnly)
+                .OrderBy(file => file.LastWriteTimeUtc)
+                .ToArray();
+            var total = files.Sum(file => file.Length);
+            var target = MaximumCacheBytes * 8 / 10;
+
+            foreach (var file in files)
+            {
+                if (total <= target)
+                    break;
+                var length = file.Length;
+                try
+                {
+                    file.Delete();
+                    total -= length;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // A file in use stays until the next prune.
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A cache that cannot be pruned must never stop a download.
         }
     }
 

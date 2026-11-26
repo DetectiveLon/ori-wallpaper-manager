@@ -96,13 +96,23 @@ public sealed class WallpaperLibraryStore
                 string.Equals(existing.Id, entry.Id, StringComparison.OrdinalIgnoreCase));
             if (index >= 0)
             {
+                // Re-saving a wallpaper the library already holds must not wipe what
+                // the user attached to it. Discover re-applies an entry after a fresh
+                // download, so tags, colours, the content hash and the original save
+                // date are carried over unless the new value actually says something.
                 var existing = entries[index];
                 entries[index] = entry with
                 {
                     IsFavorite = entry.IsFavorite || existing.IsFavorite,
                     Collection = string.Equals(entry.Collection, "Unsorted", StringComparison.Ordinal)
                         ? existing.Collection
-                        : entry.Collection
+                        : entry.Collection,
+                    Tags = Coalesce(entry.Tags, existing.Tags),
+                    Colors = Coalesce(entry.Colors, existing.Colors),
+                    SourceQuery = Coalesce(entry.SourceQuery, existing.SourceQuery),
+                    SourceId = Coalesce(entry.SourceId, existing.SourceId),
+                    ContentHash = Coalesce(entry.ContentHash, existing.ContentHash),
+                    SavedAtUtc = existing.SavedAtUtc
                 };
             }
             else
@@ -244,33 +254,85 @@ public sealed class WallpaperLibraryStore
             if (entry is null)
                 return false;
 
-            if (deleteFile && !string.IsNullOrWhiteSpace(entry.LocalPath))
-            {
-                var path = Path.GetFullPath(entry.LocalPath);
-                if (File.Exists(path))
-                {
-                    try
-                    {
-                        File.Delete(path);
-                    }
-                    catch (IOException)
-                    {
-                        return false;
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        return false;
-                    }
-                }
-            }
-
+            // Commit the index before touching the file. The other order leaves an
+            // entry whose image is gone whenever the index write fails, and the UI can
+            // never repair that. A leftover file is harmless: orphan cleanup finds it.
             entries.Remove(entry);
             await WriteCoreAsync(entries, cancellationToken).ConfigureAwait(false);
+
+            if (deleteFile && !string.IsNullOrWhiteSpace(entry.LocalPath))
+                DeleteOwnedImage(entry.LocalPath);
+
             return true;
         }
         finally
         {
             Gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Deletes an entry's image only when it lives in one of the app's own folders.
+    /// A wallpaper imported from a folder the user chose stays there, so removing the
+    /// library entry must never delete the user's original file.
+    /// </summary>
+    private void DeleteOwnedImage(string storedPath)
+    {
+        string path;
+        try
+        {
+            path = Path.GetFullPath(storedPath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return; // A malformed stored path must not make removal impossible.
+        }
+
+        var indexDirectory = Path.GetDirectoryName(_indexPath) ?? ".";
+        var dataRoot = Path.GetDirectoryName(indexDirectory) ?? indexDirectory;
+        // Only files Ori owns are deleted: anything under the library folder or the
+        // app's data root. A wallpaper imported from the user's own folder is theirs,
+        // so removing the entry leaves the original file alone.
+        var allowed = new[] { indexDirectory, dataRoot };
+        if (!allowed.Any(directory =>
+                IsInsideRoot(path, directory, directory + Path.DirectorySeparatorChar)))
+        {
+            return;
+        }
+
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (IOException)
+        {
+            // A locked image is left on disk; the entry is already gone.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static string Coalesce(string preferred, string fallback) =>
+        string.IsNullOrWhiteSpace(preferred) ? fallback : preferred;
+
+    /// <summary>
+    /// Moves an unreadable index aside so the next visit starts clean instead of
+    /// failing forever. Returns the backup path, or the original path when the move
+    /// itself fails.
+    /// </summary>
+    private string QuarantineIndex()
+    {
+        var backup = _indexPath + ".corrupt-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss");
+        try
+        {
+            File.Move(_indexPath, backup, overwrite: false);
+            return backup;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return _indexPath;
         }
     }
 
@@ -545,20 +607,104 @@ public sealed class WallpaperLibraryStore
         if (info.Length > MaximumIndexBytes)
             throw new InvalidDataException("The wallpaper library index exceeds the 8 MiB safety limit.");
 
-        await using var stream = new FileStream(
-            _indexPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-            16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        var document = await JsonSerializer.DeserializeAsync<LibraryDocument>(
-            stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+        LibraryDocument? document;
+        try
+        {
+            await using var stream = new FileStream(
+                _indexPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                16 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            document = await JsonSerializer.DeserializeAsync<LibraryDocument>(
+                stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+        }
+        catch (JsonException)
+        {
+            // A damaged index used to break the Library page on every visit with no
+            // way out short of deleting the file. Move it aside, keep a backup and
+            // start empty; the images themselves are never touched.
+            var backup = QuarantineIndex();
+            throw new JsonException(
+                $"The wallpaper library index was damaged. It was moved to {backup} and the library starts empty; saved images are untouched.");
+        }
 
         if (document is null)
+        {
+            QuarantineIndex();
             return [];
+        }
+
         if (document.Version != LegacySchemaVersion && document.Version != SchemaVersion)
-            throw new InvalidDataException($"Unsupported wallpaper library version: {document.Version}.");
+        {
+            var backup = QuarantineIndex();
+            throw new InvalidDataException(
+                $"Unsupported wallpaper library version: {document.Version}. The file was moved to {backup} and the library starts empty; saved images are untouched.");
+        }
 
         // Version-1 entries simply lacked the new fields. Applying the normalizer to
         // both versions fills safe defaults and keeps every existing entry intact.
-        return (document.Entries ?? []).Select(NormalizeForCurrentSchema).ToList();
+        var entries = (document.Entries ?? []).Select(NormalizeForCurrentSchema).ToList();
+        return RepairLocalPaths(entries);
+    }
+
+    /// <summary>
+    /// Rebases library paths onto the current data folder when a stored absolute
+    /// path no longer exists. Renaming or restoring %LOCALAPPDATA%\Ori otherwise
+    /// leaves every entry pointing at a folder that is gone, so the library shows
+    /// empty cards and rotation reports that no images are available.
+    /// </summary>
+    /// <remarks>
+    /// Only an entry whose file name is present in the current images folder is
+    /// rebased, so wallpapers imported from a folder the user chose are never
+    /// touched, and an entry the user deleted stays missing instead of silently
+    /// pointing at a different file.
+    /// </remarks>
+    private List<WallpaperLibraryEntry> RepairLocalPaths(List<WallpaperLibraryEntry> entries)
+    {
+        if (entries.Count == 0)
+            return entries;
+
+        var indexDirectory = Path.GetDirectoryName(_indexPath) ?? ".";
+        var imagesDirectory = Path.Combine(indexDirectory, "images");
+        var dataRoot = Path.GetDirectoryName(indexDirectory);
+        var imagesPrefix = imagesDirectory + Path.DirectorySeparatorChar;
+        List<WallpaperLibraryEntry>? repaired = null;
+
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var entry = entries[index];
+            if (string.IsNullOrWhiteSpace(entry.LocalPath))
+                continue;
+            if (entry.LocalPath.StartsWith(imagesPrefix, PathComparison))
+                continue; // already inside the current library folder
+            if (File.Exists(entry.LocalPath))
+                continue; // imported from somewhere the user chose
+
+            var name = Path.GetFileName(entry.LocalPath);
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            // Keep the sub-folder the file lived in, so a wallpaper applied into
+            // "Wallpapers" is not silently re-pointed at a same-named copy in
+            // "library\images", which would then look like an orphan to cleanup.
+            var storedParent = Path.GetFileName(
+                Path.GetDirectoryName(entry.LocalPath) ?? string.Empty);
+            string? candidate = null;
+            if (!string.IsNullOrWhiteSpace(storedParent))
+            {
+                candidate = Existing(Path.Combine(indexDirectory, storedParent, name));
+                if (candidate is null && dataRoot is not null)
+                    candidate = Existing(Path.Combine(dataRoot, storedParent, name));
+            }
+            candidate ??= Existing(Path.Combine(imagesDirectory, name));
+            if (candidate is null)
+                continue;
+
+            repaired ??= new List<WallpaperLibraryEntry>(entries);
+            repaired[index] = entry with { LocalPath = candidate };
+        }
+
+        return repaired ?? entries;
+
+        static string? Existing(string path) => File.Exists(path) ? path : null;
     }
 
     /// <summary>Fills safe defaults for fields that did not exist in older schemas.</summary>

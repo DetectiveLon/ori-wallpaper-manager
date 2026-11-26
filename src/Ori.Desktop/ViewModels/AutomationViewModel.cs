@@ -99,8 +99,16 @@ public sealed class AutomationViewModel : ViewModelBase
 
     private async Task RefreshAvailabilityAsync()
     {
-        await RefreshLibraryStatusAsync();
-        await RefreshDisplaysAsync();
+        try
+        {
+            await RefreshLibraryStatusAsync();
+            await RefreshDisplaysAsync();
+        }
+        catch (Exception ex)
+        {
+            // Called from a fire-and-forget command, so nothing else observes a throw.
+            SetLibraryStatus($"Could not refresh automation state: {ex.Message}");
+        }
     }
 
     private void SetLibraryStatus(string message)
@@ -108,6 +116,13 @@ public sealed class AutomationViewModel : ViewModelBase
         _libraryStatus = message;
         UpdateGlobalStatus();
     }
+
+    /// <summary>
+    /// Reports a page-load failure in place. The view calls this from its async void
+    /// Loaded handler, where an escaping exception would become an error toast.
+    /// </summary>
+    internal void ReportLoadFailure(Exception exception) =>
+        SetLibraryStatus($"Could not load automation settings: {exception.Message}");
 
     private void SetDisplayStatus(string message)
     {

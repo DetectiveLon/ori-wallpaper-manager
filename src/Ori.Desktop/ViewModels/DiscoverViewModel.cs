@@ -661,7 +661,7 @@ public sealed class DiscoverViewModel : ViewModelBase
                 var download = await Images.DownloadAsync(
                     card.Wallpaper.ThumbnailUrl,
                     WallhavenImageDownloader.MaximumThumbnailBytes,
-                    cancellationToken);
+                    cancellationToken).ConfigureAwait(false);
                 var bitmap = DecodeImage(download.Bytes, 520);
                 OnUiThread(() => card.Thumbnail = bitmap);
             }

@@ -26,7 +26,16 @@ public partial class AutomationView : UserControl
         // visit. Keep the handler attached: InitializeAsync re-reads the library on
         // each visit (so Start/Rotate recover after wallpapers are added elsewhere)
         // while its own guard keeps the one-time schedule restore from running twice.
-        await ViewModel.InitializeAsync();
+        try
+        {
+            await ViewModel.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            // async void: an escaping exception becomes an unhandled-error toast and
+            // leaves the page half-initialised, so report it in place instead.
+            ViewModel.ReportLoadFailure(ex);
+        }
     }
 
     /// <summary>Cancels all rotation loops without waiting. Optional companion to StopAsync.</summary>

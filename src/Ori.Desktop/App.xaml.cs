@@ -24,6 +24,13 @@ public partial class App : Application
     private static bool _trayHintShown;
     private static readonly object LogGate = new();
 
+    private Mutex? _instanceMutex;
+    private EventWaitHandle? _activateEvent;
+    private Thread? _activateThread;
+
+    private const string InstanceMutexName = @"Local\Ori.WallpaperManager";
+    private const string ActivateEventName = @"Local\Ori.WallpaperManager.Activate";
+
     // Error log: bounded rotation (1 MB x 3 files) with path/URL redaction.
     private const long MaxLogLength = 1_000_000;
     private const int MaxLogFiles = 3;
@@ -42,6 +49,22 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Ori lives in the notification area and keeps a rotation engine running, so a
+        // second launch from the Start menu or Explorer must not start a second copy
+        // that writes the same library, schedule and cache files.
+        _instanceMutex = new Mutex(
+            initiallyOwned: true, InstanceMutexName, out var isFirstInstance);
+        if (!isFirstInstance)
+        {
+            _instanceMutex.Dispose();
+            _instanceMutex = null;
+            SignalRunningInstance();
+            Shutdown();
+            return;
+        }
+
+        StartActivationListener();
+
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
@@ -55,6 +78,18 @@ public partial class App : Application
     {
         Tray?.Dispose();
         Tray = null;
+        _activateEvent?.Dispose();
+        _activateEvent = null;
+        try
+        {
+            _instanceMutex?.ReleaseMutex();
+        }
+        catch (ApplicationException)
+        {
+            // Already released on a failed start.
+        }
+        _instanceMutex?.Dispose();
+        _instanceMutex = null;
         base.OnExit(e);
     }
 
@@ -97,6 +132,65 @@ public partial class App : Application
         {
             Current.Shutdown();
         }
+    }
+
+    /// <summary>
+    /// Wakes the running copy when a second launch happens, so the user gets the
+    /// window they asked for instead of a silent no-op or a second rotation engine.
+    /// </summary>
+    private static void SignalRunningInstance()
+    {
+        try
+        {
+            if (EventWaitHandle.TryOpenExisting(ActivateEventName, out var handle))
+            {
+                using (handle)
+                    handle.Set();
+            }
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            // The second copy simply exits; nothing else can be done here.
+        }
+    }
+
+    /// <summary>
+    /// Listens for a second launch on a background thread and restores the main
+    /// window on the dispatcher. Background, so it can never keep the process alive.
+    /// </summary>
+    private void StartActivationListener()
+    {
+        _activateEvent = new EventWaitHandle(
+            initialState: false, EventResetMode.AutoReset, ActivateEventName);
+        _activateThread = new Thread(() =>
+        {
+            while (true)
+            {
+                try
+                {
+                    if (!_activateEvent.WaitOne())
+                        return;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return;
+                }
+
+                try
+                {
+                    Dispatcher.InvokeAsync(OpenFromTray);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or TaskCanceledException)
+                {
+                    return; // The dispatcher is shutting down.
+                }
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "Ori activation listener"
+        };
+        _activateThread.Start();
     }
 
     /// <summary>

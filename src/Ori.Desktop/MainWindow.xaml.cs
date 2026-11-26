@@ -67,8 +67,10 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Bounded shutdown fallback for a close path that did not already use the
-    /// async variant. Idempotent: called by both the tray Exit action and the
+    /// Synchronous shutdown fallback for a close path that did not already use the
+    /// async variant. It only signals cancellation: the loops post their continuations
+    /// back to this dispatcher, so waiting here would stall them and freeze the window
+    /// for the whole timeout. Idempotent: called by both the tray Exit action and the
     /// Closing handler so cleanup cannot run twice.
     /// </summary>
     internal void StopRotationForShutdown()
@@ -80,7 +82,6 @@ public partial class MainWindow : Window
         try
         {
             _automationView.RequestStop();
-            _automationView.StopAsync().Wait(TimeSpan.FromSeconds(3));
         }
         catch (Exception)
         {
