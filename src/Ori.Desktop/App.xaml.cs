@@ -162,13 +162,14 @@ public partial class App : Application
     {
         _activateEvent = new EventWaitHandle(
             initialState: false, EventResetMode.AutoReset, ActivateEventName);
+        var handle = _activateEvent;
         _activateThread = new Thread(() =>
         {
             while (true)
             {
                 try
                 {
-                    if (!_activateEvent.WaitOne())
+                    if (handle is null || !handle.WaitOne())
                         return;
                 }
                 catch (ObjectDisposedException)

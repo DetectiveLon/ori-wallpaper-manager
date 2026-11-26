@@ -29,7 +29,8 @@ public sealed class WallpaperImageCache
     // of browsing cannot fill the disk; prune once per process, before the first
     // download, rather than on every request.
     private const long MaximumCacheBytes = 512L * 1024 * 1024;
-    private static int _cachePruned;
+    private static readonly TimeSpan RecentFileWindow = TimeSpan.FromHours(24);
+    private static int _downloadCount;
 
     private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
@@ -147,7 +148,7 @@ public sealed class WallpaperImageCache
 
         var prefix = $"wallhaven-{SafeKey(id)}-{kind}";
         Directory.CreateDirectory(_cacheDirectory);
-        if (Interlocked.Exchange(ref _cachePruned, 1) == 0)
+        if (Interlocked.Increment(ref _downloadCount) % 25 == 0)
             PruneCache();
 
         var existing = Directory.EnumerateFiles(_cacheDirectory, prefix + ".*")
@@ -223,19 +224,26 @@ public sealed class WallpaperImageCache
     }
 
     /// <summary>
-    /// Keeps cache\images bounded: the oldest files and any leftover partial downloads
-    /// go until the folder is back under 80% of the cap. Library images are never
-    /// touched, so a wallpaper the user saved always keeps its file.
+    /// Keeps cache\images bounded: the oldest files go until the folder is back under
+    /// 80% of the cap. Files written in the last 24 hours are never touched, so a
+    /// parallel preview download cannot lose a file it just resolved. Library images
+    /// are never touched, so a saved wallpaper always keeps its file.
     /// </summary>
     private void PruneCache()
     {
         try
         {
-            var files = new DirectoryInfo(_cacheDirectory)
+            var cutoff = DateTime.UtcNow - RecentFileWindow;
+            var allFiles = new DirectoryInfo(_cacheDirectory)
                 .EnumerateFiles("*", SearchOption.TopDirectoryOnly)
+                .ToArray();
+            var files = allFiles
+                .Where(file => file.LastWriteTimeUtc < cutoff)
                 .OrderBy(file => file.LastWriteTimeUtc)
                 .ToArray();
-            var total = files.Sum(file => file.Length);
+            if (files.Length == 0)
+                return;
+            var total = allFiles.Sum(file => file.Length);
             var target = MaximumCacheBytes * 8 / 10;
 
             foreach (var file in files)

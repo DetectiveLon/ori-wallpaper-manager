@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Ori.Core.Services;
 
@@ -142,12 +143,17 @@ public sealed class WallpaperLibraryStoreFeatureTests
     public async Task DeleteEntryRemovesMetadataAndFileWhenRequested()
     {
         using var temp = new TemporaryDirectory();
-        var image = WriteFile(temp.Path, "delete-me.jpg", [0x01, 0x02]);
-        var store = new WallpaperLibraryStore(Path.Combine(temp.Path, "library.json"));
+        var library = Path.Combine(temp.Path, "library");
+        Directory.CreateDirectory(library);
+        var image = WriteFile(library, "delete-me.jpg", [0x01, 0x02]);
+        var store = new WallpaperLibraryStore(
+            Path.Combine(temp.Path, "library.json"), dataDirectory: temp.Path);
         await store.UpsertAsync(new WallpaperLibraryEntry { Id = "gone", LocalPath = image });
 
-        Assert.True(await store.DeleteEntryAsync("gone", deleteFile: true, CancellationToken.None));
+        var result = await store.DeleteEntryWithResultAsync("gone", deleteFile: true, CancellationToken.None);
 
+        Assert.True(result.Removed);
+        Assert.True(result.FileDeleted);
         Assert.Empty(await store.GetAllAsync());
         Assert.False(File.Exists(image));
         Assert.False(await store.DeleteEntryAsync("gone", false, default));
@@ -201,7 +207,7 @@ public sealed class WallpaperLibraryStoreFeatureTests
             }
         }));
 
-        var entry = Assert.Single(await new WallpaperLibraryStore(index).GetAllAsync());
+        var entry = Assert.Single(await new WallpaperLibraryStore(index, temp.Path).GetAllAsync());
 
         Assert.Equal(realFile, entry.LocalPath);
         Assert.True(File.Exists(entry.LocalPath));
@@ -290,7 +296,9 @@ public sealed class WallpaperLibraryStoreFeatureTests
         Directory.CreateDirectory(library);
         Directory.CreateDirectory(pictures);
         var imported = WriteFile(pictures, "mine.jpg", [0x01]);
-        var store = new WallpaperLibraryStore(Path.Combine(library, "library.json"));
+        var dataRoot = Path.Combine(temp.Path, "Ori");
+        var store = new WallpaperLibraryStore(
+            Path.Combine(library, "library.json"), dataDirectory: dataRoot);
         await store.UpsertAsync(new WallpaperLibraryEntry { Id = "mine", LocalPath = imported });
 
         Assert.True(await store.DeleteEntryAsync("mine", deleteFile: true));
@@ -307,7 +315,9 @@ public sealed class WallpaperLibraryStoreFeatureTests
         var images = Path.Combine(library, "images");
         Directory.CreateDirectory(images);
         var stored = WriteFile(images, "wallhaven-del.png", [0x01]);
-        var store = new WallpaperLibraryStore(Path.Combine(library, "library.json"));
+        var dataRoot = Path.Combine(temp.Path, "Ori");
+        var store = new WallpaperLibraryStore(
+            Path.Combine(library, "library.json"), dataDirectory: dataRoot);
         await store.UpsertAsync(new WallpaperLibraryEntry { Id = "del", LocalPath = stored });
 
         Assert.True(await store.DeleteEntryAsync("del", deleteFile: true));
@@ -344,7 +354,7 @@ public sealed class WallpaperLibraryStoreFeatureTests
             }
         }));
 
-        var entry = Assert.Single(await new WallpaperLibraryStore(index).GetAllAsync());
+        var entry = Assert.Single(await new WallpaperLibraryStore(index, temp.Path).GetAllAsync());
 
         Assert.Equal(applied, entry.LocalPath);
     }
@@ -362,6 +372,83 @@ public sealed class WallpaperLibraryStoreFeatureTests
         Assert.False(File.Exists(index));
         Assert.Single(Directory.GetFiles(temp.Path, "library.json.corrupt-*"));
         Assert.Empty(await store.GetAllAsync());
+    }
+
+    [Fact]
+    public async Task StaleEntryIsNotRebasedOntoADifferentFileWithTheSameName()
+    {
+        using var temp = new TemporaryDirectory();
+        var images = Path.Combine(temp.Path, "images");
+        Directory.CreateDirectory(images);
+        var real = WriteFile(images, "wallhaven-same.jpg", [0x01, 0x02]);
+        var otherHash = Convert.ToHexString(SHA256.HashData([0x09, 0x09]));
+        var stale = Path.Combine(temp.Path, "old-root", "images", "wallhaven-same.jpg");
+        var index = Path.Combine(temp.Path, "library.json");
+        await File.WriteAllTextAsync(index, JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Entries = new[]
+            {
+                new
+                {
+                    Id = "same",
+                    Title = "Same name",
+                    LocalPath = stale,
+                    Collection = "Unsorted",
+                    ContentHash = otherHash
+                }
+            }
+        }));
+
+        var entry = Assert.Single(await new WallpaperLibraryStore(index, temp.Path).GetAllAsync());
+
+        Assert.Equal(stale, entry.LocalPath);
+        Assert.True(File.Exists(real));
+        Assert.Equal(otherHash, entry.ContentHash);
+    }
+
+    [Fact]
+    public async Task UncPathIsNeverRebasedOntoALocalCopy()
+    {
+        using var temp = new TemporaryDirectory();
+        var images = Path.Combine(temp.Path, "images");
+        Directory.CreateDirectory(images);
+        WriteFile(images, "wallhaven-share.png", [0x01]);
+        var index = Path.Combine(temp.Path, "library.json");
+        var unc = @"\\offline-server\wallpapers\wallhaven-share.png";
+        await File.WriteAllTextAsync(index, JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Entries = new[]
+            {
+                new { Id = "share", Title = "Share", LocalPath = unc, Collection = "Unsorted" }
+            }
+        }));
+
+        var entry = Assert.Single(await new WallpaperLibraryStore(index, temp.Path).GetAllAsync());
+
+        Assert.Equal(unc, entry.LocalPath);
+    }
+
+    [Fact]
+    public async Task CustomIndexPathCannotDeleteFilesOutsideTheDataRoot()
+    {
+        using var temp = new TemporaryDirectory();
+        var dataRoot = Path.Combine(temp.Path, "Ori");
+        var userFolder = Path.Combine(temp.Path, "Pictures");
+        Directory.CreateDirectory(Path.Combine(dataRoot, "library"));
+        Directory.CreateDirectory(userFolder);
+        var image = WriteFile(userFolder, "keep.jpg", [0x01]);
+        // The index sits beside a user's files: ownership must come from dataRoot.
+        var store = new WallpaperLibraryStore(
+            Path.Combine(userFolder, "library.json"), dataDirectory: dataRoot);
+        await store.UpsertAsync(new WallpaperLibraryEntry { Id = "keep", LocalPath = image });
+
+        var result = await store.DeleteEntryWithResultAsync("keep", deleteFile: true);
+
+        Assert.True(result.Removed);
+        Assert.False(result.FileDeleted);
+        Assert.True(File.Exists(image));
     }
 
     private static string WriteFile(string directory, string name, byte[] content)

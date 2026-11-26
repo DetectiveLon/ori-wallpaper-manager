@@ -291,15 +291,20 @@ public sealed class SettingsViewModel : ViewModelBase
             var library = new WallpaperLibraryStore();
             var entries = await library.GetAllAsync().ConfigureAwait(true);
 
-            // A stored path that no longer exists means the index and the disk
-            // disagree (a moved data folder, an offline drive). Deleting on that
-            // evidence would remove wallpapers the library still references, so
-            // refuse and tell the user instead.
+            // Only an unresolved path that could refer to one of the files about to be
+            // deleted matters: after a data-folder move an entry can point at the old
+            // root while the live file is right here. One unrelated stale import must
+            // not disable cleanup forever.
+            var wallpaperNames = new HashSet<string>(
+                files.Select(file => Path.GetFileName(file) ?? string.Empty),
+                StringComparer.OrdinalIgnoreCase);
             var unresolved = entries.Count(entry =>
-                !string.IsNullOrWhiteSpace(entry.LocalPath) && !File.Exists(entry.LocalPath));
+                !string.IsNullOrWhiteSpace(entry.LocalPath)
+                && !File.Exists(entry.LocalPath)
+                && wallpaperNames.Contains(Path.GetFileName(entry.LocalPath)));
             if (unresolved > 0)
             {
-                Status = $"Nothing deleted: {unresolved} library entr{(unresolved == 1 ? "y points" : "ies point")} at a file that is missing. Re-add those wallpapers from the Library first.";
+                Status = $"Nothing deleted: {unresolved} library entr{(unresolved == 1 ? "y points" : "ies point")} at a missing copy of a file in this folder. Visit the Library to repair the paths, then try again.";
                 return;
             }
 
@@ -337,8 +342,15 @@ public sealed class SettingsViewModel : ViewModelBase
     /// <summary>Re-reads the stored key when the cached view is revisited.</summary>
     public void RefreshApiKey()
     {
-        SetProperty(ref _apiKey, ApiKeyStore.Load(), nameof(ApiKey));
-        RefreshKeyStatus();
+        if (ApiKeyStore.TryLoad(out var key, out var error))
+        {
+            SetProperty(ref _apiKey, key, nameof(ApiKey));
+            RefreshKeyStatus();
+            return;
+        }
+
+        SetProperty(ref _apiKey, string.Empty, nameof(ApiKey));
+        KeyStatus = $"A stored key could not be read ({error}). Enter your key again to replace it.";
     }
 
     private void RefreshKeyStatus()

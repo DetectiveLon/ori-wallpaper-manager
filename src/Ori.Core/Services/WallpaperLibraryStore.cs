@@ -50,8 +50,14 @@ public sealed class WallpaperLibraryStore
     };
 
     private readonly string _indexPath;
+    private readonly string _dataRoot;
 
-    public WallpaperLibraryStore(string? indexPath = null)
+    /// <param name="indexPath">Location of library.json. Tests may pass a temporary path.</param>
+    /// <param name="dataDirectory">
+    /// Root Ori owns. Image deletion and path repair are anchored here, never to the
+    /// parent of an arbitrary index path, so a custom index cannot widen what is deletable.
+    /// </param>
+    public WallpaperLibraryStore(string? indexPath = null, string? dataDirectory = null)
     {
         var path = indexPath ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -59,6 +65,8 @@ public sealed class WallpaperLibraryStore
         // A bare filename has no parent directory; normalizing once keeps writes working
         // from any current working directory.
         _indexPath = Path.GetFullPath(path);
+        _dataRoot = Path.GetFullPath(dataDirectory ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Ori"));
     }
 
     public async Task<IReadOnlyList<WallpaperLibraryEntry>> GetAllAsync(
@@ -235,14 +243,33 @@ public sealed class WallpaperLibraryStore
     }
 
     /// <summary>
-    /// Removes an entry and, when requested, its image file. Returns false when the
-    /// entry does not exist or the file could not be deleted (in which case the index
-    /// is left untouched).
+    /// Removes an entry and, when requested, its image file. Returns false only when the
+    /// entry does not exist. Use <see cref="DeleteEntryWithResultAsync"/> when the caller
+    /// needs to know whether the file was actually removed.
     /// </summary>
     public async Task<bool> DeleteEntryAsync(
         string id,
         bool deleteFile,
         CancellationToken cancellationToken = default)
+    {
+        var result = await DeleteEntryCoreAsync(id, deleteFile, cancellationToken).ConfigureAwait(false);
+        return result.Removed;
+    }
+
+    /// <summary>
+    /// Removes an entry and reports separately whether its image file was deleted. A file
+    /// outside Ori's own folders is intentionally kept, and the UI should say so.
+    /// </summary>
+    public Task<(bool Removed, bool FileDeleted)> DeleteEntryWithResultAsync(
+        string id,
+        bool deleteFile,
+        CancellationToken cancellationToken = default) =>
+        DeleteEntryCoreAsync(id, deleteFile, cancellationToken);
+
+    private async Task<(bool Removed, bool FileDeleted)> DeleteEntryCoreAsync(
+        string id,
+        bool deleteFile,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -252,7 +279,7 @@ public sealed class WallpaperLibraryStore
             var entry = entries.FirstOrDefault(existing =>
                 string.Equals(existing.Id, id, StringComparison.OrdinalIgnoreCase));
             if (entry is null)
-                return false;
+                return (false, false);
 
             // Commit the index before touching the file. The other order leaves an
             // entry whose image is gone whenever the index write fails, and the UI can
@@ -260,10 +287,11 @@ public sealed class WallpaperLibraryStore
             entries.Remove(entry);
             await WriteCoreAsync(entries, cancellationToken).ConfigureAwait(false);
 
-            if (deleteFile && !string.IsNullOrWhiteSpace(entry.LocalPath))
-                DeleteOwnedImage(entry.LocalPath);
+            var fileDeleted = deleteFile
+                && !string.IsNullOrWhiteSpace(entry.LocalPath)
+                && DeleteOwnedImage(entry.LocalPath);
 
-            return true;
+            return (true, fileDeleted);
         }
         finally
         {
@@ -272,11 +300,12 @@ public sealed class WallpaperLibraryStore
     }
 
     /// <summary>
-    /// Deletes an entry's image only when it lives in one of the app's own folders.
+    /// Deletes an image only when it lives under Ori's own library or Wallpapers folder.
     /// A wallpaper imported from a folder the user chose stays there, so removing the
-    /// library entry must never delete the user's original file.
+    /// library entry must never delete the user's original file. Returns whether a file
+    /// was actually removed.
     /// </summary>
-    private void DeleteOwnedImage(string storedPath)
+    private bool DeleteOwnedImage(string storedPath)
     {
         string path;
         try
@@ -285,32 +314,35 @@ public sealed class WallpaperLibraryStore
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return; // A malformed stored path must not make removal impossible.
+            return false; // A malformed stored path must not make removal impossible.
         }
 
-        var indexDirectory = Path.GetDirectoryName(_indexPath) ?? ".";
-        var dataRoot = Path.GetDirectoryName(indexDirectory) ?? indexDirectory;
-        // Only files Ori owns are deleted: anything under the library folder or the
-        // app's data root. A wallpaper imported from the user's own folder is theirs,
-        // so removing the entry leaves the original file alone.
-        var allowed = new[] { indexDirectory, dataRoot };
-        if (!allowed.Any(directory =>
-                IsInsideRoot(path, directory, directory + Path.DirectorySeparatorChar)))
+        var allowed = new[]
         {
-            return;
+            Path.Combine(_dataRoot, "library"),
+            Path.Combine(_dataRoot, "Wallpapers")
+        };
+        if (!allowed.Any(directory =>
+                IsInsideRoot(path, Path.GetFullPath(directory), Path.GetFullPath(directory) + Path.DirectorySeparatorChar)))
+        {
+            return false;
         }
 
         try
         {
-            if (File.Exists(path))
-                File.Delete(path);
+            if (!File.Exists(path))
+                return false;
+            File.Delete(path);
+            return true;
         }
         catch (IOException)
         {
             // A locked image is left on disk; the entry is already gone.
+            return false;
         }
         catch (UnauthorizedAccessException)
         {
+            return false;
         }
     }
 
@@ -319,12 +351,13 @@ public sealed class WallpaperLibraryStore
 
     /// <summary>
     /// Moves an unreadable index aside so the next visit starts clean instead of
-    /// failing forever. Returns the backup path, or the original path when the move
-    /// itself fails.
+    /// failing forever. A GUID suffix avoids a same-second name collision. Returns the
+    /// backup path, or null when the move itself fails.
     /// </summary>
-    private string QuarantineIndex()
+    private string? QuarantineIndex()
     {
-        var backup = _indexPath + ".corrupt-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss");
+        var backup = _indexPath + ".corrupt-"
+            + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8];
         try
         {
             File.Move(_indexPath, backup, overwrite: false);
@@ -332,7 +365,7 @@ public sealed class WallpaperLibraryStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return _indexPath;
+            return null;
         }
     }
 
@@ -622,8 +655,10 @@ public sealed class WallpaperLibraryStore
             // way out short of deleting the file. Move it aside, keep a backup and
             // start empty; the images themselves are never touched.
             var backup = QuarantineIndex();
-            throw new JsonException(
-                $"The wallpaper library index was damaged. It was moved to {backup} and the library starts empty; saved images are untouched.");
+            var detail = backup is null
+                ? "The damaged file could not be moved aside; close other copies of Ori and try again."
+                : $"A copy is at {backup} and the library starts empty; saved images are untouched.";
+            throw new JsonException($"The wallpaper library index was damaged. {detail}");
         }
 
         if (document is null)
@@ -635,8 +670,11 @@ public sealed class WallpaperLibraryStore
         if (document.Version != LegacySchemaVersion && document.Version != SchemaVersion)
         {
             var backup = QuarantineIndex();
+            var detail = backup is null
+                ? "The file could not be moved aside; close other copies of Ori and try again."
+                : $"A copy is at {backup} and the library starts empty; saved images are untouched.";
             throw new InvalidDataException(
-                $"Unsupported wallpaper library version: {document.Version}. The file was moved to {backup} and the library starts empty; saved images are untouched.");
+                $"Unsupported wallpaper library version: {document.Version}. {detail}");
         }
 
         // Version-1 entries simply lacked the new fields. Applying the normalizer to
@@ -664,7 +702,6 @@ public sealed class WallpaperLibraryStore
 
         var indexDirectory = Path.GetDirectoryName(_indexPath) ?? ".";
         var imagesDirectory = Path.Combine(indexDirectory, "images");
-        var dataRoot = Path.GetDirectoryName(indexDirectory);
         var imagesPrefix = imagesDirectory + Path.DirectorySeparatorChar;
         List<WallpaperLibraryEntry>? repaired = null;
 
@@ -673,6 +710,8 @@ public sealed class WallpaperLibraryStore
             var entry = entries[index];
             if (string.IsNullOrWhiteSpace(entry.LocalPath))
                 continue;
+            if (entry.LocalPath.StartsWith(@"\\", StringComparison.Ordinal))
+                continue; // A network share may come back; don't pin it to a local copy.
             if (entry.LocalPath.StartsWith(imagesPrefix, PathComparison))
                 continue; // already inside the current library folder
             if (File.Exists(entry.LocalPath))
@@ -691,11 +730,11 @@ public sealed class WallpaperLibraryStore
             if (!string.IsNullOrWhiteSpace(storedParent))
             {
                 candidate = Existing(Path.Combine(indexDirectory, storedParent, name));
-                if (candidate is null && dataRoot is not null)
-                    candidate = Existing(Path.Combine(dataRoot, storedParent, name));
+                if (candidate is null)
+                    candidate = Existing(Path.Combine(_dataRoot, storedParent, name));
             }
             candidate ??= Existing(Path.Combine(imagesDirectory, name));
-            if (candidate is null)
+            if (candidate is null || !MatchesHash(entry, candidate))
                 continue;
 
             repaired ??= new List<WallpaperLibraryEntry>(entries);
@@ -705,6 +744,30 @@ public sealed class WallpaperLibraryStore
         return repaired ?? entries;
 
         static string? Existing(string path) => File.Exists(path) ? path : null;
+    }
+
+    /// <summary>
+    /// A file name alone is not proof of identity: another wallpaper can share it. Only
+    /// rebase onto a candidate whose SHA-256 matches the recorded hash. Older entries
+    /// have no hash, so they keep the filename-based behaviour.
+    /// </summary>
+    private static bool MatchesHash(WallpaperLibraryEntry entry, string candidate)
+    {
+        if (string.IsNullOrWhiteSpace(entry.ContentHash))
+            return true;
+
+        try
+        {
+            using var stream = new FileStream(
+                candidate, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                64 * 1024, FileOptions.SequentialScan);
+            var hash = Convert.ToHexString(SHA256.HashData(stream));
+            return string.Equals(hash, entry.ContentHash.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Fills safe defaults for fields that did not exist in older schemas.</summary>

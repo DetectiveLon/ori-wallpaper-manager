@@ -138,7 +138,8 @@ public static class WallhavenFeedStore
     /// <summary>Keeps a copy of an unreadable feed file so the next save cannot erase it.</summary>
     private static void Quarantine()
     {
-        var backup = Path + ".corrupt-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss");
+        var backup = Path + ".corrupt-"
+            + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8];
         try
         {
             File.Move(Path, backup, overwrite: false);

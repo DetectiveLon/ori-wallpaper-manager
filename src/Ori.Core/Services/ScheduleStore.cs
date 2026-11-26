@@ -83,8 +83,7 @@ public sealed class ScheduleStore
 
             if (document is null || document.Version != SchemaVersion || document.Entries is null)
             {
-                if (document is null || document.Version != SchemaVersion)
-                    Quarantine();
+                Quarantine();
                 return Empty();
             }
 
@@ -147,7 +146,8 @@ public sealed class ScheduleStore
     /// <summary>Keeps a copy of an unreadable schedule file so the next save cannot erase it.</summary>
     private void Quarantine()
     {
-        var backup = _path + ".corrupt-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss");
+        var backup = _path + ".corrupt-"
+            + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..8];
         try
         {
             File.Move(_path, backup, overwrite: false);

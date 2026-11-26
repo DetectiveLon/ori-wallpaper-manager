@@ -13,24 +13,48 @@ public static class ApiKeyStore
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Ori", "settings", "wallhaven.key");
 
-    public static bool HasKey => !string.IsNullOrWhiteSpace(Load());
+    public static bool HasKey
+    {
+        get
+        {
+            var found = TryLoad(out var key, out _);
+            return found && !string.IsNullOrWhiteSpace(key);
+        }
+    }
+
+    /// <summary>
+    /// Loads the key and distinguishes "nothing stored" from "stored but unreadable".
+    /// DPAPI can fail after a Windows profile or password change; silently returning
+    /// an empty key in that case makes Settings claim the user never had one.
+    /// </summary>
+    public static bool TryLoad(out string key, out string? error)
+    {
+        if (!File.Exists(KeyPath))
+        {
+            key = string.Empty;
+            error = null;
+            return true;
+        }
+
+        try
+        {
+            var protectedBytes = File.ReadAllBytes(KeyPath);
+            key = Encoding.UTF8.GetString(
+                ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser));
+            error = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            key = string.Empty;
+            error = ex.Message;
+            return false;
+        }
+    }
 
     public static string Load()
     {
-        try
-        {
-            if (!File.Exists(KeyPath))
-                return string.Empty;
-            var protectedBytes = File.ReadAllBytes(KeyPath);
-            var bytes = ProtectedData.Unprotect(
-                protectedBytes, null, DataProtectionScope.CurrentUser);
-            return Encoding.UTF8.GetString(bytes);
-        }
-        catch (Exception)
-        {
-            // A key written by another Windows user or a damaged file is treated as absent.
-            return string.Empty;
-        }
+        return TryLoad(out var key, out _) ? key : string.Empty;
     }
 
     public static void Save(string key)

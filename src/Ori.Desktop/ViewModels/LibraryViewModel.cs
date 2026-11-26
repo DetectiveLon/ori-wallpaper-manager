@@ -694,7 +694,8 @@ public sealed class LibraryViewModel : ViewModelBase
         var deleteFile = DeleteFileOnRemove;
         try
         {
-            var removed = await _store.DeleteEntryAsync(entry.Id, deleteFile, CancellationToken.None);
+            var (removed, fileDeleted) = await _store.DeleteEntryWithResultAsync(
+                entry.Id, deleteFile, CancellationToken.None);
             IsRemoveConfirmationOpen = false;
             PendingRemoveEntry = null;
             DeleteFileOnRemove = false;
@@ -707,7 +708,9 @@ public sealed class LibraryViewModel : ViewModelBase
             SelectedEntry = null;
             await ReloadAsync();
             Status = deleteFile
-                ? $"Removed \"{entry.Title}\" from the library and deleted its image from Ori's folder."
+                ? fileDeleted
+                    ? $"Removed \"{entry.Title}\" from the library and deleted its image from Ori's folder."
+                    : $"Removed \"{entry.Title}\" from the library. Its image was kept because it is outside Ori's folders."
                 : $"Removed \"{entry.Title}\" from the library (image file kept on disk).";
         }
         catch (Exception ex)
