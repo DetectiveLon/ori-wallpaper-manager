@@ -35,4 +35,11 @@ public sealed class NavigationService
         _views[key] = view;
         return view;
     }
+
+    /// <summary>
+    /// Returns an already-created view without creating one. Used at shutdown so
+    /// rotation loops are stopped even when the user navigated away from Automation.
+    /// </summary>
+    public bool TryGetView(string key, out UserControl? view) =>
+        _views.TryGetValue(key, out view);
 }

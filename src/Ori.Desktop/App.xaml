@@ -12,15 +12,18 @@
              Palette: deep charcoal canvas, elevated panels, one accent.
              Existing key names are preserved so every view keeps working.
              ============================================================ -->
-        <Color x:Key="WindowColor">#0E1218</Color>
-        <Color x:Key="SidebarColor">#131922</Color>
-        <Color x:Key="PanelColor">#171F2A</Color>
-        <Color x:Key="PanelAltColor">#1F2937</Color>
-        <Color x:Key="TextColor">#E7EDF5</Color>
-        <Color x:Key="MutedColor">#B4C2D4</Color>
-        <Color x:Key="AccentColor">#6FA8FF</Color>
-        <Color x:Key="AccentHoverColor">#8FC0FF</Color>
-        <Color x:Key="AccentTintColor">#1C3451</Color>
+        <Color x:Key="WindowColor">#0B1017</Color>
+        <Color x:Key="SidebarColor">#0F1621</Color>
+        <Color x:Key="PanelColor">#151E2B</Color>
+        <Color x:Key="PanelAltColor">#1D2838</Color>
+        <Color x:Key="TextColor">#EDF3FB</Color>
+        <Color x:Key="MutedColor">#A9B9CD</Color>
+        <Color x:Key="AccentColor">#5B9BFF</Color>
+        <Color x:Key="AccentHoverColor">#7CB2FF</Color>
+        <Color x:Key="AccentTintColor">#1B3552</Color>
+        <Color x:Key="SuccessColor">#4FD1A1</Color>
+        <Color x:Key="WarningColor">#F4C86A</Color>
+        <Color x:Key="ErrorColor">#FF7B72</Color>
 
         <SolidColorBrush x:Key="WindowBrush" Color="{StaticResource WindowColor}" />
         <SolidColorBrush x:Key="SidebarBrush" Color="{StaticResource SidebarColor}" />
@@ -56,6 +59,26 @@
         <SolidColorBrush x:Key="WindowButtonHoverBrush" Color="#26313F" />
         <SolidColorBrush x:Key="WindowButtonPressedBrush" Color="#323F50" />
         <SolidColorBrush x:Key="WindowCloseHoverBrush" Color="#C42B1C" />
+
+        <!-- Semantic status colours, for state that must not rely on colour alone. -->
+        <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
+        <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+        <SolidColorBrush x:Key="ErrorBrush" Color="{StaticResource ErrorColor}" />
+
+        <!-- One visible keyboard-focus ring for the whole app. Custom templates
+             replace the default focus cue, so this is the single place that keeps
+             Tab navigation visible everywhere. -->
+        <Style x:Key="{x:Static SystemParameters.FocusVisualStyleKey}">
+            <Setter Property="Control.Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Rectangle Margin="-2" SnapsToDevicePixels="True"
+                                   Stroke="{StaticResource AccentBrush}"
+                                   StrokeThickness="1.5" StrokeDashArray="1 2" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <!-- ============================================================
              Type scale and 8pt spacing grid.
@@ -110,6 +133,35 @@
         <Style x:Key="CaptionTextStyle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
             <Setter Property="FontSize" Value="{StaticResource CaptionSize}" />
+        </Style>
+
+        <!-- Shared building blocks. Views may use these instead of redefining the
+             same label/button/chip styles locally. -->
+        <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="FontSize" Value="{StaticResource HeadlineSize}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <Style x:Key="SecondaryButtonStyle" TargetType="Button"
+               BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource StrongBorderBrush}" />
+            <Setter Property="Padding" Value="14,8" />
+        </Style>
+        <Style x:Key="ChipStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource AccentTintBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
         <!-- Sidebar navigation: icon + label, subtle selected state. -->

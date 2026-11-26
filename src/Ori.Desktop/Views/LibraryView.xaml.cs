@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
@@ -11,6 +12,7 @@ public sealed partial class LibraryView : UserControl
     {
         InitializeComponent();
         DataContext = new LibraryViewModel();
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         Loaded += OnLoaded;
         // NavigationService caches views: Unloaded fires when the user leaves this page.
         // Cancel debounces, imports and any open confirmation so no work outlives the view.
@@ -26,6 +28,18 @@ public sealed partial class LibraryView : UserControl
         // Views are cached by NavigationService: Loaded fires again on every return
         // visit. Keep the handler attached so cleanup also runs on later departures.
         ViewModel.CancelOperations();
+    }
+
+    // When the removal overlay opens, move focus to its default (Confirm) button so
+    // Enter confirms and Tab cycles through the three modal actions in order.
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(LibraryViewModel.IsRemoveConfirmationOpen)
+            && ViewModel.IsRemoveConfirmationOpen)
+        {
+            // Defer until the overlay has been laid out and is focusable.
+            Dispatcher.BeginInvoke(new Action(() => ConfirmRemoveButton.Focus()));
+        }
     }
 
     private void OnImportFolderClick(object sender, RoutedEventArgs e)

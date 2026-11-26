@@ -313,7 +313,12 @@ public sealed class DiscoverViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _selectedMonitor, value))
+            {
+                // Remember the user's target so switching pages (or restarting Ori)
+                // does not silently move the next wallpaper back to the primary display.
+                MonitorSelectionService.Instance.Select(value?.Id);
                 RefreshCommands();
+            }
         }
     }
 
@@ -368,8 +373,14 @@ public sealed class DiscoverViewModel : ViewModelBase
             Monitors.Clear();
             foreach (var monitor in detection.Monitors)
                 Monitors.Add(monitor);
-            SelectedMonitor = detection.Monitors.FirstOrDefault(m => m.IsPrimary)
+
+            var primary = detection.Monitors.FirstOrDefault(m => m.IsPrimary)
                 ?? detection.Monitors.FirstOrDefault();
+            MonitorSelectionService.Instance.Load(Monitors.Select(monitor => monitor.Id));
+            var targetId = MonitorSelectionService.Instance.Resolve(primary?.Id);
+            SelectedMonitor = Monitors.FirstOrDefault(monitor =>
+                    string.Equals(monitor.Id, targetId, StringComparison.OrdinalIgnoreCase))
+                ?? primary;
 
             if (!detection.Succeeded)
                 Status = $"Display detection unavailable: {detection.Error}";

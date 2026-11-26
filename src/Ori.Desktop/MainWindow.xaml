@@ -12,6 +12,58 @@
                             CornerRadius="0" />
     </shell:WindowChrome.WindowChrome>
 
+    <Window.Resources>
+        <!-- One rail template for every entry in MainViewModel.Items. The button
+             Tag feeds the shared NavButtonStyle selection trigger; the marker is
+             driven by the same comparison so the accent bar cannot disagree with
+             the row's tint. AccessText renders the "_" in AccessLabel as an
+             Alt+letter mnemonic (D/L/P/A/S) and underlines it on demand. -->
+        <DataTemplate x:Key="NavItemTemplate">
+            <Grid SnapsToDevicePixels="True">
+                <Border x:Name="SelectionMarker" Tag="{Binding Key}"
+                        Width="3" Margin="0,8,0,8" HorizontalAlignment="Left"
+                        VerticalAlignment="Stretch" CornerRadius="0,2,2,0"
+                        Background="{StaticResource AccentBrush}">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Opacity" Value="0" />
+                            <Style.Triggers>
+                                <DataTrigger Value="True">
+                                    <DataTrigger.Binding>
+                                        <MultiBinding Converter="{StaticResource NavKeyMatchConverter}">
+                                            <Binding Path="DataContext.SelectedItem.Key"
+                                                     RelativeSource="{RelativeSource AncestorType=Window}" />
+                                            <Binding Path="Tag" RelativeSource="{RelativeSource Self}" />
+                                        </MultiBinding>
+                                    </DataTrigger.Binding>
+                                    <Setter Property="Opacity" Value="1" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                </Border>
+                <Button Margin="3,0,0,0" Style="{StaticResource NavButtonStyle}"
+                        Tag="{Binding Key}"
+                        Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding Key}"
+                        AutomationProperties.Name="{Binding Label}"
+                        AutomationProperties.HelpText="{Binding ToolTip}"
+                        ToolTip="{Binding ToolTip}"
+                        KeyboardNavigation.TabIndex="{Binding TabIndex}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Glyph}" FontFamily="Segoe Fluent Icons"
+                                   FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                        <AccessText Text="{Binding AccessLabel}" Margin="10,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
@@ -102,70 +154,46 @@
             <Border Grid.Column="0" Background="{StaticResource SidebarBrush}"
                     BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,1,0">
                 <DockPanel LastChildFill="True" Margin="0,18,0,16">
-                    <StackPanel DockPanel.Dock="Bottom" Margin="14,0,14,0">
-                        <Border Height="1" Background="{StaticResource DividerBrush}" Margin="6,4,6,14" />
-                        <Button Style="{StaticResource NavButtonStyle}" Tag="Settings" Click="Navigate"
-                                KeyboardNavigation.TabIndex="7">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE713;" FontFamily="Segoe Fluent Icons"
-                                           FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                                <TextBlock Text="Settings" Margin="10,0,0,0" VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            </StackPanel>
-                        </Button>
-                        <TextBlock Text="ORI · LOCAL" Style="{StaticResource CaptionTextStyle}"
-                                   Margin="12,16,0,0" />
-                    </StackPanel>
+                    <!-- Identity/status replaces the old "ORI · LOCAL" caption: a
+                         quiet reminder that everything stays on this machine. -->
+                    <Border DockPanel.Dock="Bottom" Style="{StaticResource ChipStyle}"
+                            Margin="16,8,16,0" Padding="10,6"
+                            ToolTip="Wallpapers are saved and rotated on this PC">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="6" Height="6" Fill="{StaticResource SuccessBrush}"
+                                     VerticalAlignment="Center" />
+                            <TextBlock Text="LOCAL · ON THIS PC" Style="{StaticResource CaptionTextStyle}"
+                                       Margin="8,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                    <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource DividerBrush}"
+                            Margin="20,4,20,14" />
 
-                    <StackPanel DockPanel.Dock="Top" Margin="14,0,14,0">
-                        <TextBlock Text="WORKSPACE" Style="{StaticResource EyebrowTextStyle}" Margin="12,6,0,14" />
-                        <Button Style="{StaticResource NavButtonStyle}" Tag="Discover" Click="Navigate"
-                                KeyboardNavigation.TabIndex="3">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons"
-                                           FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                                <TextBlock Text="Discover" Margin="10,0,0,0" VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            </StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource NavButtonStyle}" Tag="Library" Click="Navigate"
-                                KeyboardNavigation.TabIndex="4">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE8B7;" FontFamily="Segoe Fluent Icons"
-                                           FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                                <TextBlock Text="My library" Margin="10,0,0,0" VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            </StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource NavButtonStyle}" Tag="Displays" Click="Navigate"
-                                KeyboardNavigation.TabIndex="5">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE7F4;" FontFamily="Segoe Fluent Icons"
-                                           FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                                <TextBlock Text="Displays" Margin="10,0,0,0" VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            </StackPanel>
-                        </Button>
-                        <Button Style="{StaticResource NavButtonStyle}" Tag="Automation" Click="Navigate"
-                                KeyboardNavigation.TabIndex="6">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE8B3;" FontFamily="Segoe Fluent Icons"
-                                           FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                                <TextBlock Text="Automation" Margin="10,0,0,0" VerticalAlignment="Center"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
+                    <!-- The rail is generated from MainViewModel.Items. Grouping by
+                         the item's Section keeps headers and items from drifting. -->
+                    <ItemsControl Margin="12,0,12,0"
+                                  ItemTemplate="{StaticResource NavItemTemplate}">
+                        <ItemsControl.Resources>
+                            <CollectionViewSource x:Key="NavGroups" Source="{Binding Items}">
+                                <CollectionViewSource.GroupDescriptions>
+                                    <PropertyGroupDescription PropertyName="Section" />
+                                </CollectionViewSource.GroupDescriptions>
+                            </CollectionViewSource>
+                        </ItemsControl.Resources>
+                        <ItemsControl.ItemsSource>
+                            <Binding Source="{StaticResource NavGroups}" />
+                        </ItemsControl.ItemsSource>
+                        <ItemsControl.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource EyebrowTextStyle}"
+                                                   Margin="14,16,0,8" />
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ItemsControl.GroupStyle>
+                    </ItemsControl>
                 </DockPanel>
             </Border>
 
@@ -174,15 +202,20 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <StackPanel Grid.Row="0" Margin="0,0,0,26">
+                <!-- Eyebrow -> title -> subtitle. Spacing follows the shared 8pt
+                     scale (8/16/24) so the header reads as one hierarchy. -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,24">
+                    <TextBlock Text="{Binding Section}" Style="{StaticResource EyebrowTextStyle}"
+                               Margin="0,0,0,8" />
                     <TextBlock x:Name="PageTitle" Text="{Binding Title}" Style="{StaticResource TitleTextStyle}" />
                     <TextBlock x:Name="PageSubtitle" Text="{Binding Subtitle}" Style="{StaticResource BodyTextStyle}"
                                Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" />
                 </StackPanel>
 
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled">
-                    <ContentControl x:Name="PageBody" Content="{Binding CurrentView}" Margin="0" />
-                </ScrollViewer>
+                <!-- No host ScrollViewer: every page owns its own vertical scrolling.
+                     A second one here would either double the scrollbars or make
+                     the page's inner scroll viewer stop working. -->
+                <ContentControl x:Name="PageBody" Grid.Row="1" Content="{Binding CurrentView}" Margin="0" />
             </Grid>
         </Grid>
     </Grid>

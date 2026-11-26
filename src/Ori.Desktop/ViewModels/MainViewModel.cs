@@ -3,25 +3,54 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Ori.Desktop.Mvvm;
 using Ori.Desktop.Services;
+using Ori.Desktop.Views;
 
 namespace Ori.Desktop.ViewModels;
 
 /// <summary>
-/// A single navigation entry used by the shell. The host renders Label/Glyph;
-/// Key is the stable identifier passed to <see cref="MainViewModel.Navigate"/>.
+/// A single navigation entry used by the shell. Key is the stable identifier
+/// passed to <see cref="MainViewModel.Navigate"/>; Section, ToolTip, AccessKey
+/// and AccessLabel are presentation hints consumed by the rail's DataTemplate
+/// so navigation is defined in exactly one place.
 /// </summary>
 public sealed class NavigationItem
 {
     public NavigationItem(string key, string label, string glyph)
+        : this(key, label, glyph, string.Empty, label, string.Empty, label, 0)
+    {
+    }
+
+    public NavigationItem(
+        string key,
+        string label,
+        string glyph,
+        string section,
+        string toolTip,
+        string accessKey,
+        string accessLabel,
+        int tabIndex)
     {
         Key = key;
         Label = label;
         Glyph = glyph;
+        Section = section;
+        ToolTip = toolTip;
+        AccessKey = accessKey;
+        AccessLabel = accessLabel;
+        TabIndex = tabIndex;
     }
 
     public string Key { get; }
     public string Label { get; }
     public string Glyph { get; }
+    public string Section { get; }
+    public string ToolTip { get; }
+    public string AccessKey { get; }
+
+    /// <summary>Label with the WPF "_" access-key marker, e.g. "_Discover".</summary>
+    public string AccessLabel { get; }
+
+    public int TabIndex { get; }
 }
 
 /// <summary>
@@ -35,6 +64,7 @@ public sealed class MainViewModel : ViewModelBase
     private UserControl? _currentView;
     private string _title = "Your desktop, in order.";
     private string _subtitle = "Choose what you want to see. Or let Ori take care of the rotation.";
+    private string _section = "ORI";
 
     public MainViewModel()
         : this(new NavigationService())
@@ -47,11 +77,21 @@ public sealed class MainViewModel : ViewModelBase
 
         Items = new ObservableCollection<NavigationItem>
         {
-            new("Discover", "Discover", "\uE721"),   // search
-            new("Library", "My library", "\uE8B7"),  // library
-            new("Displays", "Displays", "\uE7F4"),   // monitor
-            new("Automation", "Automation", "\uE8B3"),// timer
-            new("Settings", "Settings", "\uE713")    // settings
+            // FIND & SAVE
+            new("Discover", "Discover", "\uE721", "FIND & SAVE",
+                "Search Wallhaven and save wallpapers (Alt+D)", "D", "_Discover", 3),
+            new("Library", "My library", "\uE8B7", "FIND & SAVE",
+                "Browse wallpapers saved on this PC (Alt+L)", "L", "My _library", 4),
+
+            // YOUR DESKTOP
+            new("Displays", "Displays", "\uE7F4", "YOUR DESKTOP",
+                "Choose an image for each monitor (Alt+P)", "P", "Dis_plays", 5),
+            new("Automation", "Automation", "\uE8B3", "YOUR DESKTOP",
+                "Configure per-display rotation (Alt+A)", "A", "_Automation", 6),
+
+            // APP
+            new("Settings", "Settings", "\uE713", "APP",
+                "App preferences (Alt+S)", "S", "_Settings", 7)
         };
 
         NavigateCommand = new RelayCommand(parameter => Navigate(parameter as string));
@@ -78,7 +118,22 @@ public sealed class MainViewModel : ViewModelBase
         private set => SetProperty(ref _currentView, value);
     }
 
+    /// <summary>
+    /// The cached Automation view, if it has ever been opened. Shutdown uses this
+    /// instead of CurrentView: rotation keeps running while the user visits other
+    /// pages, so those loops must be stopped regardless of which page is visible.
+    /// </summary>
+    public AutomationView? AutomationView =>
+        _navigation.TryGetView("Automation", out var view) ? view as AutomationView : null;
+
     public ICommand NavigateCommand { get; }
+
+    /// <summary>Section of the selected page, shown as the header eyebrow.</summary>
+    public string Section
+    {
+        get => _section;
+        private set => SetProperty(ref _section, value);
+    }
 
     public string Title
     {
@@ -123,8 +178,12 @@ public sealed class MainViewModel : ViewModelBase
             var match = Items.FirstOrDefault(item =>
                 string.Equals(item.Key, key, StringComparison.OrdinalIgnoreCase));
 
-            if (match is not null && !ReferenceEquals(match, _selectedItem))
-                SetProperty(ref _selectedItem, match);
+            if (match is not null)
+            {
+                Section = match.Section;
+                if (!ReferenceEquals(match, _selectedItem))
+                    SetProperty(ref _selectedItem, match);
+            }
         }
 
         return view;

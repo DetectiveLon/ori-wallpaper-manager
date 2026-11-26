@@ -14,7 +14,6 @@ namespace Ori.Desktop;
 public partial class MainWindow : Window
 {
     private readonly MainViewModel _shell = new();
-    private AutomationView? _automationView;
     private bool _closingHandled;
 
     public MainWindow()
@@ -52,13 +51,14 @@ public partial class MainWindow : Window
     /// </summary>
     internal async Task StopRotationForShutdownAsync()
     {
-        if (_closingHandled || _automationView is null)
+        var automationView = _shell.AutomationView;
+        if (_closingHandled || automationView is null)
             return;
 
         _closingHandled = true;
         try
         {
-            await _automationView.StopAsync();
+            await automationView.StopAsync();
         }
         catch (Exception)
         {
@@ -75,13 +75,14 @@ public partial class MainWindow : Window
     /// </summary>
     internal void StopRotationForShutdown()
     {
-        if (_closingHandled || _automationView is null)
+        var automationView = _shell.AutomationView;
+        if (_closingHandled || automationView is null)
             return;
 
         _closingHandled = true;
         try
         {
-            _automationView.RequestStop();
+            automationView.RequestStop();
         }
         catch (Exception)
         {
@@ -281,21 +282,5 @@ public partial class MainWindow : Window
             current = VisualTreeHelper.GetParent(current);
         }
         return null;
-    }
-
-    // Navigation -----------------------------------------------------------
-
-    private void Navigate(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { Tag: string key })
-            return;
-
-        var view = _shell.Navigate(key);
-        if (string.Equals(key, "Automation", StringComparison.OrdinalIgnoreCase))
-            _automationView = view as AutomationView;
-
-        // Selection styling is driven entirely by NavButtonStyle's DataTrigger
-        // bound to _shell.SelectedItem.Key. Keep no imperative brush assignment
-        // here so there is a single source of truth for the selected state.
     }
 }

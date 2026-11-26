@@ -108,8 +108,16 @@ public sealed class SettingsViewModel : ViewModelBase
     public bool StartupEnabled
     {
         get => _startupEnabled;
-        private set => SetProperty(ref _startupEnabled, value, nameof(StartupEnabled));
+        private set
+        {
+            if (SetProperty(ref _startupEnabled, value, nameof(StartupEnabled)))
+                OnPropertyChanged(nameof(StartupAutomationName));
+        }
     }
+
+    /// <summary>Accessible name for the launch-at-login badge, so the state is read aloud, not just shown as colour.</summary>
+    public string StartupAutomationName =>
+        $"Launch at login: {(StartupEnabled ? "On" : "Off")}";
 
     public string StartupToggleLabel
     {

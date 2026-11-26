@@ -3,111 +3,54 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{StaticResource WindowBrush}">
     <UserControl.Resources>
-        <!-- Typography rhythm: 11px captions, 13px body. -->
-        <Style x:Key="GroupHeader" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
-            <Setter Property="Margin" Value="0,17,0,8" />
-        </Style>
-        <Style x:Key="FieldLabel" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="Margin" Value="0,0,0,5" />
-        </Style>
-        <Style x:Key="HintText" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        <!-- Local styles only add layout on top of the app-wide type scale and brushes. -->
+        <Style x:Key="HintText" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="Margin" Value="0,6,0,2" />
         </Style>
         <Style x:Key="FieldTextBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
-            <Setter Property="Height" Value="32" />
-            <Setter Property="Padding" Value="9,5" />
-            <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource MutedBrush}" />
-            <Setter Property="Margin" Value="0,0,0,9" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Margin" Value="0,0,0,10" />
         </Style>
         <Style x:Key="FieldCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
-            <Setter Property="Height" Value="32" />
-            <Setter Property="Margin" Value="0,0,0,9" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Margin" Value="0,0,0,10" />
         </Style>
 
-        <!-- Pill-shaped filter chips. IsChecked bindings stay two-way to the VM flags. -->
+        <!-- Filter chips: the shared ToggleButton template supplies the themed
+             hover/checked/pressed states; this only makes the targets easier to hit. -->
         <Style x:Key="FilterChip" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="FontSize" Value="{StaticResource BodySize}" />
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="MinHeight" Value="32" />
             <Setter Property="Margin" Value="0,0,6,6" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ToggleButton">
-                        <Border x:Name="Chip" Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="13" Padding="{TemplateBinding Padding}"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                              TextElement.Foreground="{TemplateBinding Foreground}" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chip" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Chip" Property="Background" Value="{StaticResource ControlCheckedBrush}" />
-                                <Setter TargetName="Chip" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Chip" Property="Background" Value="{StaticResource ControlPressedBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Chip" Property="Opacity" Value="0.5" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
         </Style>
-
-        <!-- Primary action: accent pill with a Fluent search glyph beside its content. -->
-        <Style x:Key="SearchButton" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
-            <Setter Property="Padding" Value="18,11" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Surface" Background="{TemplateBinding Background}"
-                                CornerRadius="9" Padding="{TemplateBinding Padding}"
-                                SnapsToDevicePixels="True">
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"
-                                        VerticalAlignment="Center">
-                                <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                                           FontSize="13" Foreground="{TemplateBinding Foreground}"
-                                           Margin="0,0,8,0" VerticalAlignment="Center" />
-                                <ContentPresenter VerticalAlignment="Center"
-                                                  TextElement.Foreground="{TemplateBinding Foreground}" />
-                            </StackPanel>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Surface" Property="Background" Value="#BBD5FF" />
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Surface" Property="Background" Value="#84ACF2" />
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Surface" Property="Opacity" Value="0.5" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- The colour palette chips reuse the app-wide implicit ToggleButton style. -->
         <Style x:Key="ColorChip" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
-            <Setter Property="Padding" Value="6,4" />
-            <Setter Property="Margin" Value="0,0,5,5" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Margin" Value="0,0,6,6" />
+        </Style>
+
+        <!-- Quiet preset/recent-tag actions. All their colours come from SecondaryButtonStyle. -->
+        <Style x:Key="TagButton" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="FontSize" Value="{StaticResource CaptionSize}" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Margin" Value="0,0,6,6" />
+        </Style>
+
+        <!-- The primary rail action inherits AccentBrush and its hover/pressed states
+             from PrimaryButtonStyle; no local hardcoded colours. -->
+        <Style x:Key="SearchButton" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="Padding" Value="16,10" />
+        </Style>
+
+        <!-- Secondary actions on each result card: icon + label, at least 32px tall. -->
+        <Style x:Key="CardSecondaryButton" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="FontSize" Value="{StaticResource CaptionSize}" />
+            <Setter Property="Padding" Value="6,6" />
+            <Setter Property="MinHeight" Value="32" />
         </Style>
     </UserControl.Resources>
 
@@ -118,8 +61,8 @@
         </Grid.ColumnDefinitions>
 
         <!-- Filter rail: scrollable groups, with the primary action pinned below them. -->
-        <Border Grid.Column="0" Background="{StaticResource PanelBrush}" CornerRadius="14"
-                Margin="0,0,14,0">
+        <Border Grid.Column="0" Style="{StaticResource CardStyle}" CornerRadius="14"
+                Margin="0,0,14,0" Padding="0">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -128,26 +71,27 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0" Margin="16,15,16,13">
-                    <TextBlock Text="SEARCH WALLHAVEN" FontSize="10" FontWeight="Bold"
-                               Foreground="{StaticResource AccentBrush}" />
-                    <TextBlock Text="Find your wallpaper" FontSize="18" FontWeight="SemiBold"
-                               Margin="0,5,0,0" />
+                    <TextBlock Text="SEARCH WALLHAVEN" Style="{StaticResource EyebrowTextStyle}" />
+                    <TextBlock Text="Find your wallpaper" Style="{StaticResource SectionTitleStyle}"
+                               Margin="0,6,0,0" />
                 </StackPanel>
 
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled" Padding="16,0,16,14">
                     <StackPanel>
                         <!-- TAGS -->
-                        <TextBlock Text="TAGS" Style="{StaticResource GroupHeader}" Margin="0,2,0,8" />
-                        <TextBlock Text="Keywords" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="TAGS" Style="{StaticResource SectionTitleStyle}"
+                                   Margin="0,2,0,10" />
+                        <TextBlock Text="Keywords" Style="{StaticResource FieldLabelStyle}" />
                         <TextBox Style="{StaticResource FieldTextBox}"
                                  Text="{Binding Tags, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="Example: landscape, nature, -people" />
+                                 ToolTip="Example: landscape, nature, -people"
+                                 AutomationProperties.Name="Search tags" />
                         <TextBlock Style="{StaticResource HintText}"
                                    Text="Separate tags with commas. Prefix with - to exclude; + to require." />
 
                         <!-- QUICK TAGS: presets + recently used queries -->
-                        <TextBlock Text="Quick tags" Style="{StaticResource FieldLabel}" Margin="0,3,0,5" />
+                        <TextBlock Text="Quick tags" Style="{StaticResource FieldLabelStyle}" Margin="0,12,0,6" />
                         <ItemsControl ItemsSource="{Binding TagPresets}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -156,8 +100,8 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Button Content="{Binding Label}" FontSize="11" Padding="8,4"
-                                            Margin="0,0,5,5" Cursor="Hand"
+                                    <Button Content="{Binding Label}" Style="{StaticResource TagButton}"
+                                            AutomationProperties.Name="{Binding Label, StringFormat='Apply preset: {0}'}"
                                             ToolTip="{Binding Tags}"
                                             Command="{Binding DataContext.ApplyPresetCommand,
                                                 RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
@@ -183,8 +127,9 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Button Content="{Binding}" FontSize="11" Padding="8,4"
-                                            Margin="0,0,5,5" Cursor="Hand"
+                                    <Button Content="{Binding}" Style="{StaticResource TagButton}"
+                                            AutomationProperties.Name="{Binding StringFormat='Apply recent tag: {0}'}"
+                                            ToolTip="Apply this recently used tag query"
                                             Command="{Binding DataContext.ApplyTagCommand,
                                                 RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
                                             CommandParameter="{Binding}" />
@@ -193,69 +138,90 @@
                         </ItemsControl>
 
                         <!-- CATEGORIES -->
-                        <TextBlock Text="CATEGORIES" Style="{StaticResource GroupHeader}" />
+                        <TextBlock Text="CATEGORIES" Style="{StaticResource SectionTitleStyle}" Margin="0,12,0,10" />
                         <WrapPanel>
                             <ToggleButton Style="{StaticResource FilterChip}" Content="General"
+                                          AutomationProperties.Name="General category"
+                                          ToolTip="Include general wallpapers"
                                           IsChecked="{Binding General, Mode=TwoWay}" />
                             <ToggleButton Style="{StaticResource FilterChip}" Content="Anime"
+                                          AutomationProperties.Name="Anime category"
+                                          ToolTip="Include anime wallpapers"
                                           IsChecked="{Binding Anime, Mode=TwoWay}" />
                             <ToggleButton Style="{StaticResource FilterChip}" Content="People"
+                                          AutomationProperties.Name="People category"
+                                          ToolTip="Include photos of people"
                                           IsChecked="{Binding People, Mode=TwoWay}" />
                         </WrapPanel>
 
                         <!-- CONTENT -->
-                        <TextBlock Text="CONTENT" Style="{StaticResource GroupHeader}" />
+                        <TextBlock Text="CONTENT" Style="{StaticResource SectionTitleStyle}" Margin="0,16,0,10" />
                         <WrapPanel>
                             <ToggleButton Style="{StaticResource FilterChip}" Content="SFW"
+                                          AutomationProperties.Name="Safe for work content"
+                                          ToolTip="Include safe-for-work results"
                                           IsChecked="{Binding Safe, Mode=TwoWay}" />
                             <ToggleButton Style="{StaticResource FilterChip}" Content="Sketchy"
+                                          AutomationProperties.Name="Sketchy content"
+                                          ToolTip="Include sketchy results"
                                           IsChecked="{Binding Sketchy, Mode=TwoWay}" />
                             <ToggleButton Style="{StaticResource FilterChip}" Content="NSFW"
+                                          AutomationProperties.Name="NSFW content"
+                                          ToolTip="Include NSFW results (requires an API key)"
                                           IsChecked="{Binding Explicit, Mode=TwoWay}" />
                         </WrapPanel>
                         <TextBlock Style="{StaticResource HintText}"
                                    Text="NSFW results require your Wallhaven API key." />
 
                         <!-- WALLHAVEN -->
-                        <TextBlock Text="WALLHAVEN" Style="{StaticResource GroupHeader}" />
-                        <TextBlock Text="API key" Style="{StaticResource FieldLabel}" />
-                        <PasswordBox x:Name="ApiKeyBox" Height="32" Margin="0,0,0,10" Padding="9,5"
-                                     Background="{StaticResource PanelAltBrush}"
-                                     Foreground="{StaticResource TextBrush}"
-                                     BorderBrush="{StaticResource MutedBrush}" />
-                        <TextBlock Text="Sorting" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="WALLHAVEN" Style="{StaticResource SectionTitleStyle}" Margin="0,16,0,10" />
+                        <TextBlock Text="API key" Style="{StaticResource FieldLabelStyle}" />
+                        <PasswordBox x:Name="ApiKeyBox" MinHeight="34" Margin="0,0,0,10" Padding="9,5"
+                                     AutomationProperties.Name="Wallhaven API key"
+                                     ToolTip="Stored locally and sent only to Wallhaven" />
+                        <TextBlock Text="Sorting" Style="{StaticResource FieldLabelStyle}" />
                         <ComboBox Style="{StaticResource FieldCombo}" DisplayMemberPath="Label"
                                   ItemsSource="{Binding SortingChoices}"
-                                  SelectedItem="{Binding SelectedSorting, Mode=TwoWay}" />
-                        <TextBlock Text="Toplist period" Style="{StaticResource FieldLabel}" />
+                                  SelectedItem="{Binding SelectedSorting, Mode=TwoWay}"
+                                  AutomationProperties.Name="Sort results by"
+                                  ToolTip="Choose how search results are ordered" />
+                        <TextBlock Text="Toplist period" Style="{StaticResource FieldLabelStyle}" />
                         <ComboBox Style="{StaticResource FieldCombo}" DisplayMemberPath="Label"
                                   ItemsSource="{Binding TopRangeChoices}"
                                   SelectedItem="{Binding SelectedTopRange, Mode=TwoWay}"
                                   IsEnabled="{Binding IsTopRangeEnabled}"
-                                  ToolTip="{Binding TopRangeToolTip}" />
-                        <TextBlock Text="Order" Style="{StaticResource FieldLabel}" />
+                                  ToolTip="{Binding TopRangeToolTip}"
+                                  AutomationProperties.Name="Toplist period"
+                                  AutomationProperties.HelpText="{Binding TopRangeToolTip}" />
+                        <TextBlock Text="Order" Style="{StaticResource FieldLabelStyle}" />
                         <ComboBox Style="{StaticResource FieldCombo}" DisplayMemberPath="Label"
                                   ItemsSource="{Binding OrderChoices}"
-                                  SelectedItem="{Binding SelectedOrder, Mode=TwoWay}" />
+                                  SelectedItem="{Binding SelectedOrder, Mode=TwoWay}"
+                                  AutomationProperties.Name="Sort direction"
+                                  ToolTip="Ascending or descending order" />
 
                         <!-- RESOLUTION -->
-                        <TextBlock Text="RESOLUTION" Style="{StaticResource GroupHeader}" />
-                        <TextBlock Text="Minimum resolution" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="RESOLUTION" Style="{StaticResource SectionTitleStyle}" Margin="0,16,0,10" />
+                        <TextBlock Text="Minimum resolution" Style="{StaticResource FieldLabelStyle}" />
                         <TextBox Style="{StaticResource FieldTextBox}"
                                  Text="{Binding MinimumResolution, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="1920x1080" />
-                        <TextBlock Text="Exact resolution" Style="{StaticResource FieldLabel}" />
+                                 ToolTip="1920x1080"
+                                 AutomationProperties.Name="Minimum resolution" />
+                        <TextBlock Text="Exact resolution" Style="{StaticResource FieldLabelStyle}" />
                         <TextBox Style="{StaticResource FieldTextBox}"
                                  Text="{Binding ExactResolution, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="3840x2160" />
-                        <TextBlock Text="Aspect ratio" Style="{StaticResource FieldLabel}" />
+                                 ToolTip="3840x2160"
+                                 AutomationProperties.Name="Exact resolution" />
+                        <TextBlock Text="Aspect ratio" Style="{StaticResource FieldLabelStyle}" />
                         <ComboBox Style="{StaticResource FieldCombo}" DisplayMemberPath="Label"
                                   ItemsSource="{Binding RatioChoices}"
-                                  SelectedItem="{Binding SelectedRatio, Mode=TwoWay}" />
+                                  SelectedItem="{Binding SelectedRatio, Mode=TwoWay}"
+                                  AutomationProperties.Name="Aspect ratio"
+                                  ToolTip="Filter by screen aspect ratio" />
 
                         <!-- COLOUR -->
-                        <TextBlock Text="COLOUR" Style="{StaticResource GroupHeader}" />
-                        <TextBlock Text="Palette colours" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="COLOUR" Style="{StaticResource SectionTitleStyle}" Margin="0,16,0,10" />
+                        <TextBlock Text="Palette colours" Style="{StaticResource FieldLabelStyle}" />
                         <ScrollViewer MaxHeight="104" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled">
                             <ItemsControl ItemsSource="{Binding ColorChoices}">
@@ -267,16 +233,15 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <ToggleButton IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                                      ToolTip="{Binding ToolTip}" Style="{StaticResource ColorChip}"
-                                                      Background="{StaticResource PanelAltBrush}"
-                                                      BorderBrush="{StaticResource MutedBrush}"
-                                                      BorderThickness="1" Cursor="Hand">
+                                                      ToolTip="{Binding ToolTip}"
+                                                      AutomationProperties.Name="{Binding ToolTip}"
+                                                      Style="{StaticResource ColorChip}">
                                             <StackPanel Orientation="Horizontal">
-                                                <Border Width="13" Height="13" CornerRadius="2"
+                                                <Border Width="14" Height="14" CornerRadius="2"
                                                         Background="{Binding SwatchBrush}"
-                                                        BorderBrush="{StaticResource MutedBrush}"
-                                                        BorderThickness="1" Margin="0,0,5,0" />
-                                                <TextBlock Text="{Binding Hex}" FontSize="11"
+                                                        BorderBrush="{StaticResource ControlBorderBrush}"
+                                                        BorderThickness="1" Margin="0,0,6,0" />
+                                                <TextBlock Text="{Binding Hex}"
                                                            VerticalAlignment="Center" />
                                             </StackPanel>
                                         </ToggleButton>
@@ -284,20 +249,23 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                         </ScrollViewer>
-                        <TextBlock Text="Custom hex values" Style="{StaticResource FieldLabel}" Margin="0,9,0,5" />
+                        <TextBlock Text="Custom hex values" Style="{StaticResource FieldLabelStyle}" Margin="0,12,0,6" />
                         <TextBox Style="{StaticResource FieldTextBox}"
                                  Text="{Binding CustomColors, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 ToolTip="Custom hex colors, comma-separated" />
+                                 ToolTip="Custom hex colors, comma-separated"
+                                 AutomationProperties.Name="Custom hex colours" />
                         <TextBlock Style="{StaticResource HintText}"
                                    Text="Your API key is saved locally (DPAPI-protected) and sent only to Wallhaven." />
                     </StackPanel>
                 </ScrollViewer>
 
                 <!-- Sticky primary action, separated from the scrolling filters. -->
-                <Border Grid.Row="2" BorderBrush="{StaticResource ControlBorderBrush}"
+                <Border Grid.Row="2" BorderBrush="{StaticResource DividerBrush}"
                         BorderThickness="0,1,0,0" Padding="16,13">
                     <Button Content="Search wallpapers" Style="{StaticResource SearchButton}"
-                            Command="{Binding SearchCommand}" HorizontalAlignment="Stretch" />
+                            Command="{Binding SearchCommand}" HorizontalAlignment="Stretch"
+                            AutomationProperties.Name="Search wallpapers"
+                            ToolTip="Search Wallhaven with the current filters" />
                 </Border>
             </Grid>
         </Border>
@@ -311,19 +279,23 @@
             </Grid.RowDefinitions>
 
             <!-- Status + target display -->
-            <Border Grid.Row="0" Background="{StaticResource PanelBrush}" CornerRadius="12"
+            <Border Grid.Row="0" Style="{StaticResource CardStyle}" CornerRadius="12"
                     Padding="14,11" Margin="0,0,0,12">
                 <DockPanel LastChildFill="True">
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"
                                 Margin="18,0,0,0">
-                        <Button Content="Apply selected" FontSize="11" Padding="10,6,10,6" Margin="0,0,12,0"
+                        <Button Content="Apply selected" Style="{StaticResource SecondaryButtonStyle}"
+                                MinHeight="32"
                                 Command="{Binding ApplySelectedCommand}"
+                                AutomationProperties.Name="Apply the selected wallpaper"
                                 ToolTip="Apply the highlighted wallpaper to the target display" />
-                        <TextBlock Text="Apply to" FontSize="11" Foreground="{StaticResource MutedBrush}"
-                                   Margin="0,0,8,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Apply to" Style="{StaticResource CaptionTextStyle}"
+                                   Margin="18,0,8,0" VerticalAlignment="Center" />
                         <ComboBox Width="172" DisplayMemberPath="DeviceName"
                                   ItemsSource="{Binding Monitors}"
-                                  SelectedItem="{Binding SelectedMonitor, Mode=TwoWay}" />
+                                  SelectedItem="{Binding SelectedMonitor, Mode=TwoWay}"
+                                  AutomationProperties.Name="Target display for Apply"
+                                  ToolTip="Choose which display receives the applied wallpaper" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <StackPanel.Style>
@@ -338,9 +310,9 @@
                             </Style>
                         </StackPanel.Style>
                         <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
-                                   FontSize="13" Foreground="{StaticResource AccentBrush}"
+                                   FontSize="14" Foreground="{StaticResource AccentBrush}"
                                    Margin="0,0,9,0" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding Status}" FontSize="13" Foreground="{StaticResource MutedBrush}"
+                        <TextBlock Text="{Binding Status}" Style="{StaticResource CaptionTextStyle}"
                                    TextWrapping="Wrap" VerticalAlignment="Center" />
                     </StackPanel>
                 </DockPanel>
@@ -351,7 +323,9 @@
                          SelectedItem="{Binding SelectedCard, Mode=TwoWay}"
                          Background="Transparent" BorderThickness="0"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         AutomationProperties.Name="Wallpaper search results"
+                         ToolTip="Select a wallpaper, then use its actions">
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
                             <WrapPanel />
@@ -366,13 +340,14 @@
                                 <Setter.Value>
                                     <ControlTemplate TargetType="ListBoxItem">
                                         <Border x:Name="CardSelection" Background="Transparent"
-                                                BorderBrush="Transparent" BorderThickness="2" CornerRadius="14">
+                                                BorderBrush="Transparent" BorderThickness="2"
+                                                CornerRadius="14">
                                             <ContentPresenter />
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
                                                 <Setter TargetName="CardSelection" Property="BorderBrush"
-                                                        Value="{StaticResource MutedBrush}" />
+                                                        Value="{StaticResource SubtleBorderBrush}" />
                                             </Trigger>
                                             <Trigger Property="IsSelected" Value="True">
                                                 <Setter TargetName="CardSelection" Property="BorderBrush"
@@ -386,34 +361,68 @@
                     </ListBox.ItemContainerStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Border Width="214" Background="{StaticResource PanelBrush}" CornerRadius="12"
-                                    Padding="9" Margin="0,0,12,12" BorderBrush="{StaticResource ControlBorderBrush}"
+                            <Border Width="260" Background="{StaticResource PanelBrush}"
+                                    CornerRadius="{StaticResource CardCornerRadius}"
+                                    Padding="12" Margin="0,0,12,12"
+                                    BorderBrush="{StaticResource ControlBorderBrush}"
                                     BorderThickness="1">
                                 <StackPanel>
-                                    <Border Height="126" Background="{StaticResource PanelAltBrush}"
-                                            CornerRadius="7" ClipToBounds="True">
-                                        <Image Width="194" Height="126" Stretch="UniformToFill"
+                                    <Border Height="132" Background="{StaticResource PanelAltBrush}"
+                                            CornerRadius="8" ClipToBounds="True">
+                                        <Image Width="236" Height="132" Stretch="UniformToFill"
                                                Source="{Binding Thumbnail}" />
                                     </Border>
-                                    <TextBlock Text="{Binding Resolution}" FontSize="13" FontWeight="SemiBold"
-                                               Margin="1,9,0,3" />
-                                    <TextBlock Text="{Binding Meta}" FontSize="11"
-                                               Foreground="{StaticResource MutedBrush}"
-                                               TextWrapping="Wrap" Margin="1,0,0,9" />
-                                    <UniformGrid Columns="2" Rows="2">
-                                        <Button Content="Open page" Margin="0,0,4,4" FontSize="11" Padding="6,6,6,6"
+                                    <TextBlock Text="{Binding Resolution}" Style="{StaticResource BodyTextStyle}"
+                                               FontWeight="SemiBold" Margin="1,10,0,3" />
+                                    <TextBlock Text="{Binding Meta}" Style="{StaticResource CaptionTextStyle}"
+                                               TextWrapping="Wrap" Margin="1,0,0,10" />
+
+                                    <!-- Obvious primary action, then three quiet icon+label actions. -->
+                                    <Button Style="{StaticResource PrimaryButtonStyle}" MinHeight="34"
+                                            Command="{Binding DataContext.ApplyCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
+                                            CommandParameter="{Binding}"
+                                            AutomationProperties.Name="Apply this wallpaper to the target display"
+                                            ToolTip="Download and apply this wallpaper to the selected display">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE73E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                       FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                            <TextBlock Text="Apply to display" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    <UniformGrid Columns="3" Rows="1" Margin="0,8,0,0">
+                                        <Button Style="{StaticResource CardSecondaryButton}" Margin="0,0,4,0"
                                                 Command="{Binding DataContext.OpenPageCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                                CommandParameter="{Binding}" />
-                                        <Button Content="Preview" Margin="4,0,0,4" FontSize="11" Padding="6,6,6,6"
+                                                CommandParameter="{Binding}"
+                                                AutomationProperties.Name="Open wallhaven page"
+                                                ToolTip="Open this wallpaper's page on Wallhaven">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE8A7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                           FontSize="13" Margin="0,0,5,0" VerticalAlignment="Center" />
+                                                <TextBlock Text="Open page" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Style="{StaticResource CardSecondaryButton}" Margin="4,0,4,0"
                                                 Command="{Binding DataContext.PreviewCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                                CommandParameter="{Binding}" />
-                                        <Button Content="Save to library" Margin="0,4,4,0" FontSize="11"
-                                                Style="{StaticResource PrimaryButtonStyle}" Padding="6,6,6,6"
+                                                CommandParameter="{Binding}"
+                                                AutomationProperties.Name="Preview wallpaper"
+                                                ToolTip="Open a full-size preview of this wallpaper">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE7B3;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                           FontSize="13" Margin="0,0,5,0" VerticalAlignment="Center" />
+                                                <TextBlock Text="Preview" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Style="{StaticResource CardSecondaryButton}" Margin="4,0,0,0"
                                                 Command="{Binding DataContext.SaveCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                                CommandParameter="{Binding}" />
-                                        <Button Content="Apply" Margin="4,4,0,0" FontSize="11" Padding="6,6,6,6"
-                                                Command="{Binding DataContext.ApplyCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                                CommandParameter="{Binding}" />
+                                                CommandParameter="{Binding}"
+                                                AutomationProperties.Name="Save wallpaper to library"
+                                                ToolTip="Save this wallpaper to your local library">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="&#xE74E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                                           FontSize="13" Margin="0,0,5,0" VerticalAlignment="Center" />
+                                                <TextBlock Text="Save" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Button>
                                     </UniformGrid>
                                 </StackPanel>
                             </Border>
@@ -446,10 +455,10 @@
                                        FontSize="54" Foreground="{StaticResource AccentBrush}"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
-                        <TextBlock Text="No wallpapers yet" FontSize="20" FontWeight="SemiBold"
+                        <TextBlock Text="No wallpapers yet" Style="{StaticResource TitleTextStyle}"
                                    HorizontalAlignment="Center" Margin="0,20,0,7" />
                         <TextBlock Text="Choose your filters, then select Search wallpapers to explore Wallhaven."
-                                   FontSize="13" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                                   Style="{StaticResource BodyTextStyle}" TextWrapping="Wrap"
                                    TextAlignment="Center" MaxWidth="380" HorizontalAlignment="Center" />
                     </StackPanel>
                 </Border>
@@ -468,8 +477,7 @@
                     </Border.Style>
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="260">
                         <ProgressBar Height="6" IsIndeterminate="True" />
-                        <TextBlock Text="Working…" FontSize="13"
-                                   Foreground="{StaticResource MutedBrush}"
+                        <TextBlock Text="Working…" Style="{StaticResource CaptionTextStyle}"
                                    HorizontalAlignment="Center" Margin="0,12,0,0" />
                     </StackPanel>
                 </Border>
@@ -488,13 +496,16 @@
                     </Style>
                 </Border.Style>
                 <DockPanel LastChildFill="True">
-                    <Button DockPanel.Dock="Left" Content="Previous" Padding="12,7,12,7"
-                            Command="{Binding PreviousCommand}" />
-                    <Button DockPanel.Dock="Right" Content="Next" Padding="12,7,12,7"
-                            Command="{Binding NextCommand}" />
+                    <Button DockPanel.Dock="Left" Content="Previous" Style="{StaticResource SecondaryButtonStyle}"
+                            Padding="12,8" Command="{Binding PreviousCommand}"
+                            AutomationProperties.Name="Previous results page"
+                            ToolTip="Go to the previous page of results" />
+                    <Button DockPanel.Dock="Right" Content="Next" Style="{StaticResource SecondaryButtonStyle}"
+                            Padding="12,8" Command="{Binding NextCommand}"
+                            AutomationProperties.Name="Next results page"
+                            ToolTip="Go to the next page of results" />
                     <TextBlock Text="{Binding PageText}" HorizontalAlignment="Center"
-                               VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
-                               FontSize="11" />
+                               VerticalAlignment="Center" Style="{StaticResource CaptionTextStyle}" />
                 </DockPanel>
             </Border>
         </Grid>

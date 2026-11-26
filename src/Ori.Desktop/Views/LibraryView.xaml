@@ -15,20 +15,22 @@
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
-        <Style x:Key="ToolbarLabel" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        <!-- Local styles only tighten layout; colours and type come from App.xaml. -->
+        <Style x:Key="ToolbarLabel" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
-        <Style x:Key="CardTitle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="14" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+        <Style x:Key="CardTitle" TargetType="TextBlock" BasedOn="{StaticResource SectionTitleStyle}">
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
-        <Style x:Key="CardMeta" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="10" />
-            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        <Style x:Key="CardMeta" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style x:Key="CardActionButton" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="6,6" />
+            <Setter Property="MinHeight" Value="32" />
         </Style>
 
         <!-- Editable ComboBox: the app-level ComboBox template has no editable text box,
@@ -47,7 +49,8 @@
                         <Grid SnapsToDevicePixels="True">
                             <Border x:Name="Surface" Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="7">
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="{StaticResource ControlCornerRadius}">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -76,7 +79,8 @@
                                         MaxHeight="{TemplateBinding MaxDropDownHeight}"
                                         Background="{StaticResource PanelAltBrush}"
                                         BorderBrush="{StaticResource ControlBorderBrush}"
-                                        BorderThickness="1" CornerRadius="8">
+                                        BorderThickness="1"
+                                        CornerRadius="{StaticResource ControlCornerRadius}">
                                     <ScrollViewer>
                                         <ItemsPresenter />
                                     </ScrollViewer>
@@ -106,14 +110,16 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Compact toolbar: search, collection filter, sort, favourites, import,
+        <!-- Toolbar: search, collection filter, sort, favourites, import,
              duplicate scan, new collection, refresh and apply target. -->
-        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" CornerRadius="14"
+        <Border Grid.Row="0" Style="{StaticResource CardStyle}" CornerRadius="14"
                 Padding="12,11" Margin="0,0,0,10">
             <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Grid Width="210" Height="34" Margin="0,0,12,4">
                     <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
-                             Padding="32,5,10,5" FontSize="12" />
+                             Padding="32,5,10,5" FontSize="12"
+                             AutomationProperties.Name="Search library"
+                             ToolTip="Search saved wallpapers by title, id or collection" />
                     <TextBlock Text="&#xE721;" Style="{StaticResource Glyph}" FontSize="14"
                                Foreground="{StaticResource MutedBrush}" IsHitTestVisible="False"
                                HorizontalAlignment="Left" Margin="10,0,0,0" />
@@ -122,60 +128,75 @@
                 <TextBlock Text="Collection" Style="{StaticResource ToolbarLabel}" Margin="0,0,8,4" />
                 <ComboBox Width="140" Height="34" Margin="0,0,12,4"
                           ItemsSource="{Binding CollectionFilters}"
-                          SelectedItem="{Binding SelectedCollectionFilter}" />
+                          SelectedItem="{Binding SelectedCollectionFilter}"
+                          AutomationProperties.Name="Filter by collection"
+                          ToolTip="Show wallpapers from one collection" />
 
                 <TextBlock Text="Sort" Style="{StaticResource ToolbarLabel}" Margin="0,0,8,4" />
                 <ComboBox Width="112" Height="34" Margin="0,0,12,4"
                           ItemsSource="{Binding SortOptions}"
-                          SelectedItem="{Binding SelectedSort}" />
+                          SelectedItem="{Binding SelectedSort}"
+                          AutomationProperties.Name="Sort library"
+                          ToolTip="Choose how saved wallpapers are ordered" />
 
                 <CheckBox IsChecked="{Binding FavoritesOnly}" Margin="0,0,14,4"
-                          VerticalAlignment="Center" Cursor="Hand">
+                          VerticalAlignment="Center" Cursor="Hand"
+                          AutomationProperties.Name="Favourites only"
+                          ToolTip="Show only wallpapers marked as favourites">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE734;" Style="{StaticResource Glyph}" FontSize="13"
                                    Foreground="{StaticResource AccentBrush}" Margin="0,0,6,0" />
-                        <TextBlock Text="Favourites only" FontSize="11" VerticalAlignment="Center" />
+                        <TextBlock Text="Favourites only" FontSize="12" VerticalAlignment="Center" />
                     </StackPanel>
                 </CheckBox>
 
                 <Button Click="OnImportFolderClick" Padding="11,7,11,7" Margin="0,0,10,4"
-                        VerticalAlignment="Center" ToolTip="Import all images from a folder">
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="Import folder"
+                        ToolTip="Import all images from a folder">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE838;" Style="{StaticResource Glyph}" FontSize="13"
                                    Margin="0,0,7,0" />
-                        <TextBlock Text="Import folder…" FontSize="11" />
+                        <TextBlock Text="Import folder…" FontSize="12" />
                     </StackPanel>
                 </Button>
 
                 <Button Command="{Binding FindDuplicatesCommand}" Padding="11,7,11,7" Margin="0,0,10,4"
-                        VerticalAlignment="Center" ToolTip="Scan the index for duplicate wallpapers">
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="Find duplicate wallpapers"
+                        ToolTip="Scan the index for duplicate wallpapers">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE9D5;" Style="{StaticResource Glyph}" FontSize="13"
                                    Margin="0,0,7,0" />
-                        <TextBlock Text="Find duplicates" FontSize="11" />
+                        <TextBlock Text="Find duplicates" FontSize="12" />
                     </StackPanel>
                 </Button>
 
                 <Button Command="{Binding RefreshCommand}" IsEnabled="{Binding IsRefreshEnabled}"
-                        Padding="11,7,11,7" Margin="0,0,10,4" VerticalAlignment="Center">
+                        Padding="11,7,11,7" Margin="0,0,10,4" VerticalAlignment="Center"
+                        AutomationProperties.Name="Refresh library"
+                        ToolTip="Reload the library index">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE72C;" Style="{StaticResource Glyph}" FontSize="13"
                                    Margin="0,0,7,0" />
-                        <TextBlock Text="Refresh" FontSize="11" />
+                        <TextBlock Text="Refresh" FontSize="12" />
                     </StackPanel>
                 </Button>
 
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,4">
                     <TextBlock Text="New collection" Style="{StaticResource ToolbarLabel}" Margin="0,0,6,0" />
-                    <TextBox Width="120" Height="30" FontSize="11"
+                    <TextBox Width="120" Height="30" FontSize="12"
                              Text="{Binding NewCollectionName, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="New collection name"
                              ToolTip="Type a name, select a wallpaper, then press Create" />
                     <Button Command="{Binding CreateCollectionCommand}" Padding="8,6,8,6" Margin="5,0,0,0"
-                            FontSize="10" VerticalAlignment="Center" ToolTip="Create the named collection on the selected wallpaper">
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="Create collection"
+                            ToolTip="Create the named collection on the selected wallpaper">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE8B7;" Style="{StaticResource Glyph}" FontSize="12"
+                            <TextBlock Text="&#xE8B7;" Style="{StaticResource Glyph}" FontSize="13"
                                        Margin="0,0,4,0" />
-                            <TextBlock Text="Create" />
+                            <TextBlock Text="Create" FontSize="12" />
                         </StackPanel>
                     </Button>
                 </StackPanel>
@@ -185,27 +206,29 @@
                     <ComboBox Width="150" Height="34"
                               ItemsSource="{Binding Displays}"
                               SelectedItem="{Binding SelectedDisplay}"
-                              DisplayMemberPath="DeviceName" />
+                              DisplayMemberPath="DeviceName"
+                              AutomationProperties.Name="Target display for Set wallpaper"
+                              ToolTip="Choose which display receives the applied wallpaper" />
                 </StackPanel>
             </WrapPanel>
         </Border>
 
         <!-- Inline import progress and duplicate results. -->
         <StackPanel Grid.Row="1" Margin="0,0,0,10">
-            <Border Background="#18212C" CornerRadius="9" Padding="11,8" Margin="0,0,0,8"
+            <Border Style="{StaticResource CardStyle}" CornerRadius="9" Padding="11,8" Margin="0,0,0,8"
                     Visibility="{Binding IsImporting, Converter={StaticResource BoolToVisibility}}">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xE896;" Style="{StaticResource Glyph}" FontSize="13"
                                Foreground="{StaticResource AccentBrush}" Margin="0,0,9,0" />
-                    <TextBlock Text="{Binding ImportProgress}" FontSize="11"
+                    <TextBlock Text="{Binding ImportProgress}" Style="{StaticResource BodyTextStyle}"
                                Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
 
-            <Border Background="#18212C" CornerRadius="9" Padding="11,9"
+            <Border Style="{StaticResource CardStyle}" CornerRadius="9" Padding="11,9"
                     Visibility="{Binding HasDuplicates, Converter={StaticResource BoolToVisibility}}">
                 <StackPanel>
-                    <TextBlock Text="{Binding DuplicateStatus}" FontSize="11"
+                    <TextBlock Text="{Binding DuplicateStatus}" Style="{StaticResource BodyTextStyle}"
                                Foreground="{StaticResource AccentBrush}" TextWrapping="Wrap" />
                     <ItemsControl ItemsSource="{Binding Duplicates}" Margin="0,8,0,0" MaxHeight="220">
                         <ItemsControl.ItemTemplate>
@@ -216,14 +239,15 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0">
-                                        <TextBlock Text="{Binding Name}" FontSize="11"
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource BodyTextStyle}"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding Path}" FontSize="10"
-                                                   Foreground="{StaticResource MutedBrush}"
+                                        <TextBlock Text="{Binding Path}" Style="{StaticResource CardMeta}"
                                                    TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
-                                    <Button Grid.Column="1" Content="Remove" Padding="8,4,8,4"
-                                            Margin="8,0,0,0" FontSize="10" ToolTip="Remove only this library entry"
+                                    <Button Grid.Column="1" Content="Remove" Padding="8,5,8,5"
+                                            Margin="8,0,0,0" MinHeight="32"
+                                            ToolTip="Remove only this library entry (the file is kept)"
+                                            AutomationProperties.Name="Remove duplicate entry"
                                             Command="{Binding DataContext.RemoveDuplicateCommand, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
                                             CommandParameter="{Binding}" />
                                 </Grid>
@@ -235,13 +259,14 @@
         </StackPanel>
 
         <!-- Inline status strip. -->
-        <Border Grid.Row="2" Background="#18212C" CornerRadius="9" Padding="11,8"
+        <Border Grid.Row="2" Style="{StaticResource CardStyle}" CornerRadius="9" Padding="11,8"
                 Margin="0,0,0,12">
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="&#xE946;" Style="{StaticResource Glyph}" FontSize="13"
                            Foreground="{StaticResource AccentBrush}" Margin="0,0,9,0" />
-                <TextBlock Text="{Binding Status}" FontSize="11" Foreground="{StaticResource MutedBrush}"
-                           TextWrapping="Wrap" VerticalAlignment="Center" />
+                <TextBlock Text="{Binding Status}" Style="{StaticResource BodyTextStyle}"
+                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
             </StackPanel>
         </Border>
 
@@ -260,7 +285,9 @@
                      Background="Transparent"
                      BorderThickness="0"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     ScrollViewer.CanContentScroll="False">
+                     ScrollViewer.CanContentScroll="False"
+                     AutomationProperties.Name="Saved wallpapers"
+                     ToolTip="Select a wallpaper to create a collection with it">
                 <ListBox.ItemsPanel>
                     <ItemsPanelTemplate>
                         <WrapPanel Orientation="Horizontal" />
@@ -287,45 +314,37 @@
                 </ListBox.ItemContainerStyle>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <Border Width="272" CornerRadius="14" Padding="10"
-                                RenderTransformOrigin="0.5,0.5">
-                            <Border.Effect>
-                                <DropShadowEffect Color="#000000" BlurRadius="10"
-                                                  ShadowDepth="2" Opacity="0.30" />
-                            </Border.Effect>
+                        <!-- A simple themed border replaces the old drop shadow. -->
+                        <Border Width="272" CornerRadius="{StaticResource CardCornerRadius}" Padding="10">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Background" Value="{StaticResource PanelBrush}" />
-                                    <Setter Property="BorderBrush" Value="#2D3C50" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}" />
                                     <Setter Property="BorderThickness" Value="1" />
                                     <Style.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter Property="Background" Value="#243449" />
+                                            <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
                                             <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                                            <Setter Property="RenderTransform">
-                                                <Setter.Value>
-                                                    <TranslateTransform Y="-2" />
-                                                </Setter.Value>
-                                            </Setter>
                                         </Trigger>
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
                             <StackPanel>
-                                <!-- Larger thumbnail with a favourite badge overlay. -->
-                                <Grid Height="134">
-                                    <Border CornerRadius="9" ClipToBounds="True" Background="#151E29">
+                                <!-- Thumbnail with a favourite badge overlay. -->
+                                <Grid Height="120">
+                                    <Border CornerRadius="8" ClipToBounds="True"
+                                            Background="{StaticResource PanelAltBrush}">
                                         <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
                                     </Border>
-                                    <Border CornerRadius="6" Background="#CC101722" Padding="7,3"
+                                    <Border Style="{StaticResource ChipStyle}" CornerRadius="6"
                                             HorizontalAlignment="Right" VerticalAlignment="Top"
                                             Margin="0,8,8,0"
                                             Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#xE734;" Style="{StaticResource Glyph}"
-                                                       FontSize="11" Foreground="{StaticResource AccentBrush}"
+                                                       FontSize="12" Foreground="{StaticResource AccentBrush}"
                                                        Margin="0,0,5,0" />
-                                            <TextBlock Text="Saved" FontSize="10" Foreground="{StaticResource TextBrush}" />
+                                            <TextBlock Text="Saved" Style="{StaticResource CardMeta}" />
                                         </StackPanel>
                                     </Border>
                                 </Grid>
@@ -333,105 +352,98 @@
                                 <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitle}"
                                            Margin="1,8,0,2" />
                                 <TextBlock Text="{Binding DetailText}" Style="{StaticResource CardMeta}"
-                                           Margin="1,0,0,7" />
+                                           Margin="1,0,0,8" />
 
-                                <!-- Clear collection / favourite meta row. -->
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                    <Border CornerRadius="5" Background="#233149" Padding="7,3"
-                                            Margin="0,0,6,0">
+                                <!-- One compact meta strip for collection, favourite and palette. -->
+                                <WrapPanel Margin="0,0,0,8">
+                                    <Border Style="{StaticResource ChipStyle}" Margin="0,0,6,4">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#xE8B7;" Style="{StaticResource Glyph}"
-                                                       FontSize="11" Foreground="{StaticResource AccentBrush}"
+                                                       FontSize="12" Foreground="{StaticResource AccentBrush}"
                                                        Margin="0,0,5,0" />
-                                            <TextBlock Text="{Binding SelectedCollection}" FontSize="10"
-                                                       Foreground="{StaticResource TextBrush}" MaxWidth="118"
-                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding SelectedCollection}"
+                                                       Style="{StaticResource CardMeta}" MaxWidth="118" />
                                         </StackPanel>
                                     </Border>
-                                    <Border CornerRadius="5" Background="#233149"
+                                    <Border Style="{StaticResource ChipStyle}" Margin="0,0,6,4"
                                             Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVisibility}}">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#xE734;" Style="{StaticResource Glyph}"
-                                                       FontSize="11" Foreground="{StaticResource AccentBrush}"
+                                                       FontSize="12" Foreground="{StaticResource AccentBrush}"
                                                        Margin="0,0,5,0" />
-                                            <TextBlock Text="Favourite" FontSize="10"
-                                                       Foreground="{StaticResource TextBrush}" />
+                                            <TextBlock Text="Favourite" Style="{StaticResource CardMeta}" />
                                         </StackPanel>
                                     </Border>
-                                </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                                Visibility="{Binding HasColors, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="Colours" Style="{StaticResource CardMeta}"
+                                                   Margin="0,0,7,0" VerticalAlignment="Center" />
+                                        <ItemsControl ItemsSource="{Binding ColorSwatches}"
+                                                      ToolTip="{Binding ColorsText}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Width="14" Height="14" CornerRadius="3"
+                                                            Background="{Binding}" Margin="0,0,4,0"
+                                                            BorderBrush="{StaticResource ControlBorderBrush}"
+                                                            BorderThickness="1" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </WrapPanel>
 
-                                <!-- Palette swatches, shown only when the entry has colours. -->
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,7"
-                                            Visibility="{Binding HasColors, Converter={StaticResource BoolToVisibility}}">
-                                    <TextBlock Text="Colours" Style="{StaticResource CardMeta}"
-                                               Margin="0,0,7,0" VerticalAlignment="Center" />
-                                    <ItemsControl ItemsSource="{Binding ColorSwatches}"
-                                                  ToolTip="{Binding ColorsText}">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <StackPanel Orientation="Horizontal" />
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Width="14" Height="14" CornerRadius="3"
-                                                        Background="{Binding}" Margin="0,0,4,0"
-                                                        BorderBrush="#2D3C50" BorderThickness="1" />
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </StackPanel>
-
-                                <!-- Primary action + icon actions. -->
-                                <Grid Margin="0,0,0,6">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Button Grid.Column="0"
-                                            Style="{StaticResource PrimaryButtonStyle}"
-                                            Padding="8,6,8,6" FontSize="11"
-                                            Command="{Binding DataContext.ApplyCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                            CommandParameter="{Binding}">
+                                <!-- Primary action + three icon/label actions, all 32px+ tall. -->
+                                <Button Style="{StaticResource PrimaryButtonStyle}" MinHeight="34"
+                                        Command="{Binding DataContext.ApplyCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
+                                        CommandParameter="{Binding}"
+                                        AutomationProperties.Name="Set this wallpaper"
+                                        ToolTip="Apply this wallpaper to the target display">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE73E;" Style="{StaticResource Glyph}"
+                                                   FontSize="14" Margin="0,0,7,0" />
+                                        <TextBlock Text="Set wallpaper" FontSize="12" />
+                                    </StackPanel>
+                                </Button>
+                                <UniformGrid Columns="3" Rows="1" Margin="0,8,0,8">
+                                    <Button Style="{StaticResource CardActionButton}" Margin="0,0,4,0"
+                                            Command="{Binding DataContext.FavoriteCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
+                                            CommandParameter="{Binding}"
+                                            AutomationProperties.Name="{Binding FavoriteLabel, StringFormat='Toggle favourite: {0}'}"
+                                            ToolTip="Toggle favourite for this wallpaper">
                                         <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="&#xE73E;" Style="{StaticResource Glyph}"
-                                                       FontSize="12" Margin="0,0,5,0" />
-                                            <TextBlock Text="Set wallpaper" FontSize="11" />
+                                            <TextBlock Text="&#xE734;" Style="{StaticResource Glyph}"
+                                                       FontSize="13" Margin="0,0,4,0" />
+                                            <TextBlock Text="{Binding FavoriteLabel}" />
                                         </StackPanel>
                                     </Button>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                        <Button Padding="7,5,7,5" Margin="5,0,0,0" FontSize="10"
-                                                ToolTip="Toggle favourite"
-                                                Command="{Binding DataContext.FavoriteCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                                CommandParameter="{Binding}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="&#xE734;" Style="{StaticResource Glyph}"
-                                                           FontSize="12" Margin="0,0,4,0" />
-                                                <TextBlock Text="{Binding FavoriteLabel}" />
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Padding="7,5,7,5" Margin="5,0,0,0" FontSize="10"
-                                                ToolTip="Open in viewer"
-                                                Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                                CommandParameter="{Binding}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="&#xE8A7;" Style="{StaticResource Glyph}"
-                                                           FontSize="12" Margin="0,0,4,0" />
-                                                <TextBlock Text="Open" />
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Padding="7,5,7,5" Margin="5,0,0,0" FontSize="10"
-                                                ToolTip="Remove from library"
-                                                Command="{Binding DataContext.RemoveCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
-                                                CommandParameter="{Binding}">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="&#xE74D;" Style="{StaticResource Glyph}"
-                                                           FontSize="12" Margin="0,0,4,0" />
-                                                <TextBlock Text="Remove" />
-                                            </StackPanel>
-                                        </Button>
-                                    </StackPanel>
-                                </Grid>
+                                    <Button Style="{StaticResource CardActionButton}" Margin="4,0,4,0"
+                                            Command="{Binding DataContext.OpenCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
+                                            CommandParameter="{Binding}"
+                                            AutomationProperties.Name="Open wallpaper in viewer"
+                                            ToolTip="Open the saved image in your image viewer">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE8A7;" Style="{StaticResource Glyph}"
+                                                       FontSize="13" Margin="0,0,4,0" />
+                                            <TextBlock Text="Open" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource CardActionButton}" Margin="4,0,0,0"
+                                            Command="{Binding DataContext.RemoveCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
+                                            CommandParameter="{Binding}"
+                                            AutomationProperties.Name="Remove wallpaper from library"
+                                            ToolTip="Open the removal confirmation; nothing is deleted until you confirm">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE74D;" Style="{StaticResource Glyph}"
+                                                       FontSize="13" Margin="0,0,4,0" />
+                                            <TextBlock Text="Remove" />
+                                        </StackPanel>
+                                    </Button>
+                                </UniformGrid>
 
                                 <!-- Collection move row: editable so a typed name becomes a collection. -->
                                 <Grid>
@@ -439,46 +451,54 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <ComboBox Grid.Column="0" Height="26" FontSize="10"
+                                    <ComboBox Grid.Column="0" Height="32" FontSize="12"
                                               Style="{StaticResource EditableComboBox}"
                                               IsEditable="True"
+                                              AutomationProperties.Name="Move to collection"
                                               ToolTip="Pick a collection or type a new name, then press Move"
                                               ItemsSource="{Binding DataContext.MoveTargets, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
                                               Text="{Binding SelectedCollection, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
                                     <Button Grid.Column="1" Margin="6,0,0,0" Padding="8,5,8,5"
-                                            FontSize="10" ToolTip="Move to selected collection"
+                                            MinHeight="32" FontSize="12"
+                                            AutomationProperties.Name="Move to selected collection"
+                                            ToolTip="Move to selected collection"
                                             Command="{Binding DataContext.MoveToCollectionCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
                                             CommandParameter="{Binding}">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#xE8DE;" Style="{StaticResource Glyph}"
-                                                       FontSize="12" Margin="0,0,4,0" />
+                                                       FontSize="13" Margin="0,0,4,0" />
                                             <TextBlock Text="Move" />
                                         </StackPanel>
                                     </Button>
                                 </Grid>
 
-                                <!-- Tags row: existing tags are shown and editable inline. -->
-                                <Grid Margin="0,7,0,0">
+                                <!-- Tags row: editable inline; the status shares this row's height. -->
+                                <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBox Grid.Column="0" Height="24" FontSize="10"
-                                             Text="{Binding TagText, UpdateSourceTrigger=PropertyChanged}"
-                                             ToolTip="Comma-separated tags" />
-                                    <Button Grid.Column="1" Margin="6,0,0,0" Padding="7,4,7,4"
-                                            FontSize="10" ToolTip="Save tags for this wallpaper"
+                                    <StackPanel Grid.Column="0">
+                                        <TextBox Height="32" FontSize="12"
+                                                 Text="{Binding TagText, UpdateSourceTrigger=PropertyChanged}"
+                                                 AutomationProperties.Name="Tags for this wallpaper"
+                                                 ToolTip="Comma-separated tags" />
+                                        <TextBlock Text="{Binding TagStatus}" Style="{StaticResource CardMeta}"
+                                                   Margin="1,3,0,0" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Margin="6,0,0,0" Padding="8,5,8,5"
+                                            MinHeight="32" FontSize="12"
+                                            AutomationProperties.Name="Save tags"
+                                            ToolTip="Save tags for this wallpaper"
                                             Command="{Binding DataContext.SetTagsCommand, RelativeSource={RelativeSource AncestorType={x:Type ListBox}}}"
                                             CommandParameter="{Binding}">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock Text="&#xE8EC;" Style="{StaticResource Glyph}"
-                                                       FontSize="11" Margin="0,0,4,0" />
+                                                       FontSize="13" Margin="0,0,4,0" />
                                             <TextBlock Text="Tags" />
                                         </StackPanel>
                                     </Button>
                                 </Grid>
-                                <TextBlock Text="{Binding TagStatus}" FontSize="9"
-                                           Foreground="{StaticResource MutedBrush}" Margin="1,3,0,0" />
                             </StackPanel>
                         </Border>
                     </DataTemplate>
@@ -486,7 +506,8 @@
             </ListBox>
 
             <!-- Polished empty state, shown only when the current page has no cards. -->
-            <Border Grid.Row="0" Padding="28" CornerRadius="16" Background="#18212C"
+            <Border Grid.Row="0" Padding="28" CornerRadius="16" Background="{StaticResource PanelBrush}"
+                    BorderBrush="{StaticResource SubtleBorderBrush}" BorderThickness="1"
                     HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="460"
                     IsHitTestVisible="False">
                 <Border.Style>
@@ -500,18 +521,18 @@
                     </Style>
                 </Border.Style>
                 <StackPanel HorizontalAlignment="Center">
-                    <Border Width="58" Height="58" CornerRadius="15" Background="#243449"
+                    <Border Width="58" Height="58" CornerRadius="15" Background="{StaticResource PanelAltBrush}"
                             HorizontalAlignment="Center">
                         <TextBlock Text="&#xE7AA;" Style="{StaticResource Glyph}" FontSize="30"
                                    Foreground="{StaticResource AccentBrush}" />
                     </Border>
-                    <TextBlock Text="Your library is waiting" FontSize="16" FontWeight="SemiBold"
+                    <TextBlock Text="Your library is waiting" Style="{StaticResource SectionTitleStyle}"
                                HorizontalAlignment="Center" Margin="0,14,0,8" />
-                    <TextBlock Text="{Binding EmptyMessage}" Foreground="{StaticResource MutedBrush}"
-                               FontSize="12" TextWrapping="Wrap" TextAlignment="Center"
+                    <TextBlock Text="{Binding EmptyMessage}" Style="{StaticResource BodyTextStyle}"
+                               TextWrapping="Wrap" TextAlignment="Center"
                                HorizontalAlignment="Center" MaxWidth="380" />
                     <TextBlock Text="Import a folder, save wallpapers from Discover, or clear a filter to see more."
-                               FontSize="10" Foreground="#738195" TextWrapping="Wrap"
+                               Style="{StaticResource CardMeta}" TextWrapping="Wrap"
                                TextAlignment="Center" HorizontalAlignment="Center"
                                Margin="0,12,0,0" MaxWidth="360" />
                 </StackPanel>
@@ -519,23 +540,27 @@
         </Grid>
 
         <!-- Pager. -->
-        <Border Grid.Row="4" BorderBrush="#2A3442" BorderThickness="0,1,0,0"
+        <Border Grid.Row="4" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0"
                 Padding="0,12,0,0" Margin="0,2,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <Button Command="{Binding PreviousPageCommand}" IsEnabled="{Binding CanGoPrevious}"
-                        Padding="10,7,10,7">
+                        Style="{StaticResource SecondaryButtonStyle}" Padding="10,8"
+                        AutomationProperties.Name="Previous library page"
+                        ToolTip="Show the previous page of saved wallpapers">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE76B;" Style="{StaticResource Glyph}" FontSize="13"
                                    Margin="0,0,6,0" />
-                        <TextBlock Text="Previous" FontSize="11" />
+                        <TextBlock Text="Previous" FontSize="12" />
                     </StackPanel>
                 </Button>
-                <TextBlock Text="{Binding PageLabel}" Foreground="{StaticResource MutedBrush}"
-                           FontSize="11" VerticalAlignment="Center" Margin="16,0,16,0" />
+                <TextBlock Text="{Binding PageLabel}" Style="{StaticResource CaptionTextStyle}"
+                           FontSize="12" VerticalAlignment="Center" Margin="16,0,16,0" />
                 <Button Command="{Binding NextPageCommand}" IsEnabled="{Binding CanGoNext}"
-                        Padding="10,7,10,7">
+                        Style="{StaticResource SecondaryButtonStyle}" Padding="10,8"
+                        AutomationProperties.Name="Next library page"
+                        ToolTip="Show the next page of saved wallpapers">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Next" FontSize="11" />
+                        <TextBlock Text="Next" FontSize="12" />
                         <TextBlock Text="&#xE76C;" Style="{StaticResource Glyph}" FontSize="13"
                                    Margin="6,0,0,0" />
                     </StackPanel>
@@ -545,29 +570,41 @@
 
         <!-- Themed, in-app removal confirmation. Nothing is deleted until Confirm is pressed,
              and the file is only deleted when the checkbox is explicitly ticked. -->
-        <Grid Grid.RowSpan="5" Panel.ZIndex="10"
+        <Grid Grid.RowSpan="5" Panel.ZIndex="10" KeyboardNavigation.TabNavigation="Cycle"
+              FocusManager.FocusedElement="{Binding ElementName=ConfirmRemoveButton}"
               Visibility="{Binding IsRemoveConfirmationOpen, Converter={StaticResource BoolToVisibility}}">
-            <Rectangle Fill="#B300070C" />
+            <Rectangle Fill="{StaticResource WindowBrush}" Opacity="0.78" />
             <Border Width="420" MaxWidth="440" Background="{StaticResource PanelBrush}"
-                    BorderBrush="#2D3C50" BorderThickness="1" CornerRadius="16"
-                    Padding="22" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    BorderBrush="{StaticResource StrongBorderBrush}" BorderThickness="1"
+                    CornerRadius="16" Padding="22" HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Confirm wallpaper removal">
                 <StackPanel>
-                    <TextBlock Text="Remove from library" FontSize="16" FontWeight="SemiBold" />
-                    <TextBlock Text="{Binding RemoveConfirmationText}" FontSize="12"
+                    <TextBlock Text="Remove from library" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="{Binding RemoveConfirmationText}" Style="{StaticResource BodyTextStyle}"
                                Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
                                Margin="0,10,0,0" />
-                    <CheckBox IsChecked="{Binding DeleteFileOnRemove}" Margin="0,16,0,0" Cursor="Hand">
-                        <TextBlock Text="Also delete the image file from disk" FontSize="11"
+                    <CheckBox IsChecked="{Binding DeleteFileOnRemove}" Margin="0,16,0,0" Cursor="Hand"
+                              TabIndex="0"
+                              AutomationProperties.Name="Also delete the image file from disk"
+                              ToolTip="Tick to delete the file as well as the library entry">
+                        <TextBlock Text="Also delete the image file from disk" FontSize="12"
                                    TextWrapping="Wrap" />
                     </CheckBox>
                     <TextBlock Text="Left unchecked, only the library entry is removed and the file is kept."
-                               FontSize="10" Foreground="{StaticResource MutedBrush}"
-                               TextWrapping="Wrap" Margin="24,4,0,0" />
+                               Style="{StaticResource CardMeta}" TextWrapping="Wrap"
+                               Margin="24,4,0,0" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
                         <Button Content="Cancel" Padding="14,8,14,8" Margin="0,0,8,0"
+                                TabIndex="1" IsCancel="True"
+                                AutomationProperties.Name="Cancel removal"
+                                ToolTip="Keep this wallpaper in the library"
                                 Command="{Binding CancelRemoveCommand}" />
-                        <Button Style="{StaticResource PrimaryButtonStyle}" Content="Remove"
-                                Padding="14,8,14,8" Command="{Binding ConfirmRemoveCommand}" />
+                        <Button x:Name="ConfirmRemoveButton" Style="{StaticResource PrimaryButtonStyle}"
+                                Content="Remove" Padding="14,8,14,8" TabIndex="2" IsDefault="True"
+                                AutomationProperties.Name="Confirm removal"
+                                ToolTip="Remove this wallpaper from the library"
+                                Command="{Binding ConfirmRemoveCommand}" />
                     </StackPanel>
                 </StackPanel>
             </Border>

@@ -43,6 +43,11 @@ public static class WindowsDesktopWallpaper
             desktop.GetMonitorDevicePathCount(out uint count);
             var result = new List<DisplayMonitor>(checked((int)count));
 
+            // A driver re-enumeration can leave a dead COM path next to the live
+            // one. Both describe the same physical panel (same device name and
+            // bounds), so keep only the path that actually responds to reads.
+            var bestByPanel = new Dictionary<(string Name, int Left, int Top, int Right, int Bottom), MonitorCandidate>();
+
             for (uint index = 0; index < count; index++)
             {
                 string monitorId;
@@ -50,14 +55,12 @@ public static class WindowsDesktopWallpaper
                 try
                 {
                     desktop.GetMonitorDevicePathAt(index, out monitorId);
+                    // A stale path fails here with E_FAIL. It cannot apply a
+                    // wallpaper, so it must never produce a duplicate card.
                     desktop.GetMonitorRECT(monitorId, out bounds);
                 }
                 catch (COMException)
                 {
-                    // Windows can keep stale display paths in the COM list after a
-                    // driver re-enumeration (the same panel appears twice, once with
-                    // a dead instance). GetMonitorRECT fails with E_FAIL for those.
-                    // One dead path must not hide every healthy display.
                     continue;
                 }
 
@@ -67,14 +70,17 @@ public static class WindowsDesktopWallpaper
                     continue; // Detached monitors have no usable geometry.
 
                 string? currentWallpaper = null;
+                var wallpaperReadSucceeded = false;
                 try
                 {
                     desktop.GetWallpaper(monitorId, out currentWallpaper);
+                    wallpaperReadSucceeded = true;
                 }
                 catch (COMException)
                 {
-                    // Geometry is authoritative; a transient wallpaper read failure
-                    // must not remove the display from the list.
+                    // Geometry still identifies the panel; only the ranking of
+                    // duplicate paths is affected by a failed wallpaper read.
+                    currentWallpaper = null;
                 }
 
                 var native = nativeMonitors.FirstOrDefault(candidate =>
@@ -83,7 +89,7 @@ public static class WindowsDesktopWallpaper
                     && candidate.Bounds.Right == bounds.Right
                     && candidate.Bounds.Bottom == bounds.Bottom);
 
-                result.Add(new DisplayMonitor(
+                var monitor = new DisplayMonitor(
                     monitorId,
                     native?.DeviceName ?? $"DISPLAY{index + 1}",
                     bounds.Left,
@@ -91,13 +97,40 @@ public static class WindowsDesktopWallpaper
                     width,
                     height,
                     native?.IsPrimary ?? index == 0,
-                    string.IsNullOrWhiteSpace(currentWallpaper) ? null : currentWallpaper));
+                    string.IsNullOrWhiteSpace(currentWallpaper) ? null : currentWallpaper);
+
+                var panel = (monitor.DeviceName, bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
+                var candidate = new MonitorCandidate(monitor, wallpaperReadSucceeded, checked((int)index));
+                if (bestByPanel.TryGetValue(panel, out var existing))
+                {
+                    // Prefer the path whose wallpaper read succeeded; if both
+                    // work, keep the first path Windows reported.
+                    if ((candidate.WallpaperReadSucceeded && !existing.WallpaperReadSucceeded)
+                        || (candidate.WallpaperReadSucceeded == existing.WallpaperReadSucceeded
+                            && candidate.Index < existing.Index))
+                    {
+                        bestByPanel[panel] = candidate;
+                    }
+                }
+                else
+                {
+                    bestByPanel.Add(panel, candidate);
+                }
             }
 
-            // If geometry matching failed for a stale path, the index fallback can
-            // mark a second monitor primary. Keep exactly one PRIMARY card.
+            result.AddRange(bestByPanel.Values
+                .OrderBy(candidate => candidate.Index)
+                .Select(candidate => candidate.Monitor));
+
+            // If geometry matching failed, the index fallback can mark a second
+            // monitor primary. Keep exactly one PRIMARY card.
             var primary = result.FirstOrDefault(monitor => monitor.IsPrimary);
-            if (primary is not null)
+            if (primary is null)
+            {
+                if (result.Count > 0)
+                    result[0] = result[0] with { IsPrimary = true };
+            }
+            else
             {
                 for (var index = 0; index < result.Count; index++)
                 {
@@ -106,7 +139,56 @@ public static class WindowsDesktopWallpaper
                 }
             }
 
-            return (IReadOnlyList<DisplayMonitor>)result;
+            return result;
+        });
+    }
+
+    /// <summary>Reads the Windows-wide fit mode; Fill is assumed when Windows cannot report one.</summary>
+    public static DesktopWallpaperPosition GetPosition()
+    {
+        EnsureWindows();
+        try
+        {
+            return WithDesktopWallpaper(desktop =>
+            {
+                desktop.GetPosition(out var position);
+                return Enum.IsDefined(position) ? position : DesktopWallpaperPosition.Fill;
+            });
+        }
+        catch (Exception ex) when (ex is COMException or NotSupportedException or InvalidCastException)
+        {
+            // Virtualised and legacy shells may not implement GetPosition. The fit
+            // control stays usable with an honest "assumed Fill" fallback.
+            return DesktopWallpaperPosition.Fill;
+        }
+    }
+
+    /// <summary>Sets the single fit mode Windows applies to every display.</summary>
+    public static void SetPosition(DesktopWallpaperPosition position)
+    {
+        EnsureWindows();
+        WithDesktopWallpaper(desktop =>
+        {
+            desktop.SetPosition(position);
+            return true;
+        });
+    }
+
+    /// <summary>
+    /// Applies one image to the whole virtual desktop. A null monitor id is the
+    /// documented "all monitors" target and is what Span mode requires.
+    /// </summary>
+    public static void ApplySpanWallpaper(string imagePath)
+    {
+        EnsureWindows();
+        var fullPath = ValidateWallpaperPath(imagePath);
+        WithDesktopWallpaper(desktop =>
+        {
+            // Span is a global fit mode too: set it before targeting all monitors,
+            // otherwise the OS would keep the previous fit while Ori reports Span.
+            desktop.SetPosition(DesktopWallpaperPosition.Span);
+            desktop.SetWallpaper(null, fullPath);
+            return true;
         });
     }
 
@@ -117,8 +199,22 @@ public static class WindowsDesktopWallpaper
     {
         EnsureWindows();
         ArgumentException.ThrowIfNullOrWhiteSpace(monitorId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(imagePath);
+        var fullPath = ValidateWallpaperPath(imagePath);
 
+        WithDesktopWallpaper(desktop =>
+        {
+            // The OS fit mode is global. Leave it alone unless the caller explicitly
+            // asked to change it; forcing Fill here crops wallpapers chosen elsewhere.
+            if (position is { } requested)
+                desktop.SetPosition(requested);
+            desktop.SetWallpaper(monitorId, fullPath);
+            return true;
+        });
+    }
+
+    private static string ValidateWallpaperPath(string imagePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(imagePath);
         var fullPath = Path.GetFullPath(imagePath);
         if (!File.Exists(fullPath))
             throw new FileNotFoundException("The selected wallpaper file does not exist.", fullPath);
@@ -130,15 +226,7 @@ public static class WindowsDesktopWallpaper
             throw new InvalidDataException("Choose a JPG, PNG, BMP, or TIFF image.");
         }
 
-        WithDesktopWallpaper(desktop =>
-        {
-            // The OS fit mode is global. Leave it alone unless the caller explicitly
-            // asked to change it; forcing Fill here crops wallpapers chosen elsewhere.
-            if (position is { } requested)
-                desktop.SetPosition(requested);
-            desktop.SetWallpaper(monitorId, fullPath);
-            return true;
-        });
+        return fullPath;
     }
 
     private static T WithDesktopWallpaper<T>(Func<IDesktopWallpaper, T> action)
@@ -192,6 +280,8 @@ public static class WindowsDesktopWallpaper
 
     private sealed record NativeMonitor(string DeviceName, NativeRect Bounds, bool IsPrimary);
 
+    private sealed record MonitorCandidate(DisplayMonitor Monitor, bool WallpaperReadSucceeded, int Index);
+
     [ComImport]
     [Guid(DesktopWallpaperClassId)]
     private sealed class DesktopWallpaperClass
@@ -226,6 +316,8 @@ public static class WindowsDesktopWallpaper
         void GetBackgroundColor(out uint color);
 
         void SetPosition(DesktopWallpaperPosition position);
+
+        void GetPosition(out DesktopWallpaperPosition position);
     }
 
     [StructLayout(LayoutKind.Sequential)]

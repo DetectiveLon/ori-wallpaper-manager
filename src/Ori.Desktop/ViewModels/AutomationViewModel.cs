@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Http;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -85,6 +86,11 @@ public sealed class AutomationViewModel : ViewModelBase
         // Refresh the library too: after wallpapers are saved from Discover, the
         // Start/Rotate now buttons must become enabled again from this page.
         RefreshDisplaysCommand = new RelayCommand(_ => { _ = RefreshAvailabilityAsync(); });
+
+        // The full-screen pause master is a user preference, not per-display state:
+        // restore it here so it survives a restart. The store swallows its own I/O
+        // errors, so even a damaged preferences file cannot block the page.
+        _pauseWhenFullscreen = AutomationPreferencesStore.LoadPauseWhenFullscreen();
 
         try
         {
@@ -171,8 +177,11 @@ public sealed class AutomationViewModel : ViewModelBase
         get => Volatile.Read(ref _pauseWhenFullscreen);
         set
         {
-            if (SetProperty(ref _pauseWhenFullscreen, value, nameof(PauseWhenFullscreen)))
-                UpdateAllSessions();
+            if (!SetProperty(ref _pauseWhenFullscreen, value, nameof(PauseWhenFullscreen)))
+                return;
+
+            AutomationPreferencesStore.SavePauseWhenFullscreen(value);
+            UpdateAllSessions();
         }
     }
 
@@ -220,7 +229,9 @@ public sealed class AutomationViewModel : ViewModelBase
             _initialized = true;
 
         await RefreshLibraryStatusAsync();
-        await RefreshDisplaysAsync();
+        // InitializeAsync owns the one-time full restore below, so suppress the
+        // per-refresh restore here (every display is "new" on the first pass).
+        await RefreshDisplaysAsync(restoreNewDisplays: false);
 
         if (!firstLoad)
         {
@@ -262,7 +273,7 @@ public sealed class AutomationViewModel : ViewModelBase
     {
         RequestStop();
 
-        var tasks = _sessions.Values.Select(StopSessionAsync).ToArray();
+        var tasks = _sessions.Values.Select(session => StopSessionAsync(session)).ToArray();
         if (tasks.Length == 0)
             return;
 
@@ -275,23 +286,61 @@ public sealed class AutomationViewModel : ViewModelBase
         if (_shutdownRequested)
             return;
 
+        var states = _sessions.Values.Select(current => new DisplayScheduleState(
+            current.Monitor.Id,
+            current.SelectedInterval,
+            ReferenceEquals(current, session) && shouldRun.HasValue
+                ? shouldRun.Value
+                : current.ActiveSchedule,
+            current.UserPaused,
+            current.NextRunUtc,
+            current.LastAppliedId,
+            current.PauseWhenFullscreen,
+            current.Fingerprint)).ToArray();
+
+        await SaveMergedStatesAsync(states);
+    }
+
+    /// <summary>
+    /// Writes only the supplied states over the saved file, keeping every saved entry
+    /// that has no live session. A display that was unplugged is deliberately absent
+    /// from <see cref="_sessions"/>: its schedule must stay on disk so a later
+    /// fingerprint match can adopt it. This also stops one session's save from
+    /// replacing another session's saved interval/pause/deadline with defaults.
+    /// </summary>
+    private async Task SaveMergedStatesAsync(
+        IEnumerable<DisplayScheduleState> overrides,
+        IEnumerable<string>? removeIds = null)
+    {
         try
         {
             await _persistGate.WaitAsync();
             try
             {
-                var states = _sessions.Values.Select(current => new DisplayScheduleState(
-                    current.Monitor.Id,
-                    current.SelectedInterval,
-                    ReferenceEquals(current, session) && shouldRun.HasValue
-                        ? shouldRun.Value
-                        : current.ActiveSchedule,
-                    current.UserPaused,
-                    current.NextRunUtc,
-                    current.LastAppliedId,
-                    current.PauseWhenFullscreen,
-                    current.Fingerprint)).ToArray();
-                await _schedules.SaveAsync(states);
+                IReadOnlyDictionary<string, DisplayScheduleState> saved;
+                try
+                {
+                    saved = await _schedules.LoadAsync();
+                }
+                catch
+                {
+                    saved = new Dictionary<string, DisplayScheduleState>(StringComparer.OrdinalIgnoreCase);
+                }
+
+                var merged = new Dictionary<string, DisplayScheduleState>(StringComparer.OrdinalIgnoreCase);
+                foreach (var pair in saved)
+                    merged[pair.Key] = pair.Value;
+
+                if (removeIds is not null)
+                {
+                    foreach (var id in removeIds)
+                        merged.Remove(id);
+                }
+
+                foreach (var state in overrides)
+                    merged[state.MonitorId] = state;
+
+                await _schedules.SaveAsync(merged.Values);
             }
             finally
             {
@@ -304,12 +353,20 @@ public sealed class AutomationViewModel : ViewModelBase
         }
     }
 
-    private async Task RestoreSchedulesAsync()
+    /// <summary>
+    /// Restores saved schedules onto the current sessions. When <paramref name="onlySessions"/>
+    /// is supplied (a display appeared after an in-app refresh), adoption still considers
+    /// every live display so a colliding fingerprint cannot steal another display's
+    /// schedule, but only the new displays are started.
+    /// </summary>
+    private async Task RestoreSchedulesAsync(
+        IReadOnlyCollection<DisplayScheduleViewModel>? onlySessions = null)
     {
         if (_shutdownRequested)
             return;
 
-        _deferredSchedulesExist = false;
+        if (onlySessions is null)
+            _deferredSchedulesExist = false;
 
         IReadOnlyDictionary<string, DisplayScheduleState> saved;
         try
@@ -321,69 +378,91 @@ public sealed class AutomationViewModel : ViewModelBase
             return;
         }
 
-        // Re-key by monitor ID and adopt any schedule whose stable fingerprint still
-        // matches, so a driver/USB/GPU change does not silently stop the old schedule.
-        var byId = new Dictionary<string, DisplayScheduleState>(saved, StringComparer.OrdinalIgnoreCase);
-        var restored = new List<(DisplayScheduleViewModel Session, DisplayScheduleState State)>();
-        var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var adopted = false;
+        var scope = onlySessions is null
+            ? null
+            : new HashSet<DisplayScheduleViewModel>(onlySessions);
+        var byId = new Dictionary<string, DisplayScheduleState>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in saved)
+            byId[pair.Key] = pair.Value;
 
+        var resolved = new Dictionary<DisplayScheduleViewModel, DisplayScheduleState>();
+        var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var adoptedFrom = new List<string>();
+        var adopted = false;
+        var identityDirty = false;
+
+        // Pass one: a saved entry whose id matches a live display belongs to that
+        // display. Claim every such entry before any adoption so a newer session
+        // cannot steal it just because it is enumerated first.
         foreach (var session in _sessions.Values)
         {
             var fingerprint = session.Fingerprint;
-            if (!byId.TryGetValue(session.Monitor.Id, out var state))
-            {
-                string? matchId = null;
-                DisplayScheduleState? matchState = null;
-                foreach (var pair in byId)
-                {
-                    if (claimed.Contains(pair.Key)
-                        || string.IsNullOrWhiteSpace(pair.Value.MonitorFingerprint)
-                        || !string.Equals(pair.Value.MonitorFingerprint, fingerprint, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
+            if (!byId.TryGetValue(session.Monitor.Id, out var direct))
+                continue;
 
-                    matchId = pair.Key;
-                    matchState = pair.Value;
-                    break;
+            claimed.Add(session.Monitor.Id);
+            if (!string.Equals(direct.MonitorFingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                // Same COM path but moved/resized: the identity must be written back
+                // or a later path change will no longer match by fingerprint.
+                direct = direct with { MonitorFingerprint = fingerprint };
+                byId[session.Monitor.Id] = direct;
+                identityDirty = true;
+            }
+
+            resolved[session] = direct;
+        }
+
+        // Pass two: adopt only saved entries that no live display is already using.
+        foreach (var session in _sessions.Values)
+        {
+            if (resolved.ContainsKey(session))
+                continue;
+
+            var fingerprint = session.Fingerprint;
+            string? matchId = null;
+            DisplayScheduleState? matchState = null;
+            foreach (var pair in byId)
+            {
+                if (claimed.Contains(pair.Key)
+                    || string.IsNullOrWhiteSpace(pair.Value.MonitorFingerprint)
+                    || !string.Equals(pair.Value.MonitorFingerprint, fingerprint, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
                 }
 
-                if (matchId is null || matchState is null)
-                    continue;
-
-                state = matchState with
-                {
-                    MonitorId = session.Monitor.Id,
-                    MonitorFingerprint = fingerprint
-                };
-                byId.Remove(matchId);
-                byId[session.Monitor.Id] = state;
-                claimed.Add(session.Monitor.Id);
-                adopted = true;
+                matchId = pair.Key;
+                matchState = pair.Value;
+                break;
             }
-            else if (!string.Equals(state.MonitorFingerprint, fingerprint, StringComparison.Ordinal))
+
+            if (matchId is null || matchState is null)
+                continue;
+
+            var adoptedState = matchState with
             {
-                // Same COM path but moved/resized: refresh the stored identity.
-                state = state with { MonitorFingerprint = fingerprint };
-                byId[session.Monitor.Id] = state;
-            }
-
-            restored.Add((session, state));
+                MonitorId = session.Monitor.Id,
+                MonitorFingerprint = fingerprint
+            };
+            byId.Remove(matchId);
+            byId[session.Monitor.Id] = adoptedState;
+            adoptedFrom.Add(matchId);
+            claimed.Add(session.Monitor.Id);
+            resolved[session] = adoptedState;
+            adopted = true;
         }
 
-        if (adopted)
+        var restored = new List<(DisplayScheduleViewModel Session, DisplayScheduleState State)>();
+        foreach (var session in _sessions.Values)
         {
-            try
-            {
-                await _schedules.SaveAsync(byId.Values);
-            }
-            catch
-            {
-                // Adoption is still applied in memory even if rewriting the file fails.
-            }
+            if (resolved.TryGetValue(session, out var state) && (scope is null || scope.Contains(session)))
+                restored.Add((session, state));
         }
 
+        // Apply every restored state in memory first, then write them all at once.
+        // Persisting one display before the next has been restored is what used to
+        // overwrite the second display's interval/pause/deadline with defaults.
+        var desired = new List<DisplayScheduleState>(restored.Count);
         foreach (var (session, state) in restored)
         {
             if (IntervalsByName.ContainsKey(state.IntervalName))
@@ -391,6 +470,36 @@ public sealed class AutomationViewModel : ViewModelBase
             session.LastAppliedId = state.LastAppliedId;
             session.ApplyRestoredPausePolicy(state.PauseWhenFullscreen);
 
+            // Populate the whole session before any loop starts: the first
+            // StartRotationAsync persists every live session, so a later display
+            // must already hold its saved deadline/pause/ShouldRun in memory.
+            if (!IsRunning(session))
+            {
+                session.UserPaused = state.UserPaused;
+                session.NextRunUtc = state.NextRunUtc;
+                session.ActiveSchedule = state.ShouldRun;
+            }
+
+            desired.Add(state with
+            {
+                MonitorId = session.Monitor.Id,
+                MonitorFingerprint = session.Fingerprint,
+                IntervalName = session.SelectedInterval,
+                PauseWhenFullscreen = session.PauseWhenFullscreen,
+                LastAppliedId = session.LastAppliedId,
+                UserPaused = session.UserPaused,
+                NextRunUtc = session.NextRunUtc,
+                ShouldRun = session.ActiveSchedule
+            });
+        }
+
+        // A single merged save covers restored intervals/pauses/deadlines, newly
+        // adopted ids and fingerprints refreshed after a geometry change.
+        if (adopted || identityDirty || desired.Count > 0)
+            await SaveMergedStatesAsync(desired, adoptedFrom);
+
+        foreach (var (session, state) in restored)
+        {
             if (!state.ShouldRun)
             {
                 UpdateSessionUi(session);
@@ -405,7 +514,6 @@ public sealed class AutomationViewModel : ViewModelBase
                 continue;
             }
 
-            session.UserPaused = state.UserPaused;
             await StartRotationAsync(session, state.NextRunUtc, restoring: true);
         }
     }
@@ -432,7 +540,7 @@ public sealed class AutomationViewModel : ViewModelBase
         UpdateAllSessions();
     }
 
-    internal async Task RefreshDisplaysAsync()
+    internal async Task RefreshDisplaysAsync(bool restoreNewDisplays = true)
     {
         if (_shutdownRequested)
             return;
@@ -455,11 +563,15 @@ public sealed class AutomationViewModel : ViewModelBase
                          .Where(session => !connectedIds.Contains(session.Monitor.Id))
                          .ToArray())
             {
-                await StopSessionAsync(removed);
+                // Suspend, do not stop: the loop is cancelled in memory but the saved
+                // ShouldRun/interval/pause/deadline stay on disk. Writing false here
+                // would make fingerprint adoption impossible when the panel returns.
+                await StopSessionAsync(removed, keepSavedSchedule: true);
                 Schedules.Remove(removed);
                 _sessions.Remove(removed.Monitor.Id);
             }
 
+            var added = new List<DisplayScheduleViewModel>();
             foreach (var monitor in monitors)
             {
                 if (_sessions.TryGetValue(monitor.Id, out var existing))
@@ -473,11 +585,17 @@ public sealed class AutomationViewModel : ViewModelBase
                 _sessions.Add(monitor.Id, session);
                 Schedules.Add(session);
                 UpdateSessionUi(session);
+                added.Add(session);
             }
 
             SetDisplayStatus(monitors.Count == 0
                 ? "Windows did not report any connected displays."
                 : $"{monitors.Count} display(s) detected. Start a schedule on each display you want Ori to manage.");
+
+            // A display that appeared after an in-app change (replug, driver
+            // re-enumeration) must restore its saved schedule now, not after a restart.
+            if (restoreNewDisplays && added.Count > 0)
+                await RestoreSchedulesAsync(added);
         }
         catch (Exception ex)
         {
@@ -779,12 +897,12 @@ public sealed class AutomationViewModel : ViewModelBase
             if (available.Length == 0)
                 throw new InvalidOperationException("No available images are saved in the local library.");
 
-            var monitor = session.Monitor;
+            var monitorAtSelection = session.Monitor;
             var lastId = session.LastAppliedId;
-            if (lastId is null && !string.IsNullOrWhiteSpace(monitor.CurrentWallpaper))
+            if (lastId is null && !string.IsNullOrWhiteSpace(monitorAtSelection.CurrentWallpaper))
             {
                 lastId = available.FirstOrDefault(entry =>
-                    PathsEqual(entry.LocalPath, monitor.CurrentWallpaper))?.Id;
+                    PathsEqual(entry.LocalPath, monitorAtSelection.CurrentWallpaper))?.Id;
             }
 
             var candidates = available.Length > 1
@@ -817,6 +935,17 @@ public sealed class AutomationViewModel : ViewModelBase
                 if (!File.Exists(selected.LocalPath))
                     throw new FileNotFoundException("The selected library image is missing.", selected.LocalPath);
 
+                // A display refresh (or a newer manual rotation) can replace the
+                // monitor snapshot while the library was being read. Applying to the
+                // stale id would hit a dead path and overwrite the newer snapshot.
+                if (!ReferenceEquals(session.Monitor, monitorAtSelection))
+                {
+                    session.StatusMessage = "Scheduled change skipped: this display changed during rotation.";
+                    UpdateSessionUi(session);
+                    return;
+                }
+
+                var monitor = session.Monitor;
                 WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, selected.LocalPath);
 
                 // Keep a one-deep history of applied paths for the Previous command.
@@ -1050,7 +1179,14 @@ public sealed class AutomationViewModel : ViewModelBase
         }
     }
 
-    internal async Task StopSessionAsync(DisplayScheduleViewModel session)
+    /// <summary>
+    /// Cancels a display's loops. With <paramref name="keepSavedSchedule"/> the saved
+    /// schedule is left untouched: used when a display disappears, so a later
+    /// fingerprint match can revive the schedule instead of seeing ShouldRun=false.
+    /// </summary>
+    internal async Task StopSessionAsync(
+        DisplayScheduleViewModel session,
+        bool keepSavedSchedule = false)
     {
         var loopCancellation = session.LoopCancellation;
         var loopTask = session.LoopTask;
@@ -1106,7 +1242,8 @@ public sealed class AutomationViewModel : ViewModelBase
             session.StatusMessage = "Schedule stopped.";
             UpdateSessionUi(session);
         }
-        await PersistSessionAsync(session, shouldRun: false);
+        if (!keepSavedSchedule)
+            await PersistSessionAsync(session, shouldRun: false);
     }
 
     private static bool IsRunning(DisplayScheduleViewModel session) =>
@@ -1134,17 +1271,30 @@ public sealed class AutomationViewModel : ViewModelBase
 
         if (!running || session.NextRunUtc is null)
         {
-            session.Countdown = session.IsStarting
-                ? "Preparing…"
-                : session.ManualRotationRunning || session.PreviousRotationRunning
-                    ? "Applying…" : "Not running";
+            if (session.IsStarting)
+            {
+                session.Countdown = "Preparing…";
+                session.RotationState = RotationState.Preparing;
+            }
+            else if (session.ManualRotationRunning || session.PreviousRotationRunning)
+            {
+                session.Countdown = "Applying…";
+                session.RotationState = RotationState.Applying;
+            }
+            else
+            {
+                session.Countdown = "Not running";
+                session.RotationState = RotationState.Idle;
+            }
         }
         else if (session.UserPaused || session.FullscreenPaused)
         {
             session.Countdown = "Paused";
+            session.RotationState = RotationState.Paused;
         }
         else
         {
+            session.RotationState = RotationState.Running;
             var remaining = session.NextRunUtc.Value - DateTimeOffset.UtcNow;
             if (remaining < TimeSpan.Zero)
                 remaining = TimeSpan.Zero;
@@ -1214,6 +1364,92 @@ public sealed class AutomationViewModel : ViewModelBase
             // The tray is optional; a tooltip failure must never affect rotation.
         }
     }
+
+    /// <summary>
+    /// Tiny local preference store for the global full-screen pause master. Per-display
+    /// flags live in the schedule file; the master is app-wide, so it gets its own
+    /// record instead of being smuggled into a monitor's schedule.
+    /// </summary>
+    private static class AutomationPreferencesStore
+    {
+        private static readonly string PreferencesPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Ori", "automation-preferences.json");
+        private static readonly object Gate = new();
+
+        public static bool LoadPauseWhenFullscreen()
+        {
+            lock (Gate)
+            {
+                try
+                {
+                    if (!File.Exists(PreferencesPath))
+                        return true;
+
+                    using var document = JsonDocument.Parse(File.ReadAllText(PreferencesPath));
+                    var root = document.RootElement;
+                    if (root.ValueKind != JsonValueKind.Object
+                        || !root.TryGetProperty("pauseWhenFullscreen", out var flag))
+                    {
+                        return true;
+                    }
+
+                    return flag.ValueKind switch
+                    {
+                        JsonValueKind.True => true,
+                        JsonValueKind.False => false,
+                        _ => true
+                    };
+                }
+                catch
+                {
+                    // Missing or damaged preference: keep the safe default (on).
+                    return true;
+                }
+            }
+        }
+
+        public static void SavePauseWhenFullscreen(bool enabled)
+        {
+            lock (Gate)
+            {
+                try
+                {
+                    var directory = Path.GetDirectoryName(PreferencesPath);
+                    if (!string.IsNullOrEmpty(directory))
+                        Directory.CreateDirectory(directory);
+
+                    var temporary = PreferencesPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    try
+                    {
+                        File.WriteAllText(
+                            temporary,
+                            "{\"version\":1,\"pauseWhenFullscreen\":" + (enabled ? "true" : "false") + "}");
+                        File.Move(temporary, PreferencesPath, overwrite: true);
+                    }
+                    finally
+                    {
+                        if (File.Exists(temporary))
+                            File.Delete(temporary);
+                    }
+                }
+                catch
+                {
+                    // Best-effort persistence; the in-memory toggle still applies.
+                }
+            }
+        }
+    }
+}
+
+/// <summary>Explicit live state of one display's rotation, independent of localized text.</summary>
+public enum RotationState
+{
+    Idle,
+    Preparing,
+    Running,
+    Paused,
+    Applying
 }
 
 /// <summary>Per-display row rendered by the AutomationView DataTemplate.</summary>
@@ -1221,6 +1457,7 @@ public sealed class DisplayScheduleViewModel : ViewModelBase
 {
     private readonly AutomationViewModel _owner;
 
+    private RotationState _rotationState = RotationState.Idle;
     private string _heading = string.Empty;
     private string _subheading = string.Empty;
     private string _selectedInterval = "30 minutes";
@@ -1254,6 +1491,16 @@ public sealed class DisplayScheduleViewModel : ViewModelBase
     public ICommand PreviousCommand { get; }
     public ICommand RotateNowCommand { get; }
     public ICommand StopCommand { get; }
+
+    /// <summary>
+    /// Single source of truth for the state pill. The countdown remains a human-readable
+    /// timer; views must not parse it to decide which state to show.
+    /// </summary>
+    public RotationState RotationState
+    {
+        get => _rotationState;
+        internal set => SetProperty(ref _rotationState, value, nameof(RotationState));
+    }
 
     public string Heading
     {

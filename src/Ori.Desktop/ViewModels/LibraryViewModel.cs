@@ -234,7 +234,11 @@ public sealed class LibraryViewModel : ViewModelBase
     public DisplayMonitor? SelectedDisplay
     {
         get => _selectedDisplay;
-        set => SetProperty(ref _selectedDisplay, value);
+        set
+        {
+            if (SetProperty(ref _selectedDisplay, value))
+                MonitorSelectionService.Instance.Select(value?.Id);
+        }
     }
 
     private string _searchText = string.Empty;
@@ -382,8 +386,14 @@ public sealed class LibraryViewModel : ViewModelBase
             var detection = DisplayDetection.Read();
             foreach (var monitor in detection.Monitors)
                 Displays.Add(monitor);
-            SelectedDisplay = detection.Monitors.FirstOrDefault(monitor => monitor.IsPrimary)
+
+            var primary = detection.Monitors.FirstOrDefault(monitor => monitor.IsPrimary)
                 ?? detection.Monitors.FirstOrDefault();
+            MonitorSelectionService.Instance.Load(Displays.Select(monitor => monitor.Id));
+            var targetId = MonitorSelectionService.Instance.Resolve(primary?.Id);
+            SelectedDisplay = Displays.FirstOrDefault(monitor =>
+                    string.Equals(monitor.Id, targetId, StringComparison.OrdinalIgnoreCase))
+                ?? primary;
             if (!detection.Succeeded)
                 Status = $"Display detection unavailable: {detection.Error}";
         }
