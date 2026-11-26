@@ -1,4 +1,4 @@
-# Oriole
+# Ori
 
 A clean-room, free and open-source wallpaper manager for Windows 11. Multi-monitor
 is a first-class case. Development happens in reviewable branches and is proposed
@@ -37,15 +37,15 @@ current, per-wave status.
 
 ## Install / run
 
-Oriole is shipped as a **self-contained, single-file win-x64** build: the .NET
+Ori is shipped as a **self-contained, single-file win-x64** build: the .NET
 runtime is bundled, so there is **no .NET Desktop Runtime to install**.
 
-- **Portable:** download `oriole-<version>-win-x64.zip` from
-  [Releases](https://github.com/DetectiveLon/oriole-wallpaper-manager/releases/latest),
-  extract it and run `Oriole.exe`.
+- **Portable:** download `ori-<version>-win-x64.zip` from
+  [Releases](https://github.com/DetectiveLon/ori-wallpaper-manager/releases/latest),
+  extract it and run `Ori.exe`.
 - **Per-user installer (optional):** build the free Inno Setup installer from
   `tools/installer/` (see `tools/installer/README.md`). It installs to
-  `%LOCALAPPDATA%\Oriole`, adds Start menu and uninstall entries, and reuses the
+  `%LOCALAPPDATA%\Ori`, adds Start menu and uninstall entries, and reuses the
   app's own launch-at-sign-in setting. Inno Setup is optional and not required
   for the portable release.
 
@@ -78,7 +78,7 @@ auto-update wiring step.
   Windows user** (`CurrentUser`) — it is encrypted and cannot be read by another
   user or machine. Discover no longer auto-saves it; save it explicitly under
   Settings.
-- Application errors are written to `%LOCALAPPDATA%\Oriole\logs\errors.log`.
+- Application errors are written to `%LOCALAPPDATA%\Ori\logs\errors.log`.
   That log **rotates** (bounded size/history) and is **redacted** so API keys and
   other sensitive values are not written to disk in plaintext.
 - Wallhaven images remain the property of their original owners.

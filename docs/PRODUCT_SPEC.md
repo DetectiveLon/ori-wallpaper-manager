@@ -60,6 +60,6 @@ Wallhaven provider requirements:
 ## Packaging and updates
 
 - The shipped build is self-contained and single-file for `win-x64`: no .NET runtime is required on the target PC.
-- A free, optional per-user installer installs to `%LOCALAPPDATA%\Oriole` and reuses the app's launch-at-sign-in setting.
-- Updates are checked by a **separate** process (`Oriole.Updater`) against a GitHub Releases JSON manifest; the new EXE's SHA-256 is verified before the app is closed, the file swapped and the app relaunched. The in-app check is documented as an integration step, not yet wired (see `docs/RELEASING.md`).
+- A free, optional per-user installer installs to `%LOCALAPPDATA%\Ori` and reuses the app's launch-at-sign-in setting.
+- Updates are checked by a **separate** process (`Ori.Updater`) against a GitHub Releases JSON manifest; the new EXE's SHA-256 is verified before the app is closed, the file swapped and the app relaunched. The in-app check is documented as an integration step, not yet wired (see `docs/RELEASING.md`).
 - Binaries are not code-signed; SmartScreen reputation is deferred, not ignored.

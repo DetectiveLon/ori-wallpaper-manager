@@ -1,6 +1,6 @@
 # Provenance and clean-room record
 
-Oriole is a new implementation authored for the `DetectiveLon` project.
+Ori is a new implementation authored for the `DetectiveLon` project.
 
 - No Muralis source file, code fragment, resource, icon, screenshot, XAML, project file, or test was copied into this repository.
 - The earlier Muralis review informed the feature requirements and identified failure classes to avoid (timer correctness, fullscreen races, credential handling, response-size limits, and unclear source configuration). Those observations are design input, not reused implementation.

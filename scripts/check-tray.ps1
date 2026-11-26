@@ -1,4 +1,4 @@
-# Oriole tray click regression guard.
+# Ori tray click regression guard.
 #
 # WinForms NotifyIcon raises Click/DoubleClick for RIGHT and MIDDLE clicks too:
 # WndProc forwards every WM_*BUTTONUP to WmMouseUp(button), which raises Click
@@ -9,7 +9,7 @@ param([switch]$Strict)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$file = Join-Path $root 'src\Oriole.Desktop\Services\TrayIconService.cs'
+$file = Join-Path $root 'src\Ori.Desktop\Services\TrayIconService.cs'
 if (-not (Test-Path $file)) { throw "Missing $file" }
 
 $text = Get-Content -Raw -LiteralPath $file
@@ -39,7 +39,7 @@ if ($text -notmatch 'ShowBalloonTip') {
     $findings += 'tray Notify(...) does not raise a balloon tip'
 }
 
-Write-Host 'Oriole tray click guard'
+Write-Host 'Ori tray click guard'
 if ($findings.Count -gt 0) {
     $findings | ForEach-Object { Write-Host "  FAIL: $_" }
     Write-Host 'FAIL: tray restore is not gated to left clicks.'

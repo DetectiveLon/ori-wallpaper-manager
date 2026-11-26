@@ -2,11 +2,11 @@
 
 ## Layers
 
-- `Oriole.Core`: provider contracts and implementations, filter models, scheduling rules, persistent settings models (including the rotation feed store), cache rules, library import/dedupe, and image metadata. No WPF references and no Windows COM types.
-- `Oriole.Desktop`: WPF user interface, Windows monitor discovery, wallpaper application, tray integration and notifications, startup registration, DPAPI (`CurrentUser`), and Windows session/fullscreen detection.
-- `Oriole.Core.Tests`: fast deterministic tests for all platform-independent behaviour.
-- `tools/Oriole.Updater`: a separate console process (in `Oriole.sln`) that checks a GitHub Releases JSON manifest, verifies SHA-256, and swaps the EXE after the app exits. It is not referenced by the app at runtime — the two communicate only through the manifest and process launch.
-- `tools/installer`: an optional Inno Setup `.iss` (per-user, `%LOCALAPPDATA%\Oriole`). Not built by CI by default.
+- `Ori.Core`: provider contracts and implementations, filter models, scheduling rules, persistent settings models (including the rotation feed store), cache rules, library import/dedupe, and image metadata. No WPF references and no Windows COM types.
+- `Ori.Desktop`: WPF user interface, Windows monitor discovery, wallpaper application, tray integration and notifications, startup registration, DPAPI (`CurrentUser`), and Windows session/fullscreen detection.
+- `Ori.Core.Tests`: fast deterministic tests for all platform-independent behaviour.
+- `tools/Ori.Updater`: a separate console process (in `Ori.sln`) that checks a GitHub Releases JSON manifest, verifies SHA-256, and swaps the EXE after the app exits. It is not referenced by the app at runtime — the two communicate only through the manifest and process launch.
+- `tools/installer`: an optional Inno Setup `.iss` (per-user, `%LOCALAPPDATA%\Ori`). Not built by CI by default.
 
 ## Provider boundary
 
@@ -28,7 +28,7 @@ Settings and collection metadata will be stored as versioned JSON with write-to-
 
 ## Persistence (current)
 
-- Settings, schedules, library metadata and rotation feeds are versioned JSON under `%LOCALAPPDATA%\Oriole`, written to temp then atomically replaced.
+- Settings, schedules, library metadata and rotation feeds are versioned JSON under `%LOCALAPPDATA%\Ori`, written to temp then atomically replaced.
 - Credentials are stored separately through DPAPI with `DataProtectionScope.CurrentUser`.
 - `errors.log` rotates (bounded size/history) and redacts sensitive values; the path is surfaced in Settings.
 

@@ -1,18 +1,18 @@
-# Oriole per-user installer (optional, free)
+# Ori per-user installer (optional, free)
 
-`Oriole.iss` is an [Inno Setup 6](https://jrsoftware.org/isinfo.php) script that
+`Ori.iss` is an [Inno Setup 6](https://jrsoftware.org/isinfo.php) script that
 produces a small, per-user installer. Inno Setup is free/open source and is
 **optional** — the normal release is still the self-contained portable zip from
 `scripts/publish.ps1`. Nothing here assumes Inno Setup is installed.
 
 ## What it does
 
-- Installs the self-contained, single-file `Oriole.exe` into
-  `%LOCALAPPDATA%\Oriole` (no administrator rights needed).
+- Installs the self-contained, single-file `Ori.exe` into
+  `%LOCALAPPDATA%\Ori` (no administrator rights needed).
 - Adds a Start menu folder and an Add/Remove Programs (uninstall) entry.
 - Adds an optional desktop shortcut.
 - **Reuses the app's own launch-at-sign-in setting**: the installer deliberately
-  does not write `HKCU\...\Run`. That entry is created and managed by Oriole
+  does not write `HKCU\...\Run`. That entry is created and managed by Ori
   itself under Settings → Startup, so the two can never disagree.
 - Preserves user data (`library`, `logs`, `schedules`, `feed` subfolders) on
   uninstall; only the files the installer created are removed.
@@ -25,7 +25,7 @@ produces a small, per-user installer. Inno Setup is free/open source and is
    pwsh ./scripts/publish.ps1 -Tag v1.0.0
    ```
 
-   This writes `artifacts/Oriole.exe`, `artifacts/update-manifest.json` and the
+   This writes `artifacts/Ori.exe`, `artifacts/update-manifest.json` and the
    versioned zip/EXE.
 
 2. Install Inno Setup 6 from <https://jrsoftware.org/isinfo.php> if you want an
@@ -40,10 +40,10 @@ produces a small, per-user installer. Inno Setup is free/open source and is
    ```
 
    The version is read from `artifacts/update-manifest.json` (or pass
-   `-Version 1.0.0`). The result is `artifacts/oriole-<version>-setup.exe`.
+   `-Version 1.0.0`). The result is `artifacts/ori-<version>-setup.exe`.
 
 You can also compile directly with `iscc /DAppVersion=1.0.0
-/DSourceExe=<abs path to Oriole.exe> Oriole.iss`.
+/DSourceExe=<abs path to Ori.exe> Ori.iss`.
 
 ## Signing / SmartScreen
 

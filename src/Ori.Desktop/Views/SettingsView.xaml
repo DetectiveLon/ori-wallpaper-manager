@@ -1,0 +1,212 @@
+<UserControl x:Class="Ori.Desktop.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="760" d:DesignWidth="960">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <SolidColorBrush x:Key="RunningBrush" Color="#7FD1AE" />
+        <SolidColorBrush x:Key="IdleBrush" Color="#8FA0B5" />
+
+        <Style x:Key="Eyebrow" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        </Style>
+        <Style x:Key="CardIcon" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="MutedCaption" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="DetailRow" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,7,0,0" />
+        </Style>
+        <Style x:Key="StatusCaption" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,10,0,0" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="0,0,0,8">
+
+            <!-- Page header -->
+            <Border Background="{StaticResource PanelBrush}" CornerRadius="18" Padding="24"
+                    Margin="0,0,0,18" BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="05  ·  SETTINGS" Style="{StaticResource Eyebrow}" />
+                    <TextBlock Text="A few things worth tuning." FontSize="21" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" Margin="0,9,0,8" />
+                    <TextBlock Style="{StaticResource MutedCaption}" MaxWidth="720"
+                               Text="Keys, cache and startup live on this machine only. Nothing here is uploaded." />
+                </StackPanel>
+            </Border>
+
+            <!-- Wallhaven API key -->
+            <Border Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="22" Margin="0,0,0,14"
+                    BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="&#xE71B;" Style="{StaticResource CardIcon}" Margin="0,0,10,0" />
+                        <TextBlock Text="WALLHAVEN API KEY" Style="{StaticResource Eyebrow}"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource MutedCaption}" MaxWidth="720"
+                               Text="Optional. Stored encrypted for this Windows user and used only for Wallhaven requests that need it (for example NSFW results). Search works without a key for SFW content." />
+                    <PasswordBox x:Name="ApiKeyBox" PasswordChar="•" Height="36" MaxWidth="520"
+                                 HorizontalAlignment="Left" Padding="10,6,10,6" Margin="0,14,0,0"
+                                 Background="{StaticResource PanelAltBrush}"
+                                 Foreground="{StaticResource TextBrush}"
+                                 BorderBrush="{StaticResource MutedBrush}" />
+                    <DockPanel Margin="0,12,0,0">
+                        <Button DockPanel.Dock="Right" Content="Remove key"
+                                Command="{Binding RemoveApiKeyCommand}" Padding="14,8,14,8" Margin="8,0,0,0" />
+                        <Button Content="Save API key" Style="{StaticResource PrimaryButtonStyle}"
+                                Command="{Binding SaveApiKeyCommand}" Padding="18,8,18,8"
+                                HorizontalAlignment="Left" />
+                    </DockPanel>
+                    <TextBlock Text="{Binding KeyStatus}" Style="{StaticResource StatusCaption}" />
+                </StackPanel>
+            </Border>
+
+            <!-- Local cache -->
+            <Border Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="22" Margin="0,0,0,14"
+                    BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="&#xE74D;" Style="{StaticResource CardIcon}" Margin="0,0,10,0" />
+                        <TextBlock Text="LOCAL CACHE" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource MutedCaption}" MaxWidth="720"
+                               Text="Thumbnails and full-size downloads are cached to avoid repeat downloads. Clearing the cache never removes wallpapers you saved to your library." />
+                    <Button Content="Clear cached images" Command="{Binding ClearCacheCommand}"
+                            Padding="14,8,14,8" HorizontalAlignment="Left" Margin="0,14,0,0" />
+                    <TextBlock Text="{Binding CacheStatus}" Style="{StaticResource StatusCaption}" />
+                    <Button Content="Clear orphan wallpaper files" Command="{Binding ClearOrphansCommand}"
+                            Padding="14,8,14,8" HorizontalAlignment="Left" Margin="0,10,0,0" />
+                    <Border Background="{StaticResource PanelAltBrush}" CornerRadius="8" Padding="12"
+                            BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1"
+                            Margin="0,10,0,0"
+                            Visibility="{Binding IsClearOrphansConfirmationOpen,
+                                Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding ClearOrphansConfirmationText}"
+                                       Style="{StaticResource MutedCaption}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <Button Content="Confirm clear" Command="{Binding ConfirmClearOrphansCommand}"
+                                        Style="{StaticResource PrimaryButtonStyle}" Padding="14,8,14,8" />
+                                <Button Content="Cancel" Command="{Binding CancelClearOrphansCommand}"
+                                        Padding="14,8,14,8" Margin="8,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- Launch at login: status pill, never a checkbox -->
+            <Border Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="22" Margin="0,0,0,14"
+                    BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="&#xE713;" Style="{StaticResource CardIcon}" Margin="0,0,10,0" />
+                        <TextBlock Text="LAUNCH AT LOGIN" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource MutedCaption}" MaxWidth="720"
+                               Text="Register Ori for the current Windows user so it starts quietly when you sign in. No administrator rights needed." />
+                    <DockPanel Margin="0,14,0,0">
+                        <Button DockPanel.Dock="Right" Content="{Binding StartupToggleLabel}"
+                                Command="{Binding ToggleStartupCommand}" Padding="14,8,14,8" Margin="8,0,0,0" />
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Start Ori when I sign in:" FontSize="12"
+                                       Foreground="{StaticResource TextBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <Border CornerRadius="10" Padding="10,5" VerticalAlignment="Center"
+                                    Background="{StaticResource ControlInputBrush}"
+                                    BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center">
+                                        <Ellipse.Style>
+                                            <Style TargetType="Ellipse">
+                                                <Setter Property="Fill" Value="{StaticResource IdleBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding StartupEnabled}" Value="True">
+                                                        <Setter Property="Fill" Value="{StaticResource RunningBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Ellipse.Style>
+                                    </Ellipse>
+                                    <TextBlock FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="Off" />
+                                                <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding StartupEnabled}" Value="True">
+                                                        <Setter Property="Text" Value="On" />
+                                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </DockPanel>
+                    <TextBlock Text="{Binding StartupStatus}" Style="{StaticResource StatusCaption}" />
+                </StackPanel>
+            </Border>
+
+            <!-- Data & about -->
+            <Border Background="{StaticResource PanelBrush}" CornerRadius="16" Padding="22" Margin="0,0,0,14"
+                    BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="&#xE8B7;" Style="{StaticResource CardIcon}" Margin="0,0,10,0" />
+                        <TextBlock Text="DATA &amp; ABOUT" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource MutedCaption}" MaxWidth="720"
+                               Text="Ori keeps its data under your Windows user profile. Nothing is uploaded." />
+                    <TextBlock Text="{Binding LibraryPathText}" Style="{StaticResource DetailRow}" />
+                    <TextBlock Text="{Binding SchedulesPathText}" Style="{StaticResource DetailRow}" />
+                    <TextBlock Text="{Binding LogPathText}" Style="{StaticResource DetailRow}" />
+                    <TextBlock Text="{Binding VersionInfo}" Style="{StaticResource DetailRow}" />
+                    <TextBlock Margin="0,14,0,0" FontSize="12">
+                        <Run Text="&#xE71B;   " FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                             Foreground="{StaticResource AccentBrush}" />
+                        <Hyperlink NavigateUri="{Binding GitHubUrl}" RequestNavigate="OnRequestNavigate">
+                            <Run Text="View the source on GitHub" />
+                        </Hyperlink>
+                    </TextBlock>
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <Button Content="Open data folder" Command="{Binding OpenDataFolderCommand}"
+                                Padding="14,8,14,8" />
+                        <Button Content="View error log" Command="{Binding ViewErrorLogCommand}"
+                                Padding="14,8,14,8" Margin="8,0,0,0" />
+                        <Button Content="Copy diagnostics" Command="{Binding CopyDiagnosticsCommand}"
+                                Padding="14,8,14,8" Margin="8,0,0,0" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="14,12"
+                    BorderBrush="{StaticResource ControlBorderBrush}" BorderThickness="1">
+                <TextBlock Text="{Binding Status}" Style="{StaticResource StatusCaption}" Margin="0,0,0,0" />
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

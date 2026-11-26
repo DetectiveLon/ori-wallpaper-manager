@@ -1,13 +1,13 @@
-# Releasing Oriole
+# Releasing Ori
 
-This describes the free, open-source release process. Oriole ships as a
+This describes the free, open-source release process. Ori ships as a
 **self-contained, single-file win-x64** build, so there is no .NET runtime
 prerequisite. An optional per-user Inno Setup installer and an auto-update
 helper are also produced. Code signing is deferred (see the last section).
 
 ## Single version source
 
-There is exactly one version source: `src/Oriole.Desktop/Oriole.Desktop.csproj`
+There is exactly one version source: `src/Ori.Desktop/Ori.Desktop.csproj`
 (`<Version>`, currently `1.0.0`), overridden at release time by the tag. The
 tag `v1.0.0` becomes version `1.0.0`, which the SDK stamps into
 `AssemblyVersion`, `FileVersion` and **`AssemblyInformationalVersion`**. The
@@ -22,11 +22,11 @@ source and let the tag override it.
 
 For tag `v1.0.0`, `artifacts/` contains:
 
-- `oriole-1.0.0-win-x64.zip` — portable zip (self-contained `Oriole.exe`,
+- `ori-1.0.0-win-x64.zip` — portable zip (self-contained `Ori.exe`,
   `README.md`, `RELEASE-NOTES.txt`).
-- `oriole-1.0.0-win-x64.exe` — standalone EXE used by auto-update.
-- `update-manifest.json` — JSON manifest consumed by `Oriole.Updater`.
-- `Oriole.exe` — the raw single-file EXE used by the optional Inno Setup build.
+- `ori-1.0.0-win-x64.exe` — standalone EXE used by auto-update.
+- `update-manifest.json` — JSON manifest consumed by `Ori.Updater`.
+- `Ori.exe` — the raw single-file EXE used by the optional Inno Setup build.
 
 All are attached to the GitHub Release and uploaded as a workflow artifact;
 their SHA-256 hashes are printed by the script and written into the manifest and
@@ -68,7 +68,7 @@ pwsh ./scripts/publish.ps1 -Tag v1.0.0
 pwsh ./scripts/publish.ps1 -Version 1.0.0
 ```
 
-With no argument the version is read from `Oriole.Desktop.csproj`. The script
+With no argument the version is read from `Ori.Desktop.csproj`. The script
 runs the Core tests, publishes self-contained/single-file/win-x64, writes the
 notes and manifest, and prints absolute paths and SHA-256 hashes. Output goes
 into `artifacts/` (gitignored).
@@ -76,8 +76,8 @@ into `artifacts/` (gitignored).
 ## Optional per-user installer
 
 Inno Setup is free and optional. See `tools/installer/README.md` and
-`tools/installer/build-installer.ps1`. It produces `oriole-<version>-setup.exe`
-that installs to `%LOCALAPPDATA%\Oriole`, adds Start menu/uninstall entries and
+`tools/installer/build-installer.ps1`. It produces `ori-<version>-setup.exe`
+that installs to `%LOCALAPPDATA%\Ori`, adds Start menu/uninstall entries and
 reuses the app's own launch-at-sign-in setting. It is not built by CI by
 default.
 
@@ -85,11 +85,11 @@ default.
 
 Built and shipped:
 
-- `tools/Oriole.Updater` — a separate console process that fetches
+- `tools/Ori.Updater` — a separate console process that fetches
   `update-manifest.json`, compares `version` against the running app's
   `AssemblyInformationalVersion`, verifies SHA-256, and (on `apply`) waits for
   the app to exit, backs up the old EXE, swaps in the new one and relaunches.
-  It is added to `Oriole.sln` and built by CI.
+  It is added to `Ori.sln` and built by CI.
 - The release pipeline publishes the manifest and standalone EXE as assets.
 
 **Not wired (documented integration step):** the automatic version check is not
@@ -99,15 +99,15 @@ integration, once that file is available for edit, is to call the updater in
 window, for example:
 
 ```csharp
-// In Oriole.Desktop/App.xaml.cs, inside OnStartup after Tray.Show(...):
-_ = Oriole.Desktop.Services.UpdateChecker.CheckOnStartupAsync();
+// In Ori.Desktop/App.xaml.cs, inside OnStartup after Tray.Show(...):
+_ = Ori.Desktop.Services.UpdateChecker.CheckOnStartupAsync();
 ```
 
 Where `UpdateChecker.CheckOnStartupAsync()` is a thin wrapper that launches the
-bundled `Oriole.Updater.exe check` with `--exe <path to running Oriole.exe>`,
+bundled `Ori.Updater.exe check` with `--exe <path to running Ori.exe>`,
 parses the JSON `CheckResult` from stdout, and — if `updateAvailable` is true —
 offers the user a "Update now" action that launches
-`Oriole.Updater.exe apply --exe <path> --pid <current pid> --relaunch`, then
+`Ori.Updater.exe apply --exe <path> --pid <current pid> --relaunch`, then
 shuts the app down so the updater can swap the file.
 
 Until that one-line call (and its wrapper) is added, users update manually by

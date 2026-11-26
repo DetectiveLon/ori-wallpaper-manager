@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Static dead-control audit for the Oriole WPF shell.
+    Static dead-control audit for the Ori WPF shell.
 
 .DESCRIPTION
-    Scans every *.xaml under src/Oriole.Desktop and flags:
+    Scans every *.xaml under src/Ori.Desktop and flags:
       * Button / ComboBox / CheckBox / ListBox elements that have neither a
         Command attribute nor a Click / SelectionChanged / Checked handler, and
       * any element with a literal IsEnabled="False" (a control the user cannot
@@ -38,7 +38,7 @@ if (-not $Root) {
     $Root = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { (Get-Location).Path }
 }
 
-$xamlRoot       = Join-Path (Join-Path $Root 'src') 'Oriole.Desktop'
+$xamlRoot       = Join-Path (Join-Path $Root 'src') 'Ori.Desktop'
 $targetElements = @('Button', 'ComboBox', 'CheckBox', 'ListBox')
 $handlerAttrs   = @('Click', 'SelectionChanged', 'Checked')
 $presentationNs = 'http://schemas.microsoft.com/winfx/2006/xaml/presentation'
@@ -112,7 +112,7 @@ foreach ($file in $files) {
     }
 }
 
-Write-Host 'Oriole dead-control check'
+Write-Host 'Ori dead-control check'
 Write-Host ('Scanned {0} XAML file(s) under {1}' -f $filesScanned, $xamlRoot)
 
 if ($findings.Count -eq 0) {

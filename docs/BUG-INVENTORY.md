@@ -1,4 +1,4 @@
-# Oriole UI interaction inventory / bug inventory
+# Ori UI interaction inventory / bug inventory
 
 Scope: `v2-shell` branch, Wave 5 hardening pass. Inventory owner per
 `docs/V2-ARCHITECTURE.md` (Wave 5, "Inventory + static check"). This document is
@@ -96,10 +96,10 @@ also guards the packaging/SDK/version invariants added in `v2-shell`.
 | Settings | Launch-at-login toggle button | Toggle HKCU Run entry | `Command="{Binding ToggleStartupCommand}"` | works | `StartupService` never throws; status reported inline. |
 | Settings | GitHub hyperlink | Open source URL | `RequestNavigate="OnRequestNavigate"` (code-behind) | works | — |
 | Settings | "Open data folder" button | Open local data directory | `Command="{Binding OpenDataFolderCommand}"` | works | — |
-| Settings | About / version area | Installer and auto-update controls | **No control exists** | broken | The app still has no in-app update button. `tools/Oriole.Updater` and the optional installer exist, but the version-check call is documented only (`docs/RELEASING.md`); `App.xaml.cs` is owned by another agent. |
+| Settings | About / version area | Installer and auto-update controls | **No control exists** | broken | The app still has no in-app update button. `tools/Ori.Updater` and the optional installer exist, but the version-check call is documented only (`docs/RELEASING.md`); `App.xaml.cs` is owned by another agent. |
 | Tray (App + TrayIconService) | Tray icon single-click / double-click | Show and restore the window | `NotifyIcon.MouseClick` / `MouseDoubleClick` gated on `MouseButtons.Left` | works | Plain `Click`/`DoubleClick` are intentionally NOT used: WinForms raises them for right/middle clicks too, which would make the window impossible to keep hidden. `App.OpenFromTray` is idempotent. |
 | Tray (App + TrayIconService) | Rotation / failure notifications | Show a tray balloon tip | `Notify(string, string, bool)` → `NotifyIcon.ShowBalloonTip` | works | Exposed by `TrayIconService` for `v2-shell` tray notifications. |
-| Tray (App + TrayIconService) | "Open Oriole" menu item | Restore window | `openItem.Click` → `App.OpenFromTray` | works | Sets `ShowInTaskbar=true`, restores state, `Show()` + `Activate()`. |
+| Tray (App + TrayIconService) | "Open Ori" menu item | Restore window | `openItem.Click` → `App.OpenFromTray` | works | Sets `ShowInTaskbar=true`, restores state, `Show()` + `Activate()`. |
 | Tray (App + TrayIconService) | "Exit" menu item | Shut down | `exitItem.Click` → `App.ExitFromTray` → `App.ExplicitExit=true`, stop rotation, `Current.Shutdown()` | works | This is now the only explicit quit path. |
 
 ## User-reported issues (explicit cross-check)
@@ -122,7 +122,7 @@ for "working".
 | Item | Priority | Current state in code | Status |
 |---|---|---|---|
 | Automatic Wallhaven rotation (fetch/rotate/cache without manual search, pick or download) | P1 | Implemented in `v2-shell`: persisted tag feeds (`WallhavenFeedStore`) drive fetch/rotate/cache | done in v2-shell |
-| Installer and auto-update | P1 | Self-contained single-file release + `tools/installer/` (Inno Setup) + `tools/Oriole.Updater`; the in-app check is documented but not wired (`App.xaml.cs` owned by another agent) | partly done (wiring pending) |
+| Installer and auto-update | P1 | Self-contained single-file release + `tools/installer/` (Inno Setup) + `tools/Ori.Updater`; the in-app check is documented but not wired (`App.xaml.cs` owned by another agent) | partly done (wiring pending) |
 | Smarter tag discovery (suggestions, presets, learned preferences) | P2 | Implemented in `v2-shell`: tag presets + editable ComboBox; learned preference model not implemented | partly done |
 | Clearer status and notifications; real image import and organization | P2 | Implemented in `v2-shell`: tray `Notify` balloon tips, folder import + SHA-256 dedupe + collections; rename not implemented | done in v2-shell (rename pending) |
 

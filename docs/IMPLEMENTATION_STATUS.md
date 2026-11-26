@@ -38,8 +38,8 @@ This is a progress record, not a release-readiness claim.
   `check-tray.ps1`, `check-invariants.ps1`.
 - **Packaging (this pass):** self-contained single-file win-x64 release via
   `scripts/publish.ps1`; optional per-user Inno Setup installer under
-  `tools/installer/`; separate `tools/Oriole.Updater` process; exact SDK pin in
-  `global.json`; tag-driven single version source in `Oriole.Desktop.csproj` +
+  `tools/installer/`; separate `tools/Ori.Updater` process; exact SDK pin in
+  `global.json`; tag-driven single version source in `Ori.Desktop.csproj` +
   `app.manifest`; pre-publish verification in `release.yml`.
 
 ## Not implemented / outstanding
@@ -48,7 +48,7 @@ This is a progress record, not a release-readiness claim.
   full-screen windows.
 - Independent per-monitor wallpaper fit modes.
 - Library virtualization (all matching cards on one page are rendered).
-- **Auto-update wiring:** `Oriole.Updater` is built and the manifest is
+- **Auto-update wiring:** `Ori.Updater` is built and the manifest is
   published, but the version-check call in `App.xaml.cs` (another agent's file)
   is not added. See `docs/RELEASING.md` for the exact one-line integration.
 - Rename of library entries; a learned tag-preference model.
@@ -57,7 +57,7 @@ This is a progress record, not a release-readiness claim.
 
 ## Error reporting / privacy notes
 
-- `%LOCALAPPDATA%\Oriole\logs\errors.log` records unhandled errors. It rotates
+- `%LOCALAPPDATA%\Ori\logs\errors.log` records unhandled errors. It rotates
   (bounded size/history) and is redacted so keys and sensitive values are not
   written in plaintext; the path is shown under Settings → DATA & ABOUT.
 - The Wallhaven API key is stored on disk encrypted with DPAPI `CurrentUser`.

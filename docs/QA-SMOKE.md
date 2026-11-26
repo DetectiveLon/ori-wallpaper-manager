@@ -1,6 +1,6 @@
 # Manual QA smoke checklist (v2 shell)
 
-Run this after the integrator produces a build: launch Oriole from the build output and click through the six areas below in order. This is a visual smoke test, not an automated test — do not run `build.ps1`, `dotnet build`, `dotnet test`, or launch from source.
+Run this after the integrator produces a build: launch Ori from the build output and click through the six areas below in order. This is a visual smoke test, not an automated test — do not run `build.ps1`, `dotnet build`, `dotnet test`, or launch from source.
 
 **Global checks — repeat on every screen:**
 
@@ -8,7 +8,7 @@ Run this after the integrator produces a build: launch Oriole from the build out
 - [ ] **No white boxes.** Buttons, ComboBoxes, TextBoxes, PasswordBoxes, CheckBoxes, ListBox cards, ScrollBars, tooltips and dropdown popups stay dark in normal, hover, focus, selected **and disabled** states. Disabled controls are dimmed, never repainted white. A white rectangle on a control is a regression — stop and note the screen.
 - [ ] Text is legible: primary/muted/accent brushes, no white-on-white or dark-on-dark text.
 - [ ] Failures appear as inline status text with a refresh/retry action, never as a blocking modal dialog.
-- [ ] **Error log:** `%LOCALAPPDATA%\Oriole\logs\errors.log`. The same path is printed under **Settings → DATA & ABOUT → Error log**. The log rotates (bounded size/history) and is redacted so API keys and other sensitive values are not written in plaintext. If anything looks wrong, note the last timestamped entry there.
+- [ ] **Error log:** `%LOCALAPPDATA%\Ori\logs\errors.log`. The same path is printed under **Settings → DATA & ABOUT → Error log**. The log rotates (bounded size/history) and is redacted so API keys and other sensitive values are not written in plaintext. If anything looks wrong, note the last timestamped entry there.
 - [ ] Optional static guard (not CI-wired): `pwsh -NoProfile -File scripts/check-theme.ps1` — exit 0 = clean, exit 1 = findings to review. It flags literal white/SystemColors brushes and disabled controls with no explicit Style.
 
 ## Landing / navigation (Discover is the landing page)
@@ -63,8 +63,8 @@ Run this after the integrator produces a build: launch Oriole from the build out
 
 - [ ] Wallhaven API-key **PasswordBox** is dark with masked, legible characters; Save API key / Remove key buttons are dark; key status message is readable.
 - [ ] "Clear cached images" button and cache status are dark; clearing the cache does not remove saved library wallpapers.
-- [ ] "Start Oriole when I sign in" toggle button is dark with a readable Off/On label; toggling updates the status text.
-- [ ] DATA & ABOUT path text is legible, including **Error log: `%LOCALAPPDATA%\Oriole\logs\errors.log`**; copy that path for any issue found above.
+- [ ] "Start Ori when I sign in" toggle button is dark with a readable Off/On label; toggling updates the status text.
+- [ ] DATA & ABOUT path text is legible, including **Error log: `%LOCALAPPDATA%\Ori\logs\errors.log`**; copy that path for any issue found above.
 - [ ] Page ScrollBar and any tooltips are dark; no white panels after scrolling top to bottom.
 - [ ] Confirm the About/version text shows the runtime-derived version (not a hard-coded preview string).
 - [ ] Final pass: revisit every screen and confirm the dark theme survived all navigation; check `errors.log` one last time for entries timestamped during this run.
@@ -74,5 +74,5 @@ Run this after the integrator produces a build: launch Oriole from the build out
 - [ ] Tray icon notifications (rotation/failure balloon tips) appear and are readable; a tray right-click shows Open/Exit without restoring the window.
 - [ ] Library folder import adds images and duplicate detection skips already-saved files; collections and the editable collection ComboBox work.
 - [ ] Tag presets / auto-rotation feed settings are present and the feed persists across a restart.
-- [ ] Portable release: download the self-contained zip, extract and run `Oriole.exe` on a PC **without** the .NET Desktop Runtime — it must start.
-- [ ] (Optional, if Inno Setup available) the per-user installer installs to `%LOCALAPPDATA%\Oriole`, adds Start menu/uninstall entries, and uninstall preserves library/logs.
+- [ ] Portable release: download the self-contained zip, extract and run `Ori.exe` on a PC **without** the .NET Desktop Runtime — it must start.
+- [ ] (Optional, if Inno Setup available) the per-user installer installs to `%LOCALAPPDATA%\Ori`, adds Start menu/uninstall entries, and uninstall preserves library/logs.

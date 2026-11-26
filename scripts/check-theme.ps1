@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Static theme-regression audit for the Oriole WPF shell.
+    Static theme-regression audit for the Ori WPF shell.
 
 .DESCRIPTION
-    Scans every *.xaml under src/Oriole.Desktop and flags controls that:
+    Scans every *.xaml under src/Ori.Desktop and flags controls that:
       * set Background / Foreground / BorderBrush to a literal white or a
         SystemColors brush, or
       * are IsEnabled="False" without an explicit Style (the WPF default
@@ -25,7 +25,7 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $Root) { $Root = (Get-Location).Path }
 
-$xamlRoot        = Join-Path $Root 'src' 'Oriole.Desktop'
+$xamlRoot        = Join-Path $Root 'src' 'Ori.Desktop'
 $targetElements  = @('CheckBox', 'TextBox', 'PasswordBox', 'ListBox', 'ComboBox', 'Button', 'ScrollBar')
 $brushProperties = @('Background', 'Foreground', 'BorderBrush')
 $presentationNs  = 'http://schemas.microsoft.com/winfx/2006/xaml/presentation'
@@ -103,7 +103,7 @@ foreach ($file in $files) {
     }
 }
 
-Write-Host 'Oriole theme regression check'
+Write-Host 'Ori theme regression check'
 Write-Host ('Scanned {0} XAML file(s) under {1}' -f $filesScanned, $xamlRoot)
 
 if ($findings.Count -eq 0) {

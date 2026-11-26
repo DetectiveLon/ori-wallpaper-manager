@@ -20,13 +20,13 @@ try {
         return
     }
 
-    dotnet restore Oriole.sln
+    dotnet restore Ori.sln
     if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
 
-    dotnet test tests/Oriole.Core.Tests/Oriole.Core.Tests.csproj --configuration $Configuration --no-restore
+    dotnet test tests/Ori.Core.Tests/Ori.Core.Tests.csproj --configuration $Configuration --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
 
-    dotnet build src/Oriole.Desktop/Oriole.Desktop.csproj --configuration $Configuration --no-restore
+    dotnet build src/Ori.Desktop/Ori.Desktop.csproj --configuration $Configuration --no-restore
     if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed.' }
 }
 finally {

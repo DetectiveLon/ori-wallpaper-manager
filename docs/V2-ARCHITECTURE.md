@@ -5,33 +5,33 @@ existing, tested services unchanged. This is a presentation-layer rewrite, not a
 rewrite.
 
 ## Do not modify (shared, owned by the integrator)
-- `src/Oriole.Core/**` (all of it)
-- `src/Oriole.Desktop/Services/**` (all of it)
-- `src/Oriole.Desktop/Pages/AutomationPage.cs`, `LibraryPage.cs`
-- `src/Oriole.Desktop/Views/DiscoverPage.cs`
-- `src/Oriole.Desktop/MainWindow.xaml`, `MainWindow.xaml.cs`
-- `App.xaml`, `App.xaml.cs`, `Oriole.Desktop.csproj`
+- `src/Ori.Core/**` (all of it)
+- `src/Ori.Desktop/Services/**` (all of it)
+- `src/Ori.Desktop/Pages/AutomationPage.cs`, `LibraryPage.cs`
+- `src/Ori.Desktop/Views/DiscoverPage.cs`
+- `src/Ori.Desktop/MainWindow.xaml`, `MainWindow.xaml.cs`
+- `App.xaml`, `App.xaml.cs`, `Ori.Desktop.csproj`
 - `build.ps1`, `.github/**`, `docs/**`, `QA-FINDINGS.md`
 
 ## Shared conventions (read before writing code)
-- Namespace root: `Oriole.Desktop`. View models: `Oriole.Desktop.ViewModels`.
-- Views: `Oriole.Desktop.Views`, XAML UserControls named `<Name>View`.
-- Base class: `Oriole.Desktop.Mvvm.ViewModelBase` with `SetProperty` and no external deps.
+- Namespace root: `Ori.Desktop`. View models: `Ori.Desktop.ViewModels`.
+- Views: `Ori.Desktop.Views`, XAML UserControls named `<Name>View`.
+- Base class: `Ori.Desktop.Mvvm.ViewModelBase` with `SetProperty` and no external deps.
 - Reuse services directly; do not reimplement them:
-  - `Oriole.Desktop.Services.DisplayDetection.Read()` -> `DisplayDetectionResult(Monitors, Error)`
-  - `Oriole.Desktop.Services.WindowsDesktopWallpaper` (GetMonitors, ApplyWallpaper, SetWallpaperAsync)
-  - `Oriole.Desktop.Services.WallpaperImageCache`, `WallhavenImageDownloader`, `ApiKeyStore`
-  - `Oriole.Core.Services.WallhavenClient`, `WallpaperLibraryStore`, `ScheduleStore`, `RotationLoop`, `FullscreenWindowMatcher`
-  - `Oriole.Core.Models.*`
+  - `Ori.Desktop.Services.DisplayDetection.Read()` -> `DisplayDetectionResult(Monitors, Error)`
+  - `Ori.Desktop.Services.WindowsDesktopWallpaper` (GetMonitors, ApplyWallpaper, SetWallpaperAsync)
+  - `Ori.Desktop.Services.WallpaperImageCache`, `WallhavenImageDownloader`, `ApiKeyStore`
+  - `Ori.Core.Services.WallhavenClient`, `WallpaperLibraryStore`, `ScheduleStore`, `RotationLoop`, `FullscreenWindowMatcher`
+  - `Ori.Core.Models.*`
 - Theme resources in `App.xaml`: `PanelBrush`, `PanelAltBrush`, `TextBrush`, `MutedBrush`, `AccentBrush`, `NavButtonStyle`, `PrimaryButtonStyle`, plus implicit dark Button/ComboBox/ScrollBar styles. New XAML may use them via `{StaticResource ...}`.
 - Keep the preview honest: do not claim installer, tray, collections, or cross-platform support.
 
 ## File ownership (one agent per area — do not touch another area's files)
-1. Shell/infrastructure: `src/Oriole.Desktop/Mvvm/**`, `src/Oriole.Desktop/ViewModels/MainViewModel.cs`, `src/Oriole.Desktop/Services/NavigationService.cs`, `src/Oriole.Desktop/Views/HostView.xaml(.cs)`.
-2. Library port: `src/Oriole.Desktop/Views/LibraryView.xaml(.cs)`, `src/Oriole.Desktop/ViewModels/LibraryViewModel.cs`.
-3. Automation port: `src/Oriole.Desktop/Views/AutomationView.xaml(.cs)`, `src/Oriole.Desktop/ViewModels/AutomationViewModel.cs`.
-4. Discover port: `src/Oriole.Desktop/Views/DiscoverView.xaml(.cs)`, `src/Oriole.Desktop/ViewModels/DiscoverViewModel.cs`.
-5. Displays + Settings ports: `src/Oriole.Desktop/Views/DisplaysView.xaml(.cs)`, `src/Oriole.Desktop/Views/SettingsView.xaml(.cs)`, `src/Oriole.Desktop/ViewModels/DisplaysViewModel.cs`, `src/Oriole.Desktop/ViewModels/SettingsViewModel.cs`.
+1. Shell/infrastructure: `src/Ori.Desktop/Mvvm/**`, `src/Ori.Desktop/ViewModels/MainViewModel.cs`, `src/Ori.Desktop/Services/NavigationService.cs`, `src/Ori.Desktop/Views/HostView.xaml(.cs)`.
+2. Library port: `src/Ori.Desktop/Views/LibraryView.xaml(.cs)`, `src/Ori.Desktop/ViewModels/LibraryViewModel.cs`.
+3. Automation port: `src/Ori.Desktop/Views/AutomationView.xaml(.cs)`, `src/Ori.Desktop/ViewModels/AutomationViewModel.cs`.
+4. Discover port: `src/Ori.Desktop/Views/DiscoverView.xaml(.cs)`, `src/Ori.Desktop/ViewModels/DiscoverViewModel.cs`.
+5. Displays + Settings ports: `src/Ori.Desktop/Views/DisplaysView.xaml(.cs)`, `src/Ori.Desktop/Views/SettingsView.xaml(.cs)`, `src/Ori.Desktop/ViewModels/DisplaysViewModel.cs`, `src/Ori.Desktop/ViewModels/SettingsViewModel.cs`.
 
 ## Wave 2 ownership (v2-shell)
 - Library virtualization + collections: `Views/LibraryView.xaml(.cs)`, `ViewModels/LibraryViewModel.cs`.
@@ -66,13 +66,13 @@ rewrite.
 - Release packaging: `scripts/publish.ps1` (single source of truth: self-contained,
   single-file, win-x64), `build.ps1` (delegates `-Publish` to publish.ps1).
 - Installer: `tools/installer/**` (optional free Inno Setup `.iss`, per-user install
-  to `%LOCALAPPDATA%\Oriole`, reuses the app's HKCU Run setting).
-- Updater: `tools/Oriole.Updater/**` (separate process; checks GitHub Releases
-  manifest, verifies SHA-256, swaps the EXE after exit). Added to `Oriole.sln`.
+  to `%LOCALAPPDATA%\Ori`, reuses the app's HKCU Run setting).
+- Updater: `tools/Ori.Updater/**` (separate process; checks GitHub Releases
+  manifest, verifies SHA-256, swaps the EXE after exit). Added to `Ori.sln`.
 - Toolchain/version: `global.json` (exact SDK 10.0.404), `Directory.Build.props`
   (pinned LangVersion/AnalysisLevel 10.0 while keeping TreatWarningsAsErrors —
   LangVersion is set to 14.0 because C# 12 collection expressions are in use),
-  `Oriole.Core.csproj`, `Oriole.Desktop.csproj` + `app.manifest` (one tag-driven
+  `Ori.Core.csproj`, `Ori.Desktop.csproj` + `app.manifest` (one tag-driven
   version, `AssemblyInformationalVersion` retained for the About page).
 - CI/release: `.github/workflows/ci.yml` (adds `v2-shell` push branch, exact SDK,
   full-solution build, guards), `.github/workflows/release.yml` (`verify` job
@@ -87,6 +87,6 @@ rewrite.
   agent). The exact one-line integration is documented in `docs/RELEASING.md`.
 
 ## Build discipline
-- Do NOT run `build.ps1`, `dotnet build`, `dotnet test`, or launch Oriole.exe. The integrator builds once after all agents finish, to avoid file locks and conflicting obj/ writes.
+- Do NOT run `build.ps1`, `dotnet build`, `dotnet test`, or launch Ori.exe. The integrator builds once after all agents finish, to avoid file locks and conflicting obj/ writes.
 - Do NOT commit, push, or switch branches.
 - Each agent must report the exact files it created/modified and any integration assumptions.

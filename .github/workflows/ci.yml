@@ -23,7 +23,7 @@ jobs:
           dotnet-version: "10.0.404"
 
       - name: Run core tests
-        run: dotnet test tests/Oriole.Core.Tests/Oriole.Core.Tests.csproj --configuration Release
+        run: dotnet test tests/Ori.Core.Tests/Ori.Core.Tests.csproj --configuration Release
 
   windows-build:
     name: Windows desktop build
@@ -38,10 +38,10 @@ jobs:
           dotnet-version: "10.0.404"
 
       - name: Restore solution
-        run: dotnet restore Oriole.sln
+        run: dotnet restore Ori.sln
 
       - name: Build solution (app + updater)
-        run: dotnet build Oriole.sln --configuration Release --no-restore
+        run: dotnet build Ori.sln --configuration Release --no-restore
 
       - name: Static regression guards
         shell: pwsh

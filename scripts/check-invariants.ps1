@@ -48,8 +48,8 @@ foreach ($wf in @('.github/workflows/ci.yml', '.github/workflows/release.yml')) 
 
 # 2. No hardcoded 0.1.0 version in the owned packaging/docs files.
 $versionOwned = @(
-    'README.md', 'src/Oriole.Desktop/Oriole.Desktop.csproj',
-    'src/Oriole.Desktop/app.manifest', 'docs/RELEASING.md',
+    'README.md', 'src/Ori.Desktop/Ori.Desktop.csproj',
+    'src/Ori.Desktop/app.manifest', 'docs/RELEASING.md',
     'docs/IMPLEMENTATION_STATUS.md', 'scripts/publish.ps1'
 )
 foreach ($rel in $versionOwned) {
@@ -58,8 +58,8 @@ foreach ($rel in $versionOwned) {
 }
 
 # 3. csproj <Version> and app.manifest assemblyIdentity version agree.
-$csproj = Read-Text 'src/Oriole.Desktop/Oriole.Desktop.csproj'
-$manifest = Read-Text 'src/Oriole.Desktop/app.manifest'
+$csproj = Read-Text 'src/Ori.Desktop/Ori.Desktop.csproj'
+$manifest = Read-Text 'src/Ori.Desktop/app.manifest'
 $projVersion = ''
 if ($csproj -match '<Version>\s*([0-9]+\.[0-9]+\.[0-9]+)\s*</Version>') { $projVersion = $Matches[1] }
 $manifestVersion = ''
@@ -75,18 +75,18 @@ else {
 }
 
 # 4. Rotation feed persistence + library import/dedupe methods exist.
-$feed = Read-Text 'src/Oriole.Core/Services/WallhavenFeedStore.cs'
+$feed = Read-Text 'src/Ori.Core/Services/WallhavenFeedStore.cs'
 if ($feed -and $feed -notmatch 'class\s+WallhavenFeedStore') {
     Add-Finding 'Rotation feed store class not found in WallhavenFeedStore.cs.'
 }
-$library = Read-Text 'src/Oriole.Core/Services/WallpaperLibraryStore.cs'
+$library = Read-Text 'src/Ori.Core/Services/WallpaperLibraryStore.cs'
 if ($library) {
     if ($library -notmatch 'ImportFolderAsync') { Add-Finding 'Library import method (ImportFolderAsync) not found.' }
     if ($library -notmatch 'FindDuplicatesAsync') { Add-Finding 'Library dedupe method (FindDuplicatesAsync) not found.' }
 }
 
 # 5. Tray Notify exists and no plain Click subscription survives.
-$tray = Read-Text 'src/Oriole.Desktop/Services/TrayIconService.cs'
+$tray = Read-Text 'src/Ori.Desktop/Services/TrayIconService.cs'
 if ($tray) {
     if ($tray -notmatch '\bNotify\s*\(') { Add-Finding 'Tray Notify(...) method not found.' }
     if ($tray -notmatch 'ShowBalloonTip') { Add-Finding 'Tray balloon-tip notification not found.' }
@@ -94,12 +94,12 @@ if ($tray) {
 }
 
 # 6. Editable collection ComboBox exists in the library view.
-$libraryView = Read-Text 'src/Oriole.Desktop/Views/LibraryView.xaml'
+$libraryView = Read-Text 'src/Ori.Desktop/Views/LibraryView.xaml'
 if ($libraryView -and $libraryView -notmatch 'IsEditable\s*=\s*"True"') {
     Add-Finding 'Editable collection ComboBox (IsEditable="True") not found in LibraryView.xaml.'
 }
 
-Write-Host 'Oriole v2-shell invariant check'
+Write-Host 'Ori v2-shell invariant check'
 if ($findings.Count -eq 0) {
     Write-Host 'PASS: all v2-shell invariants hold.'
     exit 0

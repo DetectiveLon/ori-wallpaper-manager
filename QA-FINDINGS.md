@@ -1,4 +1,4 @@
-# Oriole QA findings — feature/library-automation @ 34b2dba
+# Ori QA findings — feature/library-automation @ 34b2dba
 
 > **Historical / scoped document.** These findings were captured on the older
 > `feature/library-automation` branch during an earlier hardening session. They
@@ -23,7 +23,7 @@ Live-tested on a Windows 11 desktop with SDK 10.0.404, Release build from
 ## Fixed during that session
 
 ### 1. High — one stale display path made *all* display detection fail
-- Where: `src/Oriole.Desktop/Services/WindowsDesktopWallpaper.cs:46-56` (original).
+- Where: `src/Ori.Desktop/Services/WindowsDesktopWallpaper.cs:46-56` (original).
 - Repro: open Discover/Displays/Automation; banner "Display detection unavailable: Unexpected HRESULT has been returned from a call to a COM component."; Displays opened a modal "Display detection failed".
 - Root cause (proved with an STA probe against the compiled DLL): `IDesktopWallpaper.GetMonitorDevicePathCount` returned extra stale duplicate instance paths; `GetMonitorRECT` throws `COMException 0x80004005` on those. The loop did not catch it, so the whole enumeration aborted and the app reported zero displays.
 - Fix: catch `COMException` per monitor path and skip it; also tolerate a failed `GetWallpaper` read. Healthy monitors are still returned with geometry, primary flag and wallpaper.
@@ -32,7 +32,7 @@ Live-tested on a Windows 11 desktop with SDK 10.0.404, Release build from
 ## Initially open findings (superseded by the final status above where noted)
 
 ### 2. Medium — blocking modal for a recoverable detection failure — FIXED
-- Where: `src/Oriole.Desktop/MainWindow.xaml.cs:149-153` (original).
+- Where: `src/Ori.Desktop/MainWindow.xaml.cs:149-153` (original).
 - `LoadDisplays` showed `MessageBox.Show` on any exception, freezing the page behind a dialog. Expected: inline status text plus a Refresh action, never a modal.
 
 ### 3. Medium — duplicated display detection, three different error presentations

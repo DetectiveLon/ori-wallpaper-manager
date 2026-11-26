@@ -1,15 +1,15 @@
 <#
 .SYNOPSIS
-Optional: compile the per-user Inno Setup installer for Oriole.
+Optional: compile the per-user Inno Setup installer for Ori.
 
 .DESCRIPTION
 Inno Setup is OPTIONAL and is not installed by this script. If the compiler
 (iscc.exe) is not found, the script prints a clear message and exits 2 without
 changing anything. It reads the version from artifacts/update-manifest.json
-when available, otherwise from -Version, otherwise from Oriole.Desktop.csproj.
+when available, otherwise from -Version, otherwise from Ori.Desktop.csproj.
 
 This script only COMPILES an installer EXE into artifacts/. It never installs
-Oriole, never touches HKCU Run, and never modifies the real system.
+Ori, never touches HKCU Run, and never modifies the real system.
 #>
 [CmdletBinding()]
 param(
@@ -20,9 +20,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot  = Split-Path -Parent (Split-Path -Parent $scriptDir)
-$iss       = Join-Path $scriptDir 'Oriole.iss'
+$iss       = Join-Path $scriptDir 'Ori.iss'
 $manifest  = Join-Path $repoRoot 'artifacts/update-manifest.json'
-$sourceExe = Join-Path $repoRoot 'artifacts/Oriole.exe'
+$sourceExe = Join-Path $repoRoot 'artifacts/Ori.exe'
 
 if (-not (Test-Path -LiteralPath $iss)) { throw "Missing installer script: $iss" }
 if (-not (Test-Path -LiteralPath $sourceExe)) {
@@ -33,7 +33,7 @@ if ([string]::IsNullOrWhiteSpace($Version) -and (Test-Path -LiteralPath $manifes
     $Version = (Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).version
 }
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    [xml]$project = Get-Content -LiteralPath (Join-Path $repoRoot 'src/Oriole.Desktop/Oriole.Desktop.csproj') -Raw
+    [xml]$project = Get-Content -LiteralPath (Join-Path $repoRoot 'src/Ori.Desktop/Ori.Desktop.csproj') -Raw
     $Version = [string]($project.Project.PropertyGroup.Version | Select-Object -First 1)
 }
 
@@ -60,7 +60,7 @@ Push-Location $scriptDir
 try {
     & $CompilerPath "/DAppVersion=$Version" "/DSourceExe=$sourceExe" $iss
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE." }
-    Write-Host "Installer built for Oriole $Version under artifacts/."
+    Write-Host "Installer built for Ori $Version under artifacts/."
 }
 finally {
     Pop-Location

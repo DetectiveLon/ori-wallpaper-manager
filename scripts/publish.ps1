@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Builds and packages the self-contained, single-file win-x64 release for Oriole.
+Builds and packages the self-contained, single-file win-x64 release for Ori.
 
 .DESCRIPTION
 This is the SINGLE SOURCE OF TRUTH for release packaging. It:
@@ -25,7 +25,7 @@ invoked here; see tools/installer/README.md.
 param(
     [string]$Version,
     [string]$Tag,
-    [string]$Repository = 'DetectiveLon/oriole-wallpaper-manager',
+    [string]$Repository = 'DetectiveLon/ori-wallpaper-manager',
     [switch]$SkipTests
 )
 
@@ -42,7 +42,7 @@ try {
             $Version = $Tag -replace '^v', ''
         }
         else {
-            $csproj = Join-Path $repoRoot 'src/Oriole.Desktop/Oriole.Desktop.csproj'
+            $csproj = Join-Path $repoRoot 'src/Ori.Desktop/Ori.Desktop.csproj'
             [xml]$projectXml = Get-Content -Path $csproj -Raw
             $Version = [string]($projectXml.Project.PropertyGroup.Version | Select-Object -First 1)
         }
@@ -66,8 +66,8 @@ try {
 
     # --- Tests ---------------------------------------------------------------
     if (-not $SkipTests) {
-        Write-Host "==> Running Core tests for Oriole $Version"
-        dotnet test tests/Oriole.Core.Tests/Oriole.Core.Tests.csproj --configuration Release
+        Write-Host "==> Running Core tests for Ori $Version"
+        dotnet test tests/Ori.Core.Tests/Ori.Core.Tests.csproj --configuration Release
         if ($LASTEXITCODE -ne 0) { throw "dotnet test failed with exit code $LASTEXITCODE." }
     }
     else {
@@ -75,7 +75,7 @@ try {
     }
 
     # --- Patch the app manifest so its identity version matches the tag -------
-    $manifestSrc  = Join-Path $repoRoot 'src/Oriole.Desktop/app.manifest'
+    $manifestSrc  = Join-Path $repoRoot 'src/Ori.Desktop/app.manifest'
     $manifestWork = Join-Path $artifactsDir "manifest-$safeVersion"
     New-Item -ItemType Directory -Force -Path $manifestWork | Out-Null
     $manifestOut  = Join-Path $manifestWork 'app.manifest'
@@ -95,7 +95,7 @@ try {
     New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
 
     Write-Host '==> Publishing self-contained single-file win-x64 build'
-    dotnet publish src/Oriole.Desktop/Oriole.Desktop.csproj `
+    dotnet publish src/Ori.Desktop/Ori.Desktop.csproj `
         --configuration Release `
         --runtime win-x64 `
         --self-contained true `
@@ -106,7 +106,7 @@ try {
         --output $stageDir
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE." }
 
-    $publishedExe = Join-Path $stageDir 'Oriole.exe'
+    $publishedExe = Join-Path $stageDir 'Ori.exe'
     if (-not (Test-Path -LiteralPath $publishedExe)) {
         throw "Publish did not produce $publishedExe."
     }
@@ -116,15 +116,15 @@ try {
         -Destination (Join-Path $stageDir 'README.md') -Force
 
     $notes = @"
-Oriole $Version - portable win-x64 build
+Ori $Version - portable win-x64 build
 
-Oriole is a clean-room Windows 11 wallpaper manager. Extract this folder and run
-Oriole.exe. This build is SELF-CONTAINED: the .NET runtime is bundled, so there is
+Ori is a clean-room Windows 11 wallpaper manager. Extract this folder and run
+Ori.exe. This build is SELF-CONTAINED: the .NET runtime is bundled, so there is
 no .NET Desktop Runtime to install.
 
 Optional (not included here):
   * A per-user Inno Setup installer: see tools/installer/README.md.
-  * Automatic updates via Oriole.Updater: see docs/RELEASING.md.
+  * Automatic updates via Ori.Updater: see docs/RELEASING.md.
 
 This package is not code-signed. Windows SmartScreen may warn on first run until
 the app builds reputation; signing is deferred, not ignored. It contains no API
@@ -136,18 +136,18 @@ keys or secrets. Wallhaven images remain the property of their original owners.
         -Destination (Join-Path $artifactsDir 'RELEASE-NOTES.txt') -Force
 
     # --- Package: zip + standalone EXE + SHA-256 -----------------------------
-    $zipName = "oriole-$safeVersion-win-x64.zip"
+    $zipName = "ori-$safeVersion-win-x64.zip"
     $zipPath = Join-Path $artifactsDir $zipName
     if (Test-Path $zipPath) { Remove-Item -Path $zipPath -Force }
     Compress-Archive -Path (Join-Path $stageDir '*') -DestinationPath $zipPath -Force
     $zipHash = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash
 
-    $exeName = "oriole-$safeVersion-win-x64.exe"
+    $exeName = "ori-$safeVersion-win-x64.exe"
     $exePath = Join-Path $artifactsDir $exeName
     Copy-Item -LiteralPath $publishedExe -Destination $exePath -Force
     $exeHash = (Get-FileHash -Algorithm SHA256 -Path $exePath).Hash
 
-    # --- Update manifest consumed by tools/Oriole.Updater ---------------------
+    # --- Update manifest consumed by tools/Ori.Updater ---------------------
     # Attached as a release asset; fetched from
     # https://github.com/<repo>/releases/latest/download/update-manifest.json
     $manifest = [ordered]@{
@@ -161,7 +161,7 @@ keys or secrets. Wallhaven images remain the property of their original owners.
     $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
     # Keep the raw EXE for the optional Inno Setup build.
-    Copy-Item -LiteralPath $publishedExe -Destination (Join-Path $artifactsDir 'Oriole.exe') -Force
+    Copy-Item -LiteralPath $publishedExe -Destination (Join-Path $artifactsDir 'Ori.exe') -Force
 
     Remove-Item -Path $stageDir -Recurse -Force
     Remove-Item -Path $manifestWork -Recurse -Force

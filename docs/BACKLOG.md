@@ -1,4 +1,4 @@
-# Oriole backlog
+# Ori backlog
 
 Captured from the user's product discussion on 2026-11-23. Status below is
 updated for the `v2-shell` branch. This is a backlog, not a commitment.
@@ -8,7 +8,7 @@ updated for the `v2-shell` branch. This is a backlog, not a commitment.
 - [x] **Installer and auto-update.** The release is now a self-contained,
   single-file win-x64 build (no .NET runtime needed). A free, optional per-user
   Inno Setup installer builds from `tools/installer/`; a separate
-  `tools/Oriole.Updater` process checks a GitHub Releases manifest, verifies
+  `tools/Ori.Updater` process checks a GitHub Releases manifest, verifies
   SHA-256 and swaps the EXE. The auto-update check is only *documented* as an
   integration step in `App.xaml.cs` (owned by another agent) — see
   `docs/RELEASING.md`. Signing/SmartScreen is deferred, not ignored.
@@ -31,5 +31,5 @@ updated for the `v2-shell` branch. This is a backlog, not a commitment.
 ## Constraints
 
 - No paid services, models or tools.
-- Keep the tested `Oriole.Core` layer intact where possible.
+- Keep the tested `Ori.Core` layer intact where possible.
 - GitHub repo is public; no secrets in the repository.
