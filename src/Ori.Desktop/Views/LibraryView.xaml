@@ -65,9 +65,9 @@
                                              FontSize="{TemplateBinding FontSize}"
                                              Padding="7,3,2,3" VerticalContentAlignment="Center"
                                              IsReadOnly="{TemplateBinding IsReadOnly}" />
-                                    <ToggleButton x:Name="DropDownToggle" Grid.Column="1"
+                                    <ToggleButton x:Name="PART_DropDownToggle" Grid.Column="1"
                                                   Background="Transparent" BorderThickness="0"
-                                                  Focusable="False" Cursor="Hand"
+                                                  Focusable="False" Cursor="Hand" ClickMode="Press"
                                                   IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
                                         <Path Data="M 0 3 L 5 8 L 10 3" Stroke="{TemplateBinding Foreground}"
                                               StrokeThickness="1.5" HorizontalAlignment="Center"
