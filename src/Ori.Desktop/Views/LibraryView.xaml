@@ -27,8 +27,10 @@
             <Setter Property="FontSize" Value="12" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
+        <!-- Inherits the self-contained SecondaryButtonStyle; no Background/Foreground
+             override here, so disabled actions stay dark instead of turning white. -->
         <Style x:Key="CardActionButton" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="Padding" Value="6,6" />
             <Setter Property="MinHeight" Value="32" />
         </Style>
@@ -295,7 +297,7 @@
                 </ListBox.ItemsPanel>
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
-                        <Setter Property="Margin" Value="0,0,14,14" />
+                        <Setter Property="Margin" Value="0,0,16,16" />
                         <Setter Property="Padding" Value="0" />
                         <Setter Property="HorizontalContentAlignment" Value="Left" />
                         <Setter Property="VerticalContentAlignment" Value="Top" />
@@ -315,7 +317,7 @@
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <!-- A simple themed border replaces the old drop shadow. -->
-                        <Border Width="272" CornerRadius="{StaticResource CardCornerRadius}" Padding="10">
+                        <Border Width="288" CornerRadius="{StaticResource CardCornerRadius}" Padding="12">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Background" Value="{StaticResource PanelBrush}" />
@@ -331,7 +333,7 @@
                             </Border.Style>
                             <StackPanel>
                                 <!-- Thumbnail with a favourite badge overlay. -->
-                                <Grid Height="120">
+                                <Grid Height="128">
                                     <Border CornerRadius="8" ClipToBounds="True"
                                             Background="{StaticResource PanelAltBrush}">
                                         <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
@@ -472,21 +474,45 @@
                                     </Button>
                                 </Grid>
 
-                                <!-- Tags row: editable inline; the status shares this row's height. -->
-                                <Grid Margin="0,8,0,0">
+                                <!-- Tags row: labelled input with an in-place watermark. The
+                                     hint collapses as soon as TagText has a value, so the box
+                                     never reads as an empty, unlabelled rectangle. -->
+                                <Grid Margin="0,6,0,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0">
-                                        <TextBox Height="32" FontSize="12"
+                                    <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="Add tags"
+                                               Style="{StaticResource FieldLabelStyle}" FontSize="12" />
+                                    <Grid Grid.Row="1" Grid.Column="0">
+                                        <TextBox x:Name="TagTextBox" Height="32" FontSize="12"
                                                  Text="{Binding TagText, UpdateSourceTrigger=PropertyChanged}"
                                                  AutomationProperties.Name="Tags for this wallpaper"
                                                  ToolTip="Comma-separated tags" />
-                                        <TextBlock Text="{Binding TagStatus}" Style="{StaticResource CardMeta}"
-                                                   Margin="1,3,0,0" />
-                                    </StackPanel>
-                                    <Button Grid.Column="1" Margin="6,0,0,0" Padding="8,5,8,5"
+                                        <!-- Overlay hint: visible only while the TextBox is empty.
+                                             A DataTrigger on Text needs no converter and keeps
+                                             the TagText binding as the single source of truth. -->
+                                        <TextBlock Text="e.g. nature, blue, minimal" IsHitTestVisible="False"
+                                                   FontSize="12" VerticalAlignment="Center"
+                                                   Margin="10,0,0,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Text, ElementName=TagTextBox}" Value="">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
+                                    <Button Grid.Row="1" Grid.Column="1" Margin="6,0,0,0" Padding="8,5,8,5"
                                             MinHeight="32" FontSize="12"
                                             AutomationProperties.Name="Save tags"
                                             ToolTip="Save tags for this wallpaper"
@@ -498,6 +524,8 @@
                                             <TextBlock Text="Tags" />
                                         </StackPanel>
                                     </Button>
+                                    <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding TagStatus}"
+                                               Style="{StaticResource CardMeta}" Margin="1,3,0,0" />
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -544,7 +572,7 @@
                 Padding="0,12,0,0" Margin="0,2,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <Button Command="{Binding PreviousPageCommand}" IsEnabled="{Binding CanGoPrevious}"
-                        Style="{StaticResource SecondaryButtonStyle}" Padding="10,8"
+                        Style="{StaticResource SecondaryButtonStyle}" Padding="10,8" MinHeight="32"
                         AutomationProperties.Name="Previous library page"
                         ToolTip="Show the previous page of saved wallpapers">
                     <StackPanel Orientation="Horizontal">
@@ -556,7 +584,7 @@
                 <TextBlock Text="{Binding PageLabel}" Style="{StaticResource CaptionTextStyle}"
                            FontSize="12" VerticalAlignment="Center" Margin="16,0,16,0" />
                 <Button Command="{Binding NextPageCommand}" IsEnabled="{Binding CanGoNext}"
-                        Style="{StaticResource SecondaryButtonStyle}" Padding="10,8"
+                        Style="{StaticResource SecondaryButtonStyle}" Padding="10,8" MinHeight="32"
                         AutomationProperties.Name="Next library page"
                         ToolTip="Show the next page of saved wallpapers">
                     <StackPanel Orientation="Horizontal">
@@ -595,13 +623,13 @@
                                Style="{StaticResource CardMeta}" TextWrapping="Wrap"
                                Margin="24,4,0,0" />
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-                        <Button Content="Cancel" Padding="14,8,14,8" Margin="0,0,8,0"
+                        <Button Content="Cancel" Padding="14,8,14,8" Margin="0,0,8,0" MinHeight="32"
                                 TabIndex="1" IsCancel="True"
                                 AutomationProperties.Name="Cancel removal"
                                 ToolTip="Keep this wallpaper in the library"
                                 Command="{Binding CancelRemoveCommand}" />
                         <Button x:Name="ConfirmRemoveButton" Style="{StaticResource PrimaryButtonStyle}"
-                                Content="Remove" Padding="14,8,14,8" TabIndex="2" IsDefault="True"
+                                Content="Remove" Padding="14,8,14,8" MinHeight="32" TabIndex="2" IsDefault="True"
                                 AutomationProperties.Name="Confirm removal"
                                 ToolTip="Remove this wallpaper from the library"
                                 Command="{Binding ConfirmRemoveCommand}" />

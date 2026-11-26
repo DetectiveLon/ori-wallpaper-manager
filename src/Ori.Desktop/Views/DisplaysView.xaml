@@ -18,41 +18,52 @@
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
-            <!-- Hero: per-monitor control, distinct from the Windows-wide fit mode. -->
+            <!-- Hero: per-monitor control, distinct from the Windows-wide fit mode.
+                 Icon + copy share the left column; the action sits on the right. -->
             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel MaxWidth="640" VerticalAlignment="Center">
-                        <TextBlock Text="PER-MONITOR CONTROL" Style="{StaticResource EyebrowTextStyle}" />
-                        <TextBlock Text="Give every display its own wallpaper."
-                                   Style="{StaticResource TitleTextStyle}"
-                                   Margin="0,8,0,0" TextWrapping="Wrap" />
-                        <TextBlock Text="Ori targets each connected monitor independently. Pick an image per screen; Windows supplies the shared fit mode below."
-                                   Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"
-                                   Margin="0,8,0,0" />
-                    </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
-                                Margin="16,0,0,0">
-                        <Border Width="72" Height="56"
+
+                    <Grid MinWidth="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Width="56" Height="56" VerticalAlignment="Center"
                                 CornerRadius="{StaticResource ControlCornerRadius}"
                                 Background="{StaticResource AccentTintBrush}">
-                            <TextBlock Text="&#xE7F4;" Style="{StaticResource DisplayGlyph}" FontSize="36"
+                            <TextBlock Text="&#xE7F4;" Style="{StaticResource DisplayGlyph}" FontSize="28"
                                        Foreground="{StaticResource AccentBrush}" />
                         </Border>
-                        <Button Command="{Binding RefreshCommand}" Padding="12,9"
-                                Margin="12,0,0,0" VerticalAlignment="Center"
-                                AutomationProperties.Name="Refresh connected displays"
-                                ToolTip="Re-detect monitors and re-read the current wallpaper and fit mode.">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE72C;" Style="{StaticResource DisplayGlyph}" FontSize="13"
-                                           Margin="0,0,7,0" />
-                                <TextBlock Text="Refresh" />
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center"
+                                    MinWidth="0">
+                            <Border Style="{StaticResource ChipStyle}" HorizontalAlignment="Left">
+                                <TextBlock Text="PER-MONITOR CONTROL" Style="{StaticResource EyebrowTextStyle}"
+                                           FontSize="12" Foreground="{StaticResource AccentBrush}" />
+                            </Border>
+                            <TextBlock Text="Give every display its own wallpaper."
+                                       Style="{StaticResource TitleTextStyle}"
+                                       Margin="0,10,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="Ori targets each connected monitor independently. Pick an image per screen; Windows supplies the shared fit mode below."
+                                       Style="{StaticResource CaptionTextStyle}" FontSize="12"
+                                       TextWrapping="Wrap" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Button Grid.Column="1" Style="{StaticResource SecondaryButtonStyle}"
+                            Command="{Binding RefreshCommand}" Padding="14,9"
+                            Margin="20,0,0,0" VerticalAlignment="Center"
+                            AutomationProperties.Name="Refresh connected displays"
+                            ToolTip="Re-detect monitors and re-read the current wallpaper and fit mode.">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE72C;" Style="{StaticResource DisplayGlyph}" FontSize="13"
+                                       Margin="0,0,7,0" />
+                            <TextBlock Text="Refresh" />
+                        </StackPanel>
+                    </Button>
                 </Grid>
             </Border>
 
@@ -64,26 +75,26 @@
                     <TextBlock Text="&#xE946;" Style="{StaticResource DisplayGlyph}" FontSize="13"
                                Foreground="{StaticResource AccentBrush}" Margin="0,0,9,0" />
                     <TextBlock Text="{Binding Status}" Style="{StaticResource CaptionTextStyle}"
-                               TextWrapping="Wrap" />
+                               FontSize="12" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
 
             <!-- Windows-wide fit: one setting for all displays. -->
             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="GLOBAL FIT" Style="{StaticResource EyebrowTextStyle}" />
+                    <TextBlock Text="GLOBAL FIT" Style="{StaticResource EyebrowTextStyle}" FontSize="12" />
                     <TextBlock Text="How images fill the screen"
                                Style="{StaticResource SectionTitleStyle}" Margin="0,6,0,0" />
                     <TextBlock Text="Windows applies one fit mode to every display. You can still choose a different image per monitor, except in Span mode."
-                               Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"
-                               Margin="0,6,0,0" />
+                               Style="{StaticResource CaptionTextStyle}" FontSize="12"
+                               TextWrapping="Wrap" Margin="0,6,0,0" />
 
-                    <Grid Margin="0,16,0,0">
+                    <Grid Margin="0,14,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Fit mode" Style="{StaticResource FieldLabelStyle}"
+                        <TextBlock Text="Fit mode" Style="{StaticResource FieldLabelStyle}" FontSize="12"
                                    VerticalAlignment="Center" Margin="0,0,12,0" />
                         <ComboBox Grid.Column="1" MinWidth="240" HorizontalAlignment="Left"
                                   ItemsSource="{Binding PositionOptions}"
@@ -94,34 +105,48 @@
                     </Grid>
 
                     <TextBlock Text="{Binding PositionDescription}" Style="{StaticResource CaptionTextStyle}"
-                               TextWrapping="Wrap" Margin="0,10,0,0" />
+                               FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0" />
 
                     <!-- Text, not just colour: Span really does ignore per-monitor images. -->
                     <Border Margin="0,12,0,0" Padding="10,8"
                             CornerRadius="{StaticResource ControlCornerRadius}"
                             Background="{StaticResource AccentTintBrush}"
                             Visibility="{Binding IsSpanActive, Converter={StaticResource BoolToVisibility}}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xE7BA;" Style="{StaticResource DisplayGlyph}" FontSize="14"
-                                       Foreground="{StaticResource WarningBrush}" Margin="0,0,8,0" />
-                            <TextBlock Text="Span is active: Windows uses one image across all displays. Per-monitor images are ignored, so Choose image is unavailable."
-                                       Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" />
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE7BA;" Style="{StaticResource DisplayGlyph}" FontSize="14"
+                                           Foreground="{StaticResource WarningBrush}" Margin="0,0,8,0" />
+                                <TextBlock Text="Span is active: Windows uses one image across all displays. Per-monitor images are ignored, so Choose image is unavailable."
+                                           Foreground="{StaticResource WarningBrush}" FontSize="12"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                            <Button Style="{StaticResource SecondaryButtonStyle}"
+                                    Command="{Binding SetSpanWallpaperCommand}"
+                                    Margin="0,10,0,0" HorizontalAlignment="Left"
+                                    AutomationProperties.Name="Choose one wallpaper for all displays in Span mode"
+                                    ToolTip="Pick or replace the single image Windows stretches across every display.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE8B9;" Style="{StaticResource DisplayGlyph}" FontSize="13"
+                                               Margin="0,0,7,0" />
+                                    <TextBlock Text="Choose Span image" />
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
                     </Border>
 
                     <TextBlock Text="To go back to different images per monitor, choose any fit mode other than Span."
-                               Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"
+                               Style="{StaticResource CaptionTextStyle}" FontSize="12" TextWrapping="Wrap"
                                Margin="0,10,0,0" />
                 </StackPanel>
             </Border>
 
-            <TextBlock Text="CONNECTED DISPLAYS" Style="{StaticResource EyebrowTextStyle}"
+            <TextBlock Text="CONNECTED DISPLAYS" Style="{StaticResource EyebrowTextStyle}" FontSize="12"
                        Margin="0,4,0,10" />
 
             <ItemsControl ItemsSource="{Binding Monitors}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Margin="0,0,0,12">
+                        <Border Margin="0,0,0,10">
                             <Border.Style>
                                 <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
                                     <Style.Triggers>
@@ -144,51 +169,47 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
 
-                                <!-- Large monitor glyph. -->
-                                <Border Grid.Column="0" Width="64" Height="64"
-                                        CornerRadius="{StaticResource CardCornerRadius}"
+                                <!-- Compact glyph tile; the card stays a single glanceable row. -->
+                                <Border Width="48" Height="48" VerticalAlignment="Center"
+                                        CornerRadius="{StaticResource ControlCornerRadius}"
                                         Background="{StaticResource PanelAltBrush}"
-                                        Margin="0,0,16,0">
+                                        Margin="0,0,14,0">
                                     <TextBlock Text="&#xE7F4;" Style="{StaticResource DisplayGlyph}"
-                                               FontSize="38" Foreground="{StaticResource AccentBrush}" />
+                                               FontSize="26" Foreground="{StaticResource AccentBrush}" />
                                 </Border>
 
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                    <StackPanel Orientation="Horizontal">
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" MinWidth="0">
+                                    <WrapPanel>
                                         <TextBlock Text="{Binding DisplayName}"
                                                    Style="{StaticResource SectionTitleStyle}" />
-                                        <Border Style="{StaticResource ChipStyle}" Margin="10,0,0,0"
+                                        <Border Style="{StaticResource ChipStyle}" Margin="8,0,0,0"
                                                 Visibility="{Binding IsPrimary, Converter={StaticResource BoolToVisibility}}">
                                             <TextBlock Text="PRIMARY" Foreground="{StaticResource AccentBrush}"
-                                                       FontSize="10" FontWeight="SemiBold" />
+                                                       FontSize="12" FontWeight="SemiBold" />
                                         </Border>
-                                        <Border Style="{StaticResource ChipStyle}" Margin="10,0,0,0"
+                                        <Border Style="{StaticResource ChipStyle}" Margin="8,0,0,0"
                                                 Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}">
                                             <TextBlock Text="TARGET" Foreground="{StaticResource AccentBrush}"
-                                                       FontSize="10" FontWeight="SemiBold" />
+                                                       FontSize="12" FontWeight="SemiBold" />
                                         </Border>
-                                    </StackPanel>
-                                    <TextBlock Text="{Binding DeviceName}" Style="{StaticResource CaptionTextStyle}"
-                                               Margin="0,6,0,0" />
-                                    <TextBlock Text="{Binding ResolutionText}" Style="{StaticResource CaptionTextStyle}"
-                                               Margin="0,2,0,0" />
-                                    <Border Margin="0,10,18,0" Padding="10,8"
-                                            CornerRadius="{StaticResource ControlCornerRadius}"
-                                            Background="{StaticResource PanelAltBrush}"
-                                            ToolTip="{Binding WallpaperPathToolTip}">
-                                        <StackPanel>
-                                            <TextBlock Text="CURRENT WALLPAPER" Style="{StaticResource EyebrowTextStyle}" />
-                                            <TextBlock Text="{Binding WallpaperName}" Style="{StaticResource BodyTextStyle}"
-                                                       Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                                                       Margin="0,4,0,0" />
-                                        </StackPanel>
-                                    </Border>
+                                    </WrapPanel>
+                                    <TextBlock TextWrapping="Wrap" Margin="0,5,0,0" FontSize="12">
+                                        <Run Text="{Binding DeviceName, Mode=OneWay}" />
+                                        <Run Text="&#x2022;" Foreground="{StaticResource MutedBrush}" />
+                                        <Run Text="{Binding ResolutionText, Mode=OneWay}" Foreground="{StaticResource MutedBrush}" />
+                                    </TextBlock>
+                                    <TextBlock TextWrapping="Wrap" Margin="0,3,0,0" FontSize="12"
+                                               ToolTip="{Binding WallpaperPathToolTip}">
+                                        <Run Text="Wallpaper: " Foreground="{StaticResource MutedBrush}" />
+                                        <Run Text="{Binding WallpaperName, Mode=OneWay}" />
+                                    </TextBlock>
                                 </StackPanel>
 
-                                <!-- One large, named per-display action. Bound IsEnabled
-                                     (never a literal False) so Span can disable it. -->
+                                <!-- One named per-display action. IsEnabled is bound
+                                     (never a literal False) so Span can disable it; the
+                                     shared PrimaryButtonStyle template stays dark. -->
                                 <Button Grid.Column="2" Style="{StaticResource PrimaryButtonStyle}"
-                                        Padding="18,12" Margin="16,0,0,0" VerticalAlignment="Center"
+                                        Padding="12,9" Margin="14,0,0,0" VerticalAlignment="Center"
                                         AutomationProperties.Name="{Binding ChooseImageAutomationName}"
                                         ToolTip="Choose an image for this display. Unavailable while Span mode is active."
                                         IsEnabled="{Binding DataContext.CanChoosePerMonitorImage, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -196,7 +217,7 @@
                                         CommandParameter="{Binding}">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="&#xE8B9;" Style="{StaticResource DisplayGlyph}"
-                                                   FontSize="15" Margin="0,0,8,0" />
+                                                   FontSize="13" Margin="0,0,7,0" />
                                         <TextBlock Text="Choose image" />
                                     </StackPanel>
                                 </Button>
@@ -207,7 +228,8 @@
             </ItemsControl>
 
             <TextBlock Text="Per-monitor images apply only when the fit mode is not Span."
-                       Style="{StaticResource CaptionTextStyle}" Margin="0,2,0,0" TextWrapping="Wrap" />
+                       Style="{StaticResource CaptionTextStyle}" FontSize="12"
+                       Margin="0,2,0,0" TextWrapping="Wrap" />
         </StackPanel>
     </ScrollViewer>
 </UserControl>

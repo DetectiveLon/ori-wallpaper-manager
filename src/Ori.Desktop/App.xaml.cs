@@ -23,6 +23,9 @@ public partial class App : Application
 
     private static bool _trayHintShown;
     private static readonly object LogGate = new();
+    // One recurring failure can log on every layout pass. Never let that turn into
+    // a stream of tray balloons; every failure is still written to the log.
+    private static DateTimeOffset _lastErrorNoticeUtc;
 
     private Mutex? _instanceMutex;
     private EventWaitHandle? _activateEvent;
@@ -250,6 +253,14 @@ public partial class App : Application
         }
 
         // Non-intrusive, user-visible notice. Tray may be null during startup.
+        // Rate-limited: a bug that fires on every layout pass must not produce a
+        // stream of notifications. The log above always records every failure.
+        lock (LogGate)
+        {
+            if (DateTimeOffset.UtcNow - _lastErrorNoticeUtc < TimeSpan.FromMinutes(1))
+                return;
+            _lastErrorNoticeUtc = DateTimeOffset.UtcNow;
+        }
         Tray?.Notify(
             "Ori",
             "Something went wrong. Details were saved to the diagnostic log.",
