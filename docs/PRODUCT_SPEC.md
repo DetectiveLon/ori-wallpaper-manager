@@ -6,13 +6,13 @@ A static-wallpaper manager for Windows 11 that makes finding, previewing, saving
 
 ## Information architecture
 
-1. **Discover** (landing page) - search and curated filters; preview; set now; save to library; add to a collection; tag presets and automatic rotation feeds.
+1. **Discover** (landing page) - search and curated filters; preview; set now; save to library; add to a collection; tag presets; save the current filters as a named rotation feed.
 2. **Library** - all saved files, collections, favourites, local-folder import, duplicate detection, and search.
-3. **Displays** - interactive monitor layout; select a display; choose source/image; fit mode; preview.
-4. **Automation** - global and per-display schedules, exact next-run time, skip, previous, pause, resume, and fullscreen deferral.
+3. **Displays** - a scaled diagram of the real monitor layout; select a display; choose source/image; fit mode with a live preview; span control.
+4. **Auto rotation** - global and per-display schedules, Wallhaven rotation feeds with cadence and round-robin cycling, exact next-run time, previous, pause, resume, and fullscreen deferral.
 5. **Settings** - appearance, startup, cache, provider credentials, and privacy.
 
-(The former **Overview** screen was removed in `v2-shell`; Discover is the landing page.)
+(The former **Overview** screen was removed in `v2-shell`; Discover is the landing page. The former **Automation** page is now called Auto rotation; its internal key is unchanged.)
 
 ## Discovery filters
 
@@ -35,6 +35,14 @@ Wallhaven provider requirements:
 - Preview the final crop/fill before applying.
 - An apply operation is transactional from the UI's perspective: preserve the prior wallpaper if download, decode, render, or apply fails.
 - All downloads have a maximum byte count; all decoded images have dimension/pixel limits.
+
+## Rotation feeds
+
+- A feed is a named Wallhaven filter set with its own cadence (15 minutes to 7 days), enable state, and fetch/apply history. Users save feeds explicitly from Discover and manage them on Auto rotation.
+- Feeds are ordered. Fetching cycles round-robin through enabled feeds that are due, skipping feeds still in backoff. The master Wallhaven opt-in gates all feeds.
+- Fetch failures use exponential backoff from 30 seconds to 15 minutes, and that state is persisted so a restart cannot reset it and hammer the provider.
+- A fetched image is applied on the next rotation for the target display, or immediately when "Fetch now" is used. Fetching is serialized app-wide so many displays cannot overlap requests.
+- Existing single-feed settings migrate silently to one feed named "Saved search", preserving the opt-in and cadence. The API key is never written into feed settings; it stays protected by DPAPI.
 
 ## Scheduler contract
 

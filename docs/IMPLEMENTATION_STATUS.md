@@ -31,8 +31,11 @@ This is a progress record, not a release-readiness claim.
   SHA-256 duplicate detection.
 - System-tray icon with Open/Exit, launch-at-sign-in (HKCU Run) and balloon
   notifications (`TrayIconService.Notify`).
-- Automatic Wallhaven rotation from persisted tag feeds (`WallhavenFeedStore`)
-  with local caching; tag presets and an editable tag/collection ComboBox.
+- Automatic Wallhaven rotation from an ordered list of named feeds
+  (`WallhavenFeedStore` v2) with per-feed cadence, round-robin cycling,
+  persisted backoff, local caching and silent v1 migration; tag presets and an
+  editable tag/collection ComboBox. Feeds are authored in Discover and managed
+  on Auto rotation.
 - App-wide dark implicit styles and a custom window chrome.
 - Static regression guards: `scripts/check-theme.ps1`, `check-buttons.ps1`,
   `check-tray.ps1`, `check-invariants.ps1`.

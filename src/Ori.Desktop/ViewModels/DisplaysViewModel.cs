@@ -9,11 +9,25 @@ namespace Ori.Desktop.ViewModels;
 /// <summary>View model for the Displays page: enumerates monitors and applies per-display wallpapers.</summary>
 public sealed class DisplaysViewModel : ViewModelBase
 {
+    // Diagram geometry. The canvas fits the virtual desktop into a readable
+    // surface, but never shrinks a monitor card below the size its content needs.
+    private const double DiagramMaxWidth = 720;
+    private const double DiagramMaxHeight = 380;
+    private const double DiagramPadding = 16;
+    private const double MinimumCardWidth = 260;
+    private const double MinimumCardHeight = 190;
+
     private string _status = string.Empty;
     private DesktopWallpaperPosition _currentPosition = DesktopWallpaperPosition.Fill;
     private WallpaperPositionOption? _selectedPositionOption;
     private bool _suppressPositionApplication;
     private DisplayCardViewModel? _selectedMonitor;
+    private double _layoutWidth = DiagramMaxWidth;
+    private double _layoutHeight = 220;
+    private double _originLeft;
+    private double _originTop;
+    private bool _originVisible;
+    private bool _noMonitors;
 
     public DisplaysViewModel()
     {
@@ -111,8 +125,55 @@ public sealed class DisplaysViewModel : ViewModelBase
 
     public bool IsSpanActive => CurrentPosition == DesktopWallpaperPosition.Span;
 
+    // Per-mode flags drive the fit illustration's visual states in XAML without a
+    // converter or a second page-level style library.
+    public bool IsFill => CurrentPosition == DesktopWallpaperPosition.Fill;
+    public bool IsFit => CurrentPosition == DesktopWallpaperPosition.Fit;
+    public bool IsStretch => CurrentPosition == DesktopWallpaperPosition.Stretch;
+    public bool IsCenter => CurrentPosition == DesktopWallpaperPosition.Center;
+    public bool IsTile => CurrentPosition == DesktopWallpaperPosition.Tile;
+    public bool IsSpan => CurrentPosition == DesktopWallpaperPosition.Span;
+
     /// <summary>Binding source for disabling per-monitor image actions while Span is active.</summary>
     public bool CanChoosePerMonitorImage => !IsSpanActive;
+
+    // Geometry for the monitor diagram. Values are DIPs inside the Canvas, derived
+    // from DisplayMonitor.Left/Top/Width/Height at every refresh.
+    public double LayoutWidth
+    {
+        get => _layoutWidth;
+        private set => SetProperty(ref _layoutWidth, value, nameof(LayoutWidth));
+    }
+
+    public double LayoutHeight
+    {
+        get => _layoutHeight;
+        private set => SetProperty(ref _layoutHeight, value, nameof(LayoutHeight));
+    }
+
+    public double OriginLeft
+    {
+        get => _originLeft;
+        private set => SetProperty(ref _originLeft, value, nameof(OriginLeft));
+    }
+
+    public double OriginTop
+    {
+        get => _originTop;
+        private set => SetProperty(ref _originTop, value, nameof(OriginTop));
+    }
+
+    public bool OriginVisible
+    {
+        get => _originVisible;
+        private set => SetProperty(ref _originVisible, value, nameof(OriginVisible));
+    }
+
+    public bool NoMonitors
+    {
+        get => _noMonitors;
+        private set => SetProperty(ref _noMonitors, value, nameof(NoMonitors));
+    }
 
     public DesktopWallpaperPosition CurrentPosition
     {
@@ -128,6 +189,12 @@ public sealed class DisplaysViewModel : ViewModelBase
             OnPropertyChanged(nameof(SelectedPositionOption));
             OnPropertyChanged(nameof(PositionDescription));
             OnPropertyChanged(nameof(IsSpanActive));
+            OnPropertyChanged(nameof(IsFill));
+            OnPropertyChanged(nameof(IsFit));
+            OnPropertyChanged(nameof(IsStretch));
+            OnPropertyChanged(nameof(IsCenter));
+            OnPropertyChanged(nameof(IsTile));
+            OnPropertyChanged(nameof(IsSpan));
             OnPropertyChanged(nameof(CanChoosePerMonitorImage));
             ((RelayCommand)ChooseImageCommand).RaiseCanExecuteChanged();
         }
@@ -282,6 +349,61 @@ public sealed class DisplaysViewModel : ViewModelBase
         {
             Status = $"Could not read display information: {ex.Message}";
         }
+        finally
+        {
+            // Detection can fail at any point; the diagram must still reflect the
+            // monitors that were actually read, even if that list is empty.
+            UpdateLayout();
+        }
+    }
+
+    /// <summary>
+    /// Maps the virtual desktop reported by Windows onto the diagram canvas.
+    /// Cards keep their relative positions, and never become too small to use.
+    /// </summary>
+    private void UpdateLayout()
+    {
+        if (Monitors.Count == 0)
+        {
+            LayoutWidth = DiagramMaxWidth;
+            LayoutHeight = 220;
+            OriginVisible = false;
+            NoMonitors = true;
+            return;
+        }
+
+        NoMonitors = false;
+
+        var left = Monitors.Min(monitor => monitor.Left);
+        var top = Monitors.Min(monitor => monitor.Top);
+        var right = Monitors.Max(monitor => monitor.Left + monitor.Width);
+        var bottom = Monitors.Max(monitor => monitor.Top + monitor.Height);
+        var virtualWidth = Math.Max(1d, (double)right - left);
+        var virtualHeight = Math.Max(1d, (double)bottom - top);
+
+        var fitScale = Math.Min(
+            (DiagramMaxWidth - 2 * DiagramPadding) / virtualWidth,
+            (DiagramMaxHeight - 2 * DiagramPadding) / virtualHeight);
+        var minimumScale = Monitors.Max(monitor =>
+            Math.Max(
+                MinimumCardWidth / Math.Max(1d, monitor.Width),
+                MinimumCardHeight / Math.Max(1d, monitor.Height)));
+        var scale = Math.Max(fitScale, minimumScale);
+
+        foreach (var monitor in Monitors)
+        {
+            monitor.SetDiagramBounds(
+                left: DiagramPadding + (monitor.Left - left) * scale,
+                top: DiagramPadding + (monitor.Top - top) * scale,
+                width: monitor.Width * scale,
+                height: monitor.Height * scale);
+        }
+
+        LayoutWidth = virtualWidth * scale + 2 * DiagramPadding;
+        LayoutHeight = virtualHeight * scale + 2 * DiagramPadding;
+        OriginLeft = DiagramPadding - left * scale;
+        OriginTop = DiagramPadding - top * scale;
+        OriginVisible = left <= 0 && right >= 0 && top <= 0 && bottom >= 0;
     }
 
     private void RefreshPosition()
@@ -327,6 +449,10 @@ public sealed class WallpaperPositionOption
 public sealed class DisplayCardViewModel : ViewModelBase
 {
     private bool _isSelected;
+    private double _diagramLeft;
+    private double _diagramTop;
+    private double _diagramWidth;
+    private double _diagramHeight;
 
     public DisplayCardViewModel(DisplayMonitor monitor, int index = 0)
     {
@@ -350,6 +476,20 @@ public sealed class DisplayCardViewModel : ViewModelBase
     public int Width { get; }
     public int Height { get; }
     public string? CurrentWallpaper { get; }
+
+    /// <summary>Canvas bounds for the scaled layout diagram, set by the page view model.</summary>
+    public double DiagramLeft => _diagramLeft;
+    public double DiagramTop => _diagramTop;
+    public double DiagramWidth => _diagramWidth;
+    public double DiagramHeight => _diagramHeight;
+
+    internal void SetDiagramBounds(double left, double top, double width, double height)
+    {
+        SetProperty(ref _diagramLeft, left, nameof(DiagramLeft));
+        SetProperty(ref _diagramTop, top, nameof(DiagramTop));
+        SetProperty(ref _diagramWidth, width, nameof(DiagramWidth));
+        SetProperty(ref _diagramHeight, height, nameof(DiagramHeight));
+    }
 
     public bool IsSelected
     {

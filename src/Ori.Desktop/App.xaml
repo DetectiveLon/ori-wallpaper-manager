@@ -49,9 +49,18 @@
         <SolidColorBrush x:Key="StrongBorderBrush" Color="#34435A" />
         <SolidColorBrush x:Key="DividerBrush" Color="#222B37" />
 
-        <!-- Navigation surfaces. -->
-        <SolidColorBrush x:Key="NavHoverBrush" Color="#1C2734" />
-        <SolidColorBrush x:Key="NavSelectedBrush" Color="{StaticResource AccentTintColor}" />
+        <!-- Navigation rail surfaces: quiet by default, elevated on hover/press,
+             and a distinct selected tint with its own outline. -->
+        <SolidColorBrush x:Key="RailSurfaceBrush" Color="#0E1520" />
+        <SolidColorBrush x:Key="RailOutlineBrush" Color="#1E2A3A" />
+        <SolidColorBrush x:Key="RailDividerBrush" Color="#1B2635" />
+        <SolidColorBrush x:Key="NavHoverBrush" Color="#182534" />
+        <SolidColorBrush x:Key="NavPressedBrush" Color="#243A57" />
+        <SolidColorBrush x:Key="NavActiveBrush" Color="#1C3B5E" />
+        <SolidColorBrush x:Key="NavActiveBorderBrush" Color="#2E5A8C" />
+        <SolidColorBrush x:Key="NavSectionLabelBrush" Color="#7E91A8" />
+        <SolidColorBrush x:Key="RailStatusBackgroundBrush" Color="#152131" />
+        <SolidColorBrush x:Key="RailStatusBorderBrush" Color="#253548" />
 
         <!-- Custom title bar. -->
         <SolidColorBrush x:Key="TitleBarBrush" Color="#10161F" />
@@ -91,6 +100,14 @@
         <sys:Double x:Key="BodySize">13</sys:Double>
         <sys:Double x:Key="CaptionSize">11</sys:Double>
         <sys:Double x:Key="NavSize">13</sys:Double>
+        <!-- Rail sizing tokens. NavSize is kept for the shared type scale; the
+             rail itself uses the larger label/icon/row values below. -->
+        <sys:Double x:Key="NavLabelSize">14</sys:Double>
+        <sys:Double x:Key="NavIconSize">17</sys:Double>
+        <sys:Double x:Key="NavRowHeight">44</sys:Double>
+        <GridLength x:Key="RailWidth">240</GridLength>
+        <CornerRadius x:Key="NavItemCornerRadius">12</CornerRadius>
+        <Thickness x:Key="NavItemPadding">12,10,12,10</Thickness>
         <sys:Double x:Key="ButtonSize">13</sys:Double>
         <sys:Double x:Key="GlyphSize">16</sys:Double>
         <sys:Double x:Key="WindowGlyphSize">12</sys:Double>
@@ -190,38 +207,76 @@
             <Setter Property="Background" Value="{StaticResource AccentTintBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Padding" Value="8,3" />
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
-        <!-- Sidebar navigation: icon + label, subtle selected state. -->
+        <!-- Rail section labels: quiet, uppercase, and consistently sized. -->
+        <Style x:Key="NavGroupHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource EyebrowTextStyle}">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{StaticResource NavSectionLabelBrush}" />
+        </Style>
+        <Style x:Key="RailZoneLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource EyebrowTextStyle}">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{StaticResource NavSectionLabelBrush}" />
+        </Style>
+        <!-- Divider between rail groups, inset to line up with the section label. -->
+        <Style x:Key="NavGroupRuleStyle" TargetType="Border">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Background" Value="{StaticResource RailDividerBrush}" />
+            <Setter Property="Margin" Value="24,0,24,0" />
+        </Style>
+        <!-- Local-only status chip in the rail footer. -->
+        <Style x:Key="RailStatusChipStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource RailStatusBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource RailStatusBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="12,10" />
+        </Style>
+
+        <!-- Sidebar navigation: icon + label. Hover is a subtle tint, press is
+             deeper, and the selected row adds a left accent bar so selection is
+             never colour-only. -->
         <Style x:Key="NavButtonStyle" TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="{StaticResource NavItemPadding}" />
+            <Setter Property="MinHeight" Value="{StaticResource NavRowHeight}" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="FontSize" Value="{StaticResource NavSize}" />
+            <Setter Property="FontSize" Value="{StaticResource NavLabelSize}" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="AutomationProperties.ItemStatus" Value="" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Surface" Background="{TemplateBinding Background}"
-                                CornerRadius="10" Padding="{TemplateBinding Padding}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{StaticResource NavItemCornerRadius}"
+                                Padding="{TemplateBinding Padding}"
                                 SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                            <Grid>
+                                <Border x:Name="ActiveBar" Width="3" Height="20"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        CornerRadius="1.5" Background="{StaticResource AccentBrush}"
+                                        Opacity="0" />
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}" />
+                            </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Surface" Property="Background" Value="{StaticResource NavHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource NavSelectedBrush}" />
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource NavPressedBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Surface" Property="Opacity" Value="0.45" />
@@ -237,9 +292,11 @@
                                         <Binding Path="Tag" RelativeSource="{RelativeSource TemplatedParent}" />
                                     </MultiBinding>
                                 </DataTrigger.Binding>
-                                <Setter TargetName="Surface" Property="Background"
-                                        Value="{StaticResource NavSelectedBrush}" />
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource NavActiveBrush}" />
+                                <Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource NavActiveBorderBrush}" />
+                                <Setter TargetName="ActiveBar" Property="Opacity" Value="1" />
                                 <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                <Setter Property="AutomationProperties.ItemStatus" Value="Selected" />
                             </DataTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

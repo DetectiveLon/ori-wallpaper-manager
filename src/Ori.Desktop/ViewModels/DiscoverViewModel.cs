@@ -105,6 +105,43 @@ public sealed class WallpaperCard : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
+/// <summary>
+/// One saved rotation feed in the Discover rail. Holds the parent view-model so the
+/// row's buttons can reach its commands without leaving the items template.
+/// </summary>
+public sealed class FeedItemViewModel
+{
+    public FeedItemViewModel(RotationFeed feed, DiscoverViewModel parent)
+    {
+        Feed = feed;
+        Parent = parent;
+    }
+
+    public RotationFeed Feed { get; }
+    public DiscoverViewModel Parent { get; }
+
+    public string Id => Feed.Id;
+    public string Name => Feed.Name;
+    public int CadenceMinutes => Feed.CadenceMinutes;
+    public bool IsEnabled => Feed.Enabled;
+
+    /// <summary>Backoff, failure count and the last successful fetch in one compact line.</summary>
+    public string StatusText
+    {
+        get
+        {
+            var notes = new List<string>();
+            if (Feed.BackoffUntilUtc is { } backoff && backoff > DateTimeOffset.UtcNow)
+                notes.Add($"Paused until {backoff.ToLocalTime():g}");
+            if (Feed.ConsecutiveFailures > 0)
+                notes.Add($"{Feed.ConsecutiveFailures} failed attempt(s)");
+            if (Feed.LastFetchedUtc is { } fetched)
+                notes.Add($"Last fetched {fetched.ToLocalTime():g}");
+            return notes.Count == 0 ? "Not fetched yet" : string.Join(" · ", notes);
+        }
+    }
+}
+
 /// <summary>Wallhaven discovery and direct-to-display wallpaper selection (MVVM port of DiscoverPage).</summary>
 public sealed class DiscoverViewModel : ViewModelBase
 {
@@ -123,6 +160,10 @@ public sealed class DiscoverViewModel : ViewModelBase
     private readonly DelegateCommand _openPageCommand;
     private readonly DelegateCommand _applyPresetCommand;
     private readonly DelegateCommand _applyTagCommand;
+    private readonly DelegateCommand _saveAsFeedCommand;
+    private readonly DelegateCommand _refreshFeedsCommand;
+    private readonly DelegateCommand _removeFeedCommand;
+    private readonly DelegateCommand _toggleFeedEnabledCommand;
 
     private WallhavenSearchPage? _currentPage;
     private WallhavenFilters? _currentFilters;
@@ -237,6 +278,16 @@ public sealed class DiscoverViewModel : ViewModelBase
                 return Task.CompletedTask;
             },
             tag => tag is string, ReportCommandFailure);
+        _saveAsFeedCommand = new DelegateCommand(_ => SaveAsFeedAsync(), _ => !_busy, ReportCommandFailure);
+        _refreshFeedsCommand = new DelegateCommand(_ =>
+            {
+                RefreshFeeds();
+                return Task.CompletedTask;
+            }, _ => true, ReportCommandFailure);
+        _removeFeedCommand = new DelegateCommand(RemoveFeedAsync,
+            parameter => parameter is string, ReportCommandFailure);
+        _toggleFeedEnabledCommand = new DelegateCommand(ToggleFeedEnabledAsync,
+            parameter => parameter is string, ReportCommandFailure);
     }
 
     // Filter state. Most values are plain auto-properties (two-way bindings write
@@ -307,6 +358,13 @@ public sealed class DiscoverViewModel : ViewModelBase
     public ObservableCollection<DisplayMonitor> Monitors { get; } = [];
     public ObservableCollection<WallpaperCard> Results { get; } = [];
 
+    // Rotation feed authoring. Filters come from the same builder Search uses, so a
+    // feed can never carry a query that the search endpoint would reject.
+    public string FeedName { get; set; } = string.Empty;
+    public int SelectedFeedCadence { get; set; } = 60;
+    public IReadOnlyList<int> FeedCadenceChoices { get; } = [15, 30, 60, 120, 360, 720, 1440];
+    public ObservableCollection<FeedItemViewModel> Feeds { get; } = [];
+
     public DisplayMonitor? SelectedMonitor
     {
         get => _selectedMonitor;
@@ -363,6 +421,10 @@ public sealed class DiscoverViewModel : ViewModelBase
     public ICommand OpenPageCommand => _openPageCommand;
     public ICommand ApplyPresetCommand => _applyPresetCommand;
     public ICommand ApplyTagCommand => _applyTagCommand;
+    public ICommand SaveAsFeedCommand => _saveAsFeedCommand;
+    public ICommand RefreshFeedsCommand => _refreshFeedsCommand;
+    public ICommand RemoveFeedCommand => _removeFeedCommand;
+    public ICommand ToggleFeedEnabledCommand => _toggleFeedEnabledCommand;
 
     /// <summary>Enumerates displays once the view is loaded; detection failures stay non-fatal.</summary>
     public void LoadDisplays()
@@ -450,6 +512,10 @@ public sealed class DiscoverViewModel : ViewModelBase
         _applyCommand.RaiseCanExecuteChanged();
         _applySelectedCommand.RaiseCanExecuteChanged();
         _openPageCommand.RaiseCanExecuteChanged();
+        _saveAsFeedCommand.RaiseCanExecuteChanged();
+        _refreshFeedsCommand.RaiseCanExecuteChanged();
+        _removeFeedCommand.RaiseCanExecuteChanged();
+        _toggleFeedEnabledCommand.RaiseCanExecuteChanged();
     }
 
     private async Task SearchFirstPageAsync()
@@ -600,6 +666,123 @@ public sealed class DiscoverViewModel : ViewModelBase
         {
             // Remembering tags is a convenience; never fail a search over it.
         }
+    }
+
+    /// <summary>
+    /// Saves the current filters as an explicitly named rotation feed. This is the
+    /// authoring path: the silent Save(filters, 60) in SearchFirstPageAsync only
+    /// maintains the legacy compat record and never touches these feeds.
+    /// </summary>
+    private Task SaveAsFeedAsync()
+    {
+        try
+        {
+            var filters = BuildFilters();
+            var name = FeedName.Trim();
+            if (name.Length == 0)
+                name = Tags.Trim();
+            if (name.Length == 0)
+                name = $"Wallhaven feed {Feeds.Count + 1}";
+
+            var feed = new RotationFeed
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = name,
+                Filters = filters,
+                CadenceMinutes = SelectedFeedCadence,
+                Enabled = true,
+                LastFetchedUtc = null,
+                BackoffUntilUtc = null,
+                ConsecutiveFailures = 0,
+                LastAppliedId = null
+            };
+            feed.Validate();
+            WallhavenFeedStore.UpsertFeed(feed);
+            RecordTags(filters.Query);
+            RefreshFeeds();
+            Status = $"Rotation feed “{feed.Name}” saved — fetches every {feed.CadenceMinutes} min.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not save rotation feed: {ex.Message}";
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Repopulates the rail from the store; collection updates happen on the UI thread.</summary>
+    public void RefreshFeeds()
+    {
+        try
+        {
+            var saved = WallhavenFeedStore.ListFeeds().ToArray();
+            OnUiThread(() =>
+            {
+                Feeds.Clear();
+                foreach (var feed in saved)
+                    Feeds.Add(new FeedItemViewModel(feed, this));
+            });
+        }
+        catch (Exception ex)
+        {
+            OnUiThread(() => Status = $"Could not load rotation feeds: {ex.Message}");
+        }
+    }
+
+    private Task RemoveFeedAsync(object? parameter)
+    {
+        if (parameter is not string id)
+            return Task.CompletedTask;
+        try
+        {
+            WallhavenFeedStore.RemoveFeed(id);
+            RefreshFeeds();
+            Status = "Rotation feed removed.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not remove rotation feed: {ex.Message}";
+        }
+        return Task.CompletedTask;
+    }
+
+    private Task ToggleFeedEnabledAsync(object? parameter)
+    {
+        if (parameter is not string id)
+            return Task.CompletedTask;
+        try
+        {
+            var feed = WallhavenFeedStore.ListFeeds()
+                .FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.Ordinal));
+            if (feed is null)
+            {
+                Status = "That rotation feed no longer exists.";
+                RefreshFeeds();
+                return Task.CompletedTask;
+            }
+
+            // Rebuild rather than mutate: the stored record owns its metadata and may
+            // expose it as init-only, so every field is copied explicitly.
+            var updated = new RotationFeed
+            {
+                Id = feed.Id,
+                Name = feed.Name,
+                Filters = feed.Filters,
+                CadenceMinutes = feed.CadenceMinutes,
+                Enabled = !feed.Enabled,
+                LastFetchedUtc = feed.LastFetchedUtc,
+                BackoffUntilUtc = feed.BackoffUntilUtc,
+                ConsecutiveFailures = feed.ConsecutiveFailures,
+                LastAppliedId = feed.LastAppliedId
+            };
+            WallhavenFeedStore.UpsertFeed(updated);
+            RefreshFeeds();
+            Status = $"Rotation feed “{feed.Name}” {(updated.Enabled ? "enabled" : "disabled")}.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not update rotation feed: {ex.Message}";
+        }
+        return Task.CompletedTask;
     }
 
     private async Task ChangePageAsync(int delta)

@@ -84,10 +84,13 @@ public sealed class MainViewModel : ViewModelBase
                 "Browse wallpapers saved on this PC (Alt+L)", "L", "My _library", 4),
 
             // YOUR DESKTOP
+            // REMOVAL POINT: "Displays" is still in the rail for now. When the
+            // page is retired, delete this item and its "displays" header case;
+            // NavigationService's "displays" case can go with it.
             new("Displays", "Displays", "\uE7F4", "YOUR DESKTOP",
                 "Choose an image for each monitor (Alt+P)", "P", "Dis_plays", 5),
-            new("Automation", "Automation", "\uE8B3", "YOUR DESKTOP",
-                "Configure per-display rotation (Alt+A)", "A", "_Automation", 6),
+            new("Automation", "Auto rotation", "\uE8B3", "YOUR DESKTOP",
+                "Cycle Wallhaven sources and per-display rotation (Alt+A)", "A", "_Auto rotation", 6),
 
             // APP
             new("Settings", "Settings", "\uE713", "APP",
@@ -125,6 +128,14 @@ public sealed class MainViewModel : ViewModelBase
     /// </summary>
     public AutomationView? AutomationView =>
         _navigation.TryGetView("Automation", out var view) ? view as AutomationView : null;
+
+    /// <summary>
+    /// Returns the cached Automation view, creating it on first use, without
+    /// changing the visible page. Startup uses this to initialise saved rotation
+    /// schedules even though Discover is the landing page.
+    /// </summary>
+    public AutomationView? EnsureAutomationView() =>
+        _navigation.CreateView("Automation") as AutomationView;
 
     public ICommand NavigateCommand { get; }
 
@@ -167,8 +178,8 @@ public sealed class MainViewModel : ViewModelBase
         {
             "discover" => ("Discover wallpapers.", "Search Wallhaven, preview results and save what you like."),
             "library" => ("Your wallpaper library.", "Saved images stay on your PC and remain available offline."),
-            "displays" => ("One setup for every display.", "See your actual monitor layout and choose an image for each screen."),
-            "automation" => ("Independent rotation for every screen.", "Separate schedules, clear countdowns and full-screen pause detection."),
+            "displays" => ("Make every screen feel right.", "Arrange your monitors, pick an image for each, and set how it fits."),
+            "automation" => ("Wallpapers that change on their own.", "Set a rhythm per display and cycle through Wallhaven sources automatically."),
             "settings" => ("Preferences.", "Keep the controls that matter. Leave the rest out of the way."),
             _ => ("Your desktop, in order.", "Choose what you want to see. Or let Ori take care of the rotation.")
         };

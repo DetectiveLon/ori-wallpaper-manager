@@ -13,6 +13,7 @@
          from it; the About page reads AssemblyInformationalVersion. -->
     <Version>1.0.0</Version>
     <Product>Ori</Product>
+    <ApplicationIcon>..\..\assets\Ori.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>

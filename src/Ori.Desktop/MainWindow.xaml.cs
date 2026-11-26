@@ -23,6 +23,33 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         // Discover is the landing page now; Overview was removed from the shell.
         _shell.Navigate("Discover");
+
+        // Saved schedules must start at launch, not only when Automation is visited.
+        // Fire-and-forget: the helper observes its own exceptions, so a failure
+        // here can never block or crash startup.
+        _ = BootstrapAutomationAsync();
+    }
+
+    /// <summary>
+    /// Resolves the cached Automation view and initialises its view model so
+    /// saved per-display schedules begin running from launch. Runs off the
+    /// constructor's call stack and swallows failures: rotation is a convenience,
+    /// not a startup prerequisite. The view model's own one-shot guard makes the
+    /// later Loaded handler's call safe.
+    /// </summary>
+    private async Task BootstrapAutomationAsync()
+    {
+        try
+        {
+            var automationView = _shell.EnsureAutomationView();
+            if (automationView is null)
+                return;
+            await automationView.ViewModel.InitializeAsync();
+        }
+        catch (Exception)
+        {
+            // Startup must succeed even if saved schedules cannot be restored.
+        }
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)

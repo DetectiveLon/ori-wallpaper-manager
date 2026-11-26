@@ -5,99 +5,39 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:vm="clr-namespace:Ori.Desktop.ViewModels"
              mc:Ignorable="d"
-             d:DesignHeight="760" d:DesignWidth="960"
+             d:DesignHeight="860" d:DesignWidth="960"
              Background="{StaticResource WindowBrush}">
     <UserControl.Resources>
-        <!-- Card action buttons are self-contained. They must not inherit a theme
-             style: the Windows disabled template is what painted the Pause and
-             Stop actions white. Every brush below is an explicit dark palette
-             resource, and being disabled only dims opacity. -->
-        <ControlTemplate x:Key="CardSecondaryButtonTemplate" TargetType="Button">
-            <Border x:Name="Surface"
-                    Background="{StaticResource PanelAltBrush}"
-                    BorderBrush="{StaticResource ControlBorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="{StaticResource ControlCornerRadius}"
-                    Padding="{TemplateBinding Padding}"
-                    SnapsToDevicePixels="True">
-                <ContentPresenter HorizontalAlignment="Center"
-                                  VerticalAlignment="Center"
-                                  TextElement.Foreground="{StaticResource TextBrush}" />
-            </Border>
-            <ControlTemplate.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlHoverBrush}" />
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlPressedBrush}" />
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter TargetName="Surface" Property="Opacity" Value="0.42" />
-                </Trigger>
-            </ControlTemplate.Triggers>
-        </ControlTemplate>
-        <Style x:Key="CardActionButton" TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="FontSize" Value="13" />
+        <!-- The app-wide SecondaryButtonStyle / PrimaryButtonStyle already carry
+             self-contained dark templates with a dimmed (never white) disabled
+             state. Only sizing is added here; no local template pair is needed. -->
+        <Style x:Key="CardActionButton" TargetType="Button"
+               BasedOn="{StaticResource SecondaryButtonStyle}">
             <Setter Property="MinHeight" Value="36" />
             <Setter Property="MinWidth" Value="86" />
-            <Setter Property="Padding" Value="14,8" />
             <Setter Property="Margin" Value="0,0,8,8" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template" Value="{StaticResource CardSecondaryButtonTemplate}" />
         </Style>
-
-        <ControlTemplate x:Key="CardPrimaryButtonTemplate" TargetType="Button">
-            <Border x:Name="Surface"
-                    Background="{StaticResource AccentBrush}"
-                    CornerRadius="{StaticResource ControlCornerRadius}"
-                    Padding="{TemplateBinding Padding}"
-                    SnapsToDevicePixels="True">
-                <ContentPresenter HorizontalAlignment="Center"
-                                  VerticalAlignment="Center"
-                                  TextElement.Foreground="{StaticResource OnAccentBrush}" />
-            </Border>
-            <ControlTemplate.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="Surface" Property="Background" Value="{StaticResource AccentHoverBrush}" />
-                </Trigger>
-                <Trigger Property="IsPressed" Value="True">
-                    <Setter TargetName="Surface" Property="Opacity" Value="0.85" />
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter TargetName="Surface" Property="Opacity" Value="0.42" />
-                </Trigger>
-            </ControlTemplate.Triggers>
-        </ControlTemplate>
-        <Style x:Key="CardPrimaryActionButton" TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource OnAccentBrush}" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+        <Style x:Key="CardPrimaryActionButton" TargetType="Button"
+               BasedOn="{StaticResource PrimaryButtonStyle}">
             <Setter Property="MinHeight" Value="36" />
             <Setter Property="MinWidth" Value="92" />
-            <Setter Property="Padding" Value="16,8" />
             <Setter Property="Margin" Value="0,0,8,8" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template" Value="{StaticResource CardPrimaryButtonTemplate}" />
         </Style>
     </UserControl.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <!-- The shell already renders the page eyebrow/title/subtitle. Starting the
-             scroll content at the global controls card keeps that card wholly
-             visible at scroll offset zero instead of hidden behind a second,
-             redundant title block. -->
+        <!-- The shell renders the page eyebrow/title/subtitle, so the first card is
+             the top of this scroll content. -->
         <StackPanel Margin="0,0,0,24">
 
             <!-- Global controls: one master switch for every display, plus Wallhaven opt-in. -->
             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,20" Padding="18">
                 <StackPanel>
                     <TextBlock Text="Global controls" Style="{StaticResource SectionTitleStyle}" />
-                    <TextBlock Style="{StaticResource CaptionTextStyle}" FontSize="12"
-                               Margin="0,6,0,0" TextWrapping="Wrap"
+                    <TextBlock Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"
+                               Margin="0,6,0,0"
                                Text="These settings apply across all displays. Each display can still opt out of full-screen pausing on its own card." />
-                    <Border Height="1" Background="{StaticResource DividerBrush}"
-                            Margin="0,14,0,14" />
+                    <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,14,0,14" />
 
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -105,32 +45,115 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                            <TextBlock Text="MASTER SWITCH" Style="{StaticResource FieldLabelStyle}"
-                                       FontSize="12" Margin="0,0,0,4" />
+                            <TextBlock Text="MASTER SWITCH" Style="{StaticResource FieldLabelStyle}" />
                             <CheckBox Content="Pause rotation while a full-screen app is active"
                                       IsChecked="{Binding PauseWhenFullscreen, Mode=TwoWay}"
                                       FontSize="13" MinHeight="36"
                                       ToolTip="Master switch: rotation pauses only on displays that also have their own full-screen pause enabled."
                                       AutomationProperties.Name="Master switch: pause rotation while a full-screen app is active" />
                             <TextBlock Text="LIBRARY" Style="{StaticResource FieldLabelStyle}"
-                                       FontSize="12" Margin="0,12,0,4" />
-                            <CheckBox Content="Auto-fetch from Wallhaven using current Discover filters"
+                                       Margin="0,14,0,0" />
+                            <CheckBox Content="Enable automatic Wallhaven fetching"
                                       IsChecked="{Binding AutoFetchFromWallhaven, Mode=TwoWay}"
                                       FontSize="13" MinHeight="36"
-                                      ToolTip="Off by default. Fetches new wallpapers only when a display has no unseen local wallpapers left."
-                                      AutomationProperties.Name="Auto-fetch from Wallhaven using current Discover filters" />
+                                      ToolTip="Off by default. Only enabled feeds fetch, each on its own cadence."
+                                      AutomationProperties.Name="Enable automatic Wallhaven fetching" />
                         </StackPanel>
-                        <Button Grid.Column="1" Content="Refresh displays"
+                        <Button Grid.Column="1" Content="Refresh monitors"
                                 Style="{StaticResource CardActionButton}"
                                 MinWidth="132" VerticalAlignment="Top"
                                 Command="{Binding RefreshDisplaysCommand}"
-                                ToolTip="Re-detect connected displays and restore saved schedules for any display that appears."
-                                AutomationProperties.Name="Refresh connected displays" />
+                                ToolTip="Re-detect connected monitors and restore saved schedules for any monitor that appears."
+                                AutomationProperties.Name="Refresh monitors" />
                     </Grid>
 
-                    <TextBlock Style="{StaticResource CaptionTextStyle}" FontSize="12"
-                               Margin="0,12,0,0" TextWrapping="Wrap"
-                               Text="Full-screen detection is based on the foreground window covering a display. Auto-fetch uses whatever filters you last searched with in Discover." />
+                    <TextBlock Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"
+                               Margin="0,14,0,0"
+                               Text="Full-screen detection is based on the foreground window covering a display. The master switch and each feed's own enable box must both be on before anything is fetched." />
+                </StackPanel>
+            </Border>
+
+            <!-- Multi-feed management. Sits between global controls and schedules so
+                 the source of new images is configured before their rotation. -->
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,20" Padding="18">
+                <StackPanel>
+                    <TextBlock Text="Wallhaven rotation feeds" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"
+                               Margin="0,6,0,0"
+                               Text="The master toggle above must be on, and each feed has its own enable box. Every feed fetches on its own cadence. New images are applied on the next rotation, or immediately with Fetch now." />
+                    <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,14,0,14" />
+
+                    <ItemsControl ItemsSource="{Binding Feeds}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource PanelAltBrush}"
+                                        CornerRadius="{StaticResource ControlCornerRadius}"
+                                        Padding="14" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" Margin="0,0,14,0" MinWidth="180">
+                                                <TextBlock Text="FEED NAME" Style="{StaticResource FieldLabelStyle}" />
+                                                <TextBox Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                                         FontSize="13" Height="36"
+                                                         ToolTip="Rename this feed. The name is saved when the field loses focus."
+                                                         AutomationProperties.Name="Rotation feed name" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Margin="0,0,14,0" MinWidth="132">
+                                                <TextBlock Text="FETCH EVERY" Style="{StaticResource FieldLabelStyle}" />
+                                                <ComboBox ItemsSource="{Binding CadenceOptions}"
+                                                          SelectedItem="{Binding CadenceMinutes, Mode=TwoWay}"
+                                                          FontSize="13" Height="40" MinWidth="132"
+                                                          ToolTip="How often this feed checks Wallhaven for new images."
+                                                          AutomationProperties.Name="Feed fetch cadence" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Bottom" MinWidth="96">
+                                                <TextBlock Text="STATE" Style="{StaticResource FieldLabelStyle}" />
+                                                <CheckBox Content="Enabled"
+                                                          IsChecked="{Binding IsEnabled, Mode=TwoWay}"
+                                                          FontSize="13" MinHeight="40"
+                                                          ToolTip="Turn this feed on or off without deleting it."
+                                                          AutomationProperties.Name="Feed enabled" />
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <TextBlock Text="{Binding StatusText}"
+                                                   Style="{StaticResource CaptionTextStyle}"
+                                                   TextWrapping="Wrap" Margin="0,10,0,0" />
+
+                                        <WrapPanel Margin="0,8,0,0">
+                                            <Button Content="Fetch now" Style="{StaticResource CardActionButton}"
+                                                    Command="{Binding FetchNowCommand}"
+                                                    ToolTip="Fetch this feed now, regardless of its cadence, and apply the first new image."
+                                                    AutomationProperties.Name="Fetch this feed now" />
+                                            <Button Content="Move up" Style="{StaticResource CardActionButton}"
+                                                    Command="{Binding MoveUpCommand}"
+                                                    ToolTip="Move this feed earlier in the sweep order."
+                                                    AutomationProperties.Name="Move feed up" />
+                                            <Button Content="Move down" Style="{StaticResource CardActionButton}"
+                                                    Command="{Binding MoveDownCommand}"
+                                                    ToolTip="Move this feed later in the sweep order."
+                                                    AutomationProperties.Name="Move feed down" />
+                                            <Button Content="Remove" Style="{StaticResource CardActionButton}"
+                                                    Command="{Binding RemoveCommand}"
+                                                    ToolTip="Remove this feed. Saved wallpapers stay in your library."
+                                                    AutomationProperties.Name="Remove feed" />
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Button Content="Add from Discover" Style="{StaticResource CardPrimaryActionButton}"
+                            HorizontalAlignment="Left" Margin="0,4,0,0"
+                            Command="{Binding AddFeedFromDiscoverCommand}"
+                            ToolTip="Open Discover, search Wallhaven and save a search as a rotation feed."
+                            AutomationProperties.Name="Add a rotation feed from Discover" />
                 </StackPanel>
             </Border>
 
@@ -153,7 +176,7 @@
                                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Heading}" Style="{StaticResource SectionTitleStyle}" />
                                         <TextBlock Text="{Binding Subheading}" Style="{StaticResource CaptionTextStyle}"
-                                                   FontSize="12" Margin="0,5,0,0" />
+                                                   Margin="0,5,0,0" />
                                     </StackPanel>
                                     <Border Grid.Column="1" Style="{StaticResource ChipStyle}"
                                             HorizontalAlignment="Right" MinWidth="96" Margin="12,0,0,0">
@@ -230,8 +253,7 @@
                                             </TextBlock.Style>
                                         </TextBlock>
                                         <StackPanel VerticalAlignment="Center">
-                                            <TextBlock Text="NEXT CHANGE" Style="{StaticResource FieldLabelStyle}"
-                                                       FontSize="12" Margin="0,0,0,2" />
+                                            <TextBlock Text="NEXT CHANGE" Style="{StaticResource FieldLabelStyle}" />
                                             <TextBlock Text="{Binding Countdown}" FontSize="20" FontWeight="SemiBold">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock"
@@ -260,7 +282,7 @@
                                 <!-- Per-display opt-out, clearly subordinate to the master above. -->
                                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                     <TextBlock Text="THIS DISPLAY" Style="{StaticResource FieldLabelStyle}"
-                                               FontSize="12" Margin="0,0,10,0" VerticalAlignment="Center" />
+                                               Margin="0,0,10,0" VerticalAlignment="Center" />
                                     <CheckBox Content="Pause rotation for full-screen apps"
                                               IsChecked="{Binding PauseWhenFullscreen, Mode=TwoWay}"
                                               FontSize="13" MinHeight="36"
@@ -279,8 +301,7 @@
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" Margin="0,0,16,0" MinWidth="184">
-                                            <TextBlock Text="CHANGE EVERY" Style="{StaticResource FieldLabelStyle}"
-                                                       FontSize="12" Margin="0,0,0,4" />
+                                            <TextBlock Text="CHANGE EVERY" Style="{StaticResource FieldLabelStyle}" />
                                             <ComboBox ItemsSource="{Binding Intervals}"
                                                       SelectedItem="{Binding SelectedInterval, Mode=TwoWay}"
                                                       IsEnabled="{Binding IntervalEnabled}"
@@ -294,7 +315,7 @@
                                             <Button Content="Start" Style="{StaticResource CardPrimaryActionButton}"
                                                     Command="{Binding StartCommand}"
                                                     IsEnabled="{Binding CanStart}"
-                                                    ToolTip="Start rotating wallpapers on this display using your local library."
+                                                    ToolTip="Start rotating wallpapers on this display using your local library or an enabled feed."
                                                     AutomationProperties.Name="Start rotation on this display" />
                                             <Button Content="{Binding PauseButtonText}" Style="{StaticResource CardActionButton}"
                                                     Command="{Binding PauseCommand}"
@@ -325,13 +346,13 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <!-- Library / display availability and refresh diagnostics. -->
+            <!-- Library / feed / display availability and refresh diagnostics. -->
             <Border Style="{StaticResource CardStyle}" Margin="0,8,0,0" Padding="14,12">
                 <StackPanel Orientation="Horizontal">
                     <Ellipse Width="8" Height="8" Fill="{StaticResource AccentBrush}"
                              VerticalAlignment="Center" Margin="0,0,10,0" />
                     <TextBlock Text="{Binding GlobalStatus}" Style="{StaticResource CaptionTextStyle}"
-                               FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                               TextWrapping="Wrap" VerticalAlignment="Center" />
                 </StackPanel>
             </Border>
         </StackPanel>

@@ -4,4 +4,9 @@
     <RootNamespace>Ori.Core</RootNamespace>
     <AssemblyName>Ori.Core</AssemblyName>
   </PropertyGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>Ori.Core.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>

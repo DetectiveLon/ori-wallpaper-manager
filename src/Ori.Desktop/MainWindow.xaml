@@ -14,35 +14,13 @@
 
     <Window.Resources>
         <!-- One rail template for every entry in MainViewModel.Items. The button
-             Tag feeds the shared NavButtonStyle selection trigger; the marker is
-             driven by the same comparison so the accent bar cannot disagree with
-             the row's tint. AccessText renders the "_" in AccessLabel as an
-             Alt+letter mnemonic (D/L/P/A/S) and underlines it on demand. -->
+             Tag feeds the shared NavButtonStyle selection trigger, which also
+             paints the selected row's accent bar. AccessText renders the "_" in
+             AccessLabel as an Alt+letter mnemonic (D/L/P/A/S) and underlines it
+             on demand. -->
         <DataTemplate x:Key="NavItemTemplate">
-            <Grid SnapsToDevicePixels="True">
-                <Border x:Name="SelectionMarker" Tag="{Binding Key}"
-                        Width="3" Margin="0,8,0,8" HorizontalAlignment="Left"
-                        VerticalAlignment="Stretch" CornerRadius="0,2,2,0"
-                        Background="{StaticResource AccentBrush}">
-                    <Border.Style>
-                        <Style TargetType="Border">
-                            <Setter Property="Opacity" Value="0" />
-                            <Style.Triggers>
-                                <DataTrigger Value="True">
-                                    <DataTrigger.Binding>
-                                        <MultiBinding Converter="{StaticResource NavKeyMatchConverter}">
-                                            <Binding Path="DataContext.SelectedItem.Key"
-                                                     RelativeSource="{RelativeSource AncestorType=Window}" />
-                                            <Binding Path="Tag" RelativeSource="{RelativeSource Self}" />
-                                        </MultiBinding>
-                                    </DataTrigger.Binding>
-                                    <Setter Property="Opacity" Value="1" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Border.Style>
-                </Border>
-                <Button Margin="3,0,0,0" Style="{StaticResource NavButtonStyle}"
+            <Grid Margin="0,2,0,2" SnapsToDevicePixels="True">
+                <Button Style="{StaticResource NavButtonStyle}"
                         Tag="{Binding Key}"
                         Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                         CommandParameter="{Binding Key}"
@@ -52,10 +30,10 @@
                         KeyboardNavigation.TabIndex="{Binding TabIndex}">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{Binding Glyph}" FontFamily="Segoe Fluent Icons"
-                                   FontSize="{StaticResource GlyphSize}" Width="22" TextAlignment="Center"
-                                   VerticalAlignment="Center"
+                                   FontSize="{StaticResource NavIconSize}" Width="20"
+                                   TextAlignment="Center" VerticalAlignment="Center"
                                    Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
-                        <AccessText Text="{Binding AccessLabel}" Margin="10,0,0,0"
+                        <AccessText Text="{Binding AccessLabel}" Margin="12,0,0,0"
                                     VerticalAlignment="Center"
                                     Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
                     </StackPanel>
@@ -70,32 +48,21 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Custom title bar: app mark + drag region + caption buttons. -->
+        <!-- Custom title bar: empty brand column + drag region + caption buttons. -->
         <Border Grid.Row="0"
                 Background="{StaticResource TitleBarBrush}"
                 BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1"
                 MouseLeftButtonDown="OnTitleBarMouseLeftButtonDown">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="240" />
+                    <ColumnDefinition Width="{StaticResource RailWidth}" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="18,0,0,0" VerticalAlignment="Center">
-                    <Border Width="28" Height="28" CornerRadius="9" Background="{StaticResource AccentBrush}"
-                            VerticalAlignment="Center">
-                        <TextBlock Text="O" FontSize="15" FontWeight="Bold"
-                                   Foreground="{StaticResource OnAccentBrush}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="ORI" FontSize="14" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextBrush}" />
-                        <TextBlock Text="WALLPAPER STUDIO" Style="{StaticResource CaptionTextStyle}"
-                                   FontSize="10" Margin="0,2,0,0" />
-                    </StackPanel>
-                </StackPanel>
+                <!-- The brand now lives at the top of the rail; this column keeps
+                     the title bar aligned with it and stays draggable. -->
+                <Grid Grid.Column="0" Background="Transparent" />
 
                 <!-- Empty middle column is the drag region. -->
                 <Grid Grid.Column="1" Background="Transparent" />
@@ -147,31 +114,53 @@
         <!-- Body: navigation rail + page host. -->
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="240" />
+                <ColumnDefinition Width="{StaticResource RailWidth}" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Background="{StaticResource SidebarBrush}"
-                    BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,1,0">
-                <DockPanel LastChildFill="True" Margin="0,18,0,16">
-                    <!-- Identity/status replaces the old "ORI · LOCAL" caption: a
-                         quiet reminder that everything stays on this machine. -->
-                    <Border DockPanel.Dock="Bottom" Style="{StaticResource ChipStyle}"
-                            Margin="16,8,16,0" Padding="10,6"
-                            ToolTip="Wallpapers are saved and rotated on this PC">
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="6" Height="6" Fill="{StaticResource SuccessBrush}"
-                                     VerticalAlignment="Center" />
-                            <TextBlock Text="LOCAL · ON THIS PC" Style="{StaticResource CaptionTextStyle}"
-                                       Margin="8,0,0,0" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Border>
-                    <Border DockPanel.Dock="Bottom" Height="1" Background="{StaticResource DividerBrush}"
-                            Margin="20,4,20,14" />
+            <Border Grid.Column="0" Background="{StaticResource RailSurfaceBrush}"
+                    BorderBrush="{StaticResource RailOutlineBrush}" BorderThickness="0,0,1,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
-                    <!-- The rail is generated from MainViewModel.Items. Grouping by
-                         the item's Section keeps headers and items from drifting. -->
-                    <ItemsControl Margin="12,0,12,0"
+                    <!-- Row 0: brand header with its own bottom divider. -->
+                    <Border Grid.Row="0" BorderBrush="{StaticResource RailDividerBrush}"
+                            BorderThickness="0,0,0,1">
+                        <Grid Margin="20,14,16,14">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Width="34" Height="34" CornerRadius="10"
+                                    Background="{StaticResource AccentBrush}"
+                                    VerticalAlignment="Center">
+                                <TextBlock Text="O" FontSize="16" FontWeight="Bold"
+                                           Foreground="{StaticResource OnAccentBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="ORI" FontSize="14" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextBrush}" />
+                                <TextBlock Text="WALLPAPER STUDIO" Style="{StaticResource CaptionTextStyle}"
+                                           FontSize="10" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Row 1: zone eyebrow. -->
+                    <TextBlock Grid.Row="1" Text="WORKSPACE" Style="{StaticResource RailZoneLabelStyle}"
+                               Margin="24,18,16,10" />
+
+                    <!-- Row 2: rail items. Grouping by the item's Section keeps
+                         headers and items from drifting. No scroll viewer: five
+                         destinations fit, and a second scroll root would steal
+                         the pages' own scrolling. -->
+                    <ItemsControl Grid.Row="2" Margin="12,0,12,8"
                                   ItemTemplate="{StaticResource NavItemTemplate}">
                         <ItemsControl.Resources>
                             <CollectionViewSource x:Key="NavGroups" Source="{Binding Items}">
@@ -187,14 +176,29 @@
                             <GroupStyle>
                                 <GroupStyle.HeaderTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" Style="{StaticResource EyebrowTextStyle}"
-                                                   Margin="14,16,0,8" />
+                                        <StackPanel>
+                                            <Border Style="{StaticResource NavGroupRuleStyle}" />
+                                            <TextBlock Text="{Binding Name}" Style="{StaticResource NavGroupHeaderStyle}"
+                                                       Margin="14,10,0,8" />
+                                        </StackPanel>
                                     </DataTemplate>
                                 </GroupStyle.HeaderTemplate>
                             </GroupStyle>
                         </ItemsControl.GroupStyle>
                     </ItemsControl>
-                </DockPanel>
+
+                    <!-- Row 3: identity/status chip — everything stays on this PC. -->
+                    <Border Grid.Row="3" Style="{StaticResource RailStatusChipStyle}"
+                            Margin="16,0,16,16"
+                            ToolTip="Wallpapers are saved and rotated on this PC">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}"
+                                     VerticalAlignment="Center" />
+                            <TextBlock Text="LOCAL · ON THIS PC" Style="{StaticResource CaptionTextStyle}"
+                                       Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </Border>
 
             <Grid Grid.Column="1" Margin="{StaticResource ContentMargin}">
@@ -202,11 +206,11 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <!-- Eyebrow -> title -> subtitle. Spacing follows the shared 8pt
-                     scale (8/16/24) so the header reads as one hierarchy. -->
-                <StackPanel Grid.Row="0" Margin="0,0,0,24">
-                    <TextBlock Text="{Binding Section}" Style="{StaticResource EyebrowTextStyle}"
-                               Margin="0,0,0,8" />
+                <!-- Accent overline -> title -> subtitle. Spacing follows the
+                     shared 8pt scale so the header reads as one hierarchy. -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,28">
+                    <Border Width="24" Height="2" Background="{StaticResource AccentBrush}"
+                            CornerRadius="1" HorizontalAlignment="Left" Margin="0,0,0,14" />
                     <TextBlock x:Name="PageTitle" Text="{Binding Title}" Style="{StaticResource TitleTextStyle}" />
                     <TextBlock x:Name="PageSubtitle" Text="{Binding Subtitle}" Style="{StaticResource BodyTextStyle}"
                                Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" />

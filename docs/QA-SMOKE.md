@@ -4,7 +4,8 @@ Run this after the integrator produces a build: launch Ori from the build output
 
 **Global checks — repeat on every screen:**
 
-- [ ] Dark theme throughout: near-black window (`#10141B`), dark sidebar (`#151B24`), dark panels (`#1A222E`). No light WPF default surface anywhere.
+- [ ] Dark theme throughout: near-black window (`#0B1017`), rail (`#0E1520`), dark panels (`#151E2B` / `#1D2838`). No light WPF default surface anywhere.
+- [ ] The taskbar/tray icon is the blue framed-landscape Ori mark and stays recognisable at 16px.
 - [ ] **No white boxes.** Buttons, ComboBoxes, TextBoxes, PasswordBoxes, CheckBoxes, ListBox cards, ScrollBars, tooltips and dropdown popups stay dark in normal, hover, focus, selected **and disabled** states. Disabled controls are dimmed, never repainted white. A white rectangle on a control is a regression — stop and note the screen.
 - [ ] Text is legible: primary/muted/accent brushes, no white-on-white or dark-on-dark text.
 - [ ] Failures appear as inline status text with a refresh/retry action, never as a blocking modal dialog.
@@ -14,7 +15,7 @@ Run this after the integrator produces a build: launch Ori from the build output
 ## Landing / navigation (Discover is the landing page)
 
 - [ ] On launch, **Discover** is shown (the old Overview screen was removed in `v2-shell`).
-- [ ] The sidebar nav items (Discover, Library, Displays, Automation, Settings) navigate when clicked; selected-state styling is visible.
+- [ ] The rail items (Discover, Library, Displays, Auto rotation, Settings) navigate when clicked. The selected row shows an accent pill with a leading accent bar and an accessible "Selected" state; Alt+D/L/P/A/S still work and Tab order starts at the caption buttons.
 - [ ] Status/preview copy is current (no stale "coming soon" text); no orphaned Overview route remains.
 - [ ] Vertical ScrollBar, if present, is dark; scroll to the bottom and back with no white flash.
 
@@ -42,22 +43,23 @@ Run this after the integrator produces a build: launch Ori from the build output
 
 ## Displays
 
-- [ ] One card per connected monitor — **both** monitors on the test rig — with correct device names, resolution and primary flag; card positions match the physical layout.
-- [ ] Each card's fit-mode **ComboBox** is dark and its dropdown list is dark; selecting a fit mode keeps the selection readable.
-- [ ] "Choose image" button has the accent-coloured surface with legible foreground — no white block behind or around it.
-- [ ] Preview reflects the chosen crop/fill on each monitor; applying changes the wallpaper on both displays, and the prior wallpaper is preserved if an apply fails.
-- [ ] Page ScrollBar is dark; no white tooltips when hovering icons or labelled controls.
-- [ ] Display detection failure, if any, shows inline status plus Refresh — no modal; check `errors.log` for a COM/HRESULT entry.
+- [ ] The monitor diagram shows **both** connected monitors at their real relative positions, with correct device name, resolution, PRIMARY/TARGET chips and current wallpaper name. Selecting a card sets the shared Apply-to target.
+- [ ] The global fit-mode **ComboBox** is dark, opens to a dark list, and the selected value stays readable.
+- [ ] The illustration beside it visibly changes between Fill, Fit, Stretch, Center, Tile and Span, and the Span warning plus "Choose Span image" button are present.
+- [ ] "Choose image" has an accent-coloured surface with legible foreground — no white block behind or around it. Applying changes the wallpaper on both displays and preserves the prior wallpaper on failure.
+- [ ] "Refresh monitors" works inline; detection failure shows inline status with no modal. Page ScrollBar and tooltips are dark.
 
-## Automation
+## Auto rotation
 
 - [ ] One schedule card per monitor — **both** monitors on the test rig — with distinct headings and independent controls.
 - [ ] "NEXT CHANGE" **countdown is visible and ticks down**; selecting a different interval updates it; navigating away and back does not reset it to zero.
 - [ ] Interval ComboBox is dark, opens to a dark list, and the selected value is readable; when disabled it is dimmed, not white.
 - [ ] Start / Pause / Rotate now / Stop **Buttons** are dark; enabled and disabled states are distinguishable without any white surface.
 - [ ] "Pause a display's schedule while a full-screen app is active" CheckBox is dark and toggles; label wraps without overflow.
-- [ ] "Refresh displays" works inline; global status text is muted-colour and readable.
+- [ ] "Refresh monitors" works inline; global status text is muted-colour and readable.
 - [ ] Check `errors.log` after Start/Rotate if a schedule reports an error — the current wallpaper must remain unchanged.
+- [ ] Schedules started before this session resume automatically on launch without opening this page first.
+- [ ] The Wallhaven feeds card lists saved feeds with name, cadence, enabled state, last fetched/backoff status, and Fetch now / move / remove actions. The master Wallhaven toggle gates all feeds.
 
 ## Settings
 
@@ -73,6 +75,6 @@ Run this after the integrator produces a build: launch Ori from the build output
 
 - [ ] Tray icon notifications (rotation/failure balloon tips) appear and are readable; a tray right-click shows Open/Exit without restoring the window.
 - [ ] Library folder import adds images and duplicate detection skips already-saved files; collections and the editable collection ComboBox work.
-- [ ] Tag presets / auto-rotation feed settings are present and the feed persists across a restart.
+- [ ] Discover's "ROTATION FEEDS" section saves current filters as a named feed with a chosen cadence. After a restart, feed order, enable state, cadence, last-fetched time and backoff all persist, and fetching cycles to the next due feed rather than reusing the same one.
 - [ ] Portable release: download the self-contained zip, extract and run `Ori.exe` on a PC **without** the .NET Desktop Runtime — it must start.
 - [ ] (Optional, if Inno Setup available) the per-user installer installs to `%LOCALAPPDATA%\Ori`, adds Start menu/uninstall entries, and uninstall preserves library/logs.

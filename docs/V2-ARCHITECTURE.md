@@ -23,7 +23,7 @@ rewrite.
   - `Ori.Desktop.Services.WallpaperImageCache`, `WallhavenImageDownloader`, `ApiKeyStore`
   - `Ori.Core.Services.WallhavenClient`, `WallpaperLibraryStore`, `ScheduleStore`, `RotationLoop`, `FullscreenWindowMatcher`
   - `Ori.Core.Models.*`
-- Theme resources in `App.xaml`: `PanelBrush`, `PanelAltBrush`, `TextBrush`, `MutedBrush`, `AccentBrush`, `NavButtonStyle`, `PrimaryButtonStyle`, plus implicit dark Button/ComboBox/ScrollBar styles. New XAML may use them via `{StaticResource ...}`.
+- Theme resources in `App.xaml`: `PanelBrush`, `PanelAltBrush`, `TextBrush`, `MutedBrush`, `AccentBrush`, `NavButtonStyle`, `NavGroupHeaderStyle`, `NavGroupRuleStyle`, `RailStatusChipStyle`, `RailWidth`, `PrimaryButtonStyle`, `SecondaryButtonStyle`, plus implicit dark Button/ComboBox/ScrollBar styles. New XAML may use them via `{StaticResource ...}`. The app brand lives in the rail header; the page header uses an accent overline instead of a repeated eyebrow.
 - Keep the preview honest: do not claim installer, tray, collections, or cross-platform support.
 
 ## File ownership (one agent per area — do not touch another area's files)

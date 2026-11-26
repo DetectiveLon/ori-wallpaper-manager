@@ -170,6 +170,76 @@
                             </StackPanel>
                         </Expander>
 
+                        <!-- ROTATION FEEDS: author a named feed from the current filters,
+                             then manage the saved feeds without leaving Discover. -->
+                        <Expander Style="{StaticResource FilterSection}" IsExpanded="False">
+                            <Expander.Header>
+                                <TextBlock Text="ROTATION FEEDS" Style="{StaticResource SectionTitleStyle}" />
+                            </Expander.Header>
+                            <StackPanel Margin="2,2,0,4">
+                                <TextBlock Text="Feed name" Style="{StaticResource DiscoverFieldLabel}" />
+                                <TextBox Style="{StaticResource FieldTextBox}"
+                                         Text="{Binding FeedName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Leave blank to use your tags or an automatic name"
+                                         AutomationProperties.Name="Rotation feed name" />
+                                <TextBlock Text="Fetch every" Style="{StaticResource DiscoverFieldLabel}" />
+                                <ComboBox Style="{StaticResource FieldCombo}"
+                                          ItemsSource="{Binding FeedCadenceChoices}"
+                                          SelectedItem="{Binding SelectedFeedCadence, Mode=TwoWay}"
+                                          AutomationProperties.Name="Rotation feed cadence"
+                                          ToolTip="Minutes between automatic fetches" />
+                                <Button Content="Save as rotation feed" Style="{StaticResource SearchButton}"
+                                        HorizontalAlignment="Stretch"
+                                        Command="{Binding SaveAsFeedCommand}"
+                                        AutomationProperties.Name="Save current filters as rotation feed"
+                                        ToolTip="Save the current filters as a named feed for automatic rotation" />
+
+                                <ItemsControl ItemsSource="{Binding Feeds}" Margin="0,10,0,0">
+                                    <ItemsControl.Style>
+                                        <Style TargetType="ItemsControl">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Feeds.Count}" Value="0">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ItemsControl.Style>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource CardStyle}" CornerRadius="8"
+                                                    Padding="10" Margin="0,0,0,8">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}"
+                                                               Style="{StaticResource BodyTextStyle}"
+                                                               FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding CadenceMinutes, StringFormat='Every {0} min'}"
+                                                               Style="{StaticResource DiscoverCaption}" />
+                                                    <TextBlock Text="{Binding IsEnabled, StringFormat='Enabled: {0}'}"
+                                                               Style="{StaticResource DiscoverCaption}" />
+                                                    <TextBlock Text="{Binding StatusText}"
+                                                               Style="{StaticResource DiscoverCaption}"
+                                                               TextWrapping="Wrap" Margin="0,2,0,0" />
+                                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                                        <Button Content="Enable/Disable" Style="{StaticResource TagButton}"
+                                                                Command="{Binding Parent.ToggleFeedEnabledCommand}"
+                                                                CommandParameter="{Binding Id}"
+                                                                AutomationProperties.Name="Toggle rotation feed enabled state"
+                                                                ToolTip="Enable or disable this rotation feed" />
+                                                        <Button Content="Remove" Style="{StaticResource TagButton}"
+                                                                Command="{Binding Parent.RemoveFeedCommand}"
+                                                                CommandParameter="{Binding Id}"
+                                                                AutomationProperties.Name="Remove rotation feed"
+                                                                ToolTip="Delete this rotation feed" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Expander>
+
                         <!-- CATEGORIES: open by default alongside TAGS. -->
                         <Expander Style="{StaticResource FilterSection}" IsExpanded="True">
                             <Expander.Header>

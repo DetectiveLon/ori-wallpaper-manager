@@ -14,16 +14,17 @@ The `v2-shell` branch is the current working branch. It provides:
   folder import, duplicate detection, apply and metadata-only removal.
 - Independent per-display rotation schedules with countdown, manual rotate,
   pause/resume, stop and geometry-based full-screen pause.
-- Automatic Wallhaven rotation from configurable tag feeds, cached locally.
+- Automatic Wallhaven rotation from named rotation feeds with per-feed cadence
+  and round-robin cycling, cached locally and applied automatically.
+- A scaled monitor layout diagram, per-display image choice, and a live preview
+  of all six Windows fit modes.
 - A system-tray icon with Open/Exit and notifications, launch-at-sign-in, and a
-  dark theme across all views.
+  modern dark theme with a structured navigation rail.
 - Settings with a DPAPI-protected Wallhaven API key, cache clearing and data
   folders.
 
-Features built in `v2-shell` but still being finalized by other agents at the
-time of this write-up: automatic rotation, folder import/dedupe, tray
-notifications and tag presets. See `docs/IMPLEMENTATION_STATUS.md` for the
-current, per-wave status.
+See `docs/IMPLEMENTATION_STATUS.md` for the current, per-wave status and
+`docs/UI-GUIDELINES.md` for the design rules behind the current interface.
 
 ## Known limitations
 

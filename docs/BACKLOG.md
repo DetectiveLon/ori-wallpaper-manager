@@ -12,9 +12,12 @@ updated for the `v2-shell` branch. This is a backlog, not a commitment.
   SHA-256 and swaps the EXE. The auto-update check is only *documented* as an
   integration step in `App.xaml.cs` (owned by another agent) — see
   `docs/RELEASING.md`. Signing/SmartScreen is deferred, not ignored.
-- [x] **Automatic Wallhaven rotation.** Implemented in `v2-shell`: configurable
-  tag feeds are persisted (`WallhavenFeedStore`) and drive fetch/rotate/cache
-  without a manual per-image search/download.
+- [x] **Automatic Wallhaven rotation.** Implemented in `v2-shell`: an ordered
+  list of named feeds with per-feed cadence, enable state and persisted fetch
+  backoff lives in `WallhavenFeedStore`. Discover saves filters as a feed; Auto
+  rotation cycles through due feeds, fetches and caches images, and applies the
+  fetched image on the next rotation or immediately with Fetch now. Legacy
+  single-feed settings migrate to a feed named "Saved search".
 
 ## P2
 
