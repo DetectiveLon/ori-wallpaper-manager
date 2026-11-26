@@ -70,6 +70,9 @@
              spacing is local; header text uses SectionTitleStyle for a bold 15px label. -->
         <Style x:Key="FilterSection" TargetType="Expander" BasedOn="{StaticResource SectionExpanderStyle}">
             <Setter Property="Margin" Value="0,0,0,6" />
+            <!-- Expanding a section near the bottom pushes its content below the
+                 fold. Bring it back into view so the click always shows a result. -->
+            <EventSetter Event="Expanded" Handler="OnSectionExpanded" />
         </Style>
     </UserControl.Resources>
 

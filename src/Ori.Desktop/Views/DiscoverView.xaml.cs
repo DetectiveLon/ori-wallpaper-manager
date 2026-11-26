@@ -25,6 +25,12 @@ public partial class DiscoverView : UserControl
     private void OnApiKeyPasswordChanged(object sender, RoutedEventArgs e) =>
         _viewModel.ApiKey = ApiKeyBox.Password;
 
+    private void OnSectionExpanded(object sender, RoutedEventArgs e)
+    {
+        if (sender is Expander expander)
+            Dispatcher.BeginInvoke(new Action(() => expander.BringIntoView()));
+    }
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         // Settings owns the stored key. Reload it on every visit so a key removed
