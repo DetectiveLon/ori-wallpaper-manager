@@ -121,11 +121,29 @@
                     <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                              Padding="32,5,10,5" FontSize="12"
                              AutomationProperties.Name="Search library"
-                             ToolTip="Search saved wallpapers by title, id or collection" />
+                             ToolTip="Search saved wallpapers by title, id, collection or tag" />
                     <TextBlock Text="&#xE721;" Style="{StaticResource Glyph}" FontSize="14"
                                Foreground="{StaticResource MutedBrush}" IsHitTestVisible="False"
                                HorizontalAlignment="Left" Margin="10,0,0,0" />
                 </Grid>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,4">
+                    <TextBlock Text="Tag" Style="{StaticResource ToolbarLabel}" Margin="0,0,8,0" />
+                    <TextBox Width="120" Height="34" FontSize="12"
+                             Text="{Binding TagFilterText, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Filter library by tag"
+                             ToolTip="Show wallpapers with this tag; separate several tags with commas to match any" />
+                    <Button Command="{Binding ClearTagFilterCommand}" Padding="8,6,8,6" Margin="5,0,0,0"
+                            MinHeight="34" VerticalAlignment="Center"
+                            AutomationProperties.Name="Clear tag filter"
+                            ToolTip="Remove the tag filter">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE711;" Style="{StaticResource Glyph}" FontSize="12"
+                                       Margin="0,0,5,0" />
+                            <TextBlock Text="Clear" FontSize="12" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
 
                 <TextBlock Text="Collection" Style="{StaticResource ToolbarLabel}" Margin="0,0,8,4" />
                 <ComboBox Width="140" Height="34" Margin="0,0,12,4"
@@ -190,11 +208,11 @@
                     <TextBox Width="120" Height="30" FontSize="12"
                              Text="{Binding NewCollectionName, UpdateSourceTrigger=PropertyChanged}"
                              AutomationProperties.Name="New collection name"
-                             ToolTip="Type a name, select a wallpaper, then press Create" />
+                             ToolTip="Type a name and press Create. Selecting a wallpaper moves it in; with none selected the collection is created empty." />
                     <Button Command="{Binding CreateCollectionCommand}" Padding="8,6,8,6" Margin="5,0,0,0"
                             VerticalAlignment="Center"
                             AutomationProperties.Name="Create collection"
-                            ToolTip="Create the named collection on the selected wallpaper">
+                            ToolTip="Create the named collection, moving the selected wallpaper into it if one is selected">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#xE8B7;" Style="{StaticResource Glyph}" FontSize="13"
                                        Margin="0,0,4,0" />
@@ -232,6 +250,8 @@
                 <StackPanel>
                     <TextBlock Text="{Binding DuplicateStatus}" Style="{StaticResource BodyTextStyle}"
                                Foreground="{StaticResource AccentBrush}" TextWrapping="Wrap" />
+                    <TextBlock Text="Only redundant copies are listed: one wallpaper per group was kept as the original. Removing a row deletes its library entry only; the image file is kept."
+                               Style="{StaticResource CardMeta}" TextWrapping="Wrap" Margin="0,4,0,0" />
                     <ItemsControl ItemsSource="{Binding Duplicates}" Margin="0,8,0,0" MaxHeight="220">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
@@ -248,7 +268,7 @@
                                     </StackPanel>
                                     <Button Grid.Column="1" Content="Remove" Padding="8,5,8,5"
                                             Margin="8,0,0,0" MinHeight="32"
-                                            ToolTip="Remove only this library entry (the file is kept)"
+                                            ToolTip="Remove only this redundant library entry; the original and the image file are kept"
                                             AutomationProperties.Name="Remove duplicate entry"
                                             Command="{Binding DataContext.RemoveDuplicateCommand, RelativeSource={RelativeSource AncestorType={x:Type UserControl}}}"
                                             CommandParameter="{Binding}" />
@@ -376,6 +396,37 @@
                                             <TextBlock Text="Favourite" Style="{StaticResource CardMeta}" />
                                         </StackPanel>
                                     </Border>
+                                    <!-- Computed tags are read-only chips here; the editable
+                                         tag box below is the place to change them. -->
+                                    <ItemsControl ItemsSource="{Binding TagChips}" MaxWidth="250"
+                                                  Margin="0,0,6,4" HorizontalAlignment="Left"
+                                                  AutomationProperties.Name="Tags on this wallpaper"
+                                                  ToolTip="{Binding TagsText}">
+                                        <ItemsControl.Style>
+                                            <Style TargetType="ItemsControl">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasTags}" Value="False">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </ItemsControl.Style>
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Style="{StaticResource ChipStyle}" Margin="0,0,4,2">
+                                                    <TextBlock Text="{Binding}" Style="{StaticResource CardMeta}"
+                                                               MaxWidth="110" TextTrimming="CharacterEllipsis"
+                                                               AutomationProperties.Name="{Binding StringFormat='Tag: {0}'}" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
                                                 Visibility="{Binding HasColors, Converter={StaticResource BoolToVisibility}}">
                                         <TextBlock Text="Colours" Style="{StaticResource CardMeta}"

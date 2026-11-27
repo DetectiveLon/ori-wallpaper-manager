@@ -6,9 +6,12 @@ Fast source-level guards for the v2-shell release/packaging invariants.
 Checks, without building or launching anything, that:
   * the SDK is pinned exactly (global.json 10.0.404, no floating 10.0.x in CI),
   * no hardcoded 0.1.0 version survives in the owned packaging/docs files,
+  * no hardcoded app version survives in SettingsViewModel.cs / WallhavenClient.cs,
   * csproj <Version> and app.manifest assemblyIdentity version agree,
   * rotation feed persistence, library import + dedupe methods exist,
-  * tray Notify/balloon support exists and no plain _notifyIcon.Click survives,
+  * the tray MouseClick/MouseDoubleClick handler BODIES gate on
+    MouseButtons.Left (not just a MouseButtons.Left token somewhere in the file),
+    Notify shows a balloon tip, and no plain _notifyIcon.Click survives,
   * the editable collection ComboBox exists in the library view.
 
 PowerShell built-ins only; no modules, no build, no network, no system changes.
@@ -28,6 +31,23 @@ function Read-Text([string]$relative) {
     $path = Join-Path $Root $relative
     if (-not (Test-Path -LiteralPath $path)) { Add-Finding "Missing file: $relative"; return '' }
     return Get-Content -LiteralPath $path -Raw
+}
+
+# Returns the balanced { ... } body that starts after $needle, or $null.
+function Get-BalancedBody([string]$text, [string]$needle) {
+    $start = $text.IndexOf($needle, [System.StringComparison]::Ordinal)
+    if ($start -lt 0) { return $null }
+    $open = $text.IndexOf('{', $start)
+    if ($open -lt 0) { return $null }
+    $depth = 0
+    for ($i = $open; $i -lt $text.Length; $i++) {
+        if ($text[$i] -eq '{') { $depth++ }
+        elseif ($text[$i] -eq '}') {
+            $depth--
+            if ($depth -eq 0) { return $text.Substring($open, $i - $open + 1) }
+        }
+    }
+    return $null
 }
 
 # 1. Exact SDK pin, no floating 10.0.x in CI/release.
@@ -55,6 +75,26 @@ $versionOwned = @(
 foreach ($rel in $versionOwned) {
     $text = Read-Text $rel
     if ($text -match '0\.1\.0') { Add-Finding "$rel contains a hardcoded 0.1.0 version." }
+}
+
+# 2b. The app version must come from assembly metadata, not a literal in code.
+#     Ignore comment lines (they may legitimately show "1.2.3+sha" examples) and
+#     arithmetic decimals such as 1024.0. Three-part versions and the legacy
+#     two-part "0.1" user-agent token are the forms that actually shipped.
+$versionLiteralPattern = '(?i)(?:\bv?\d+\.\d+\.\d+(?:\+[0-9A-Za-z.]+)?|\b0\.1\b)'
+foreach ($rel in @(
+    'src/Ori.Desktop/ViewModels/SettingsViewModel.cs',
+    'src/Ori.Core/Services/WallhavenClient.cs'
+)) {
+    $lines = (Read-Text $rel) -split "\r?\n"
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $trimmed = $lines[$i].TrimStart()
+        if ($trimmed.StartsWith('//') -or $trimmed.StartsWith('*')) { continue }
+        if ($lines[$i] -match $versionLiteralPattern) {
+            Add-Finding ("{0}:{1} contains a hardcoded version string; read it from assembly metadata." -f
+                $rel, ($i + 1))
+        }
+    }
 }
 
 # 3. csproj <Version> and app.manifest assemblyIdentity version agree.
@@ -85,12 +125,35 @@ if ($library) {
     if ($library -notmatch 'FindDuplicatesAsync') { Add-Finding 'Library dedupe method (FindDuplicatesAsync) not found.' }
 }
 
-# 5. Tray Notify exists and no plain Click subscription survives.
+# 5. Tray: inspect handler bodies, not just method-name tokens. WinForms raises
+#    plain Click/DoubleClick for right and middle clicks too, so each Mouse*
+#    handler must itself check e.Button before calling the open callback.
 $tray = Read-Text 'src/Ori.Desktop/Services/TrayIconService.cs'
 if ($tray) {
-    if ($tray -notmatch '\bNotify\s*\(') { Add-Finding 'Tray Notify(...) method not found.' }
-    if ($tray -notmatch 'ShowBalloonTip') { Add-Finding 'Tray balloon-tip notification not found.' }
     if ($tray -match '_notifyIcon\.Click\s*\+=') { Add-Finding 'Plain _notifyIcon.Click subscription must not be used.' }
+    if ($tray -match '_notifyIcon\.DoubleClick\s*\+=') { Add-Finding 'Plain _notifyIcon.DoubleClick subscription must not be used.' }
+
+    foreach ($handler in @('_notifyIcon.MouseClick +=', '_notifyIcon.MouseDoubleClick +=')) {
+        $body = Get-BalancedBody $tray $handler
+        if (-not $body) {
+            Add-Finding ("Tray handler '{0}' has no parseable body." -f $handler)
+            continue
+        }
+        if ($body -notmatch 'MouseButtons\.Left') {
+            Add-Finding ("Tray handler '{0}' body does not gate on MouseButtons.Left." -f $handler)
+        }
+        if ($body -notmatch '_onOpen') {
+            Add-Finding ("Tray handler '{0}' body does not call the open callback." -f $handler)
+        }
+    }
+
+    $notifyBody = Get-BalancedBody $tray 'void Notify('
+    if (-not $notifyBody) {
+        Add-Finding 'Tray Notify(...) method has no parseable body.'
+    }
+    elseif ($notifyBody -notmatch 'ShowBalloonTip') {
+        Add-Finding 'Tray Notify(...) body does not raise a balloon tip.'
+    }
 }
 
 # 6. Editable collection ComboBox exists in the library view.

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using Ori.Core.Models;
 using Ori.Core.Services;
 
@@ -61,6 +62,75 @@ public sealed class WallhavenClientTests
         var client = new WallhavenClient(http);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => client.SearchAsync(new WallhavenFilters()));
+    }
+
+    [Fact]
+    public void CreateHttpClientDisablesRedirectsAndUsesThirtySecondTimeout()
+    {
+        using var http = WallhavenClient.CreateHttpClient();
+
+        Assert.Equal(TimeSpan.FromSeconds(30), http.Timeout);
+        Assert.False(ReadAllowAutoRedirect(http));
+    }
+
+    [Fact]
+    public async Task SearchSendsTheSharedVersionedUserAgent()
+    {
+        string? userAgent = null;
+        var handler = new StubHandler(request =>
+        {
+            userAgent = request.Headers.UserAgent.ToString();
+            return JsonResponse("""{"data":[],"meta":{"current_page":1,"last_page":1}}""");
+        });
+        using var http = new HttpClient(handler);
+        var client = new WallhavenClient(http);
+
+        await client.SearchAsync(new WallhavenFilters());
+
+        Assert.Equal(Ori.Core.OriVersion.UserAgent, userAgent);
+        Assert.StartsWith("Ori-Wallpaper/", userAgent!);
+    }
+
+    [Fact]
+    public async Task ChunkedOversizedResponseIsRejectedWithoutContentLength()
+    {
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ChunkedContent(new byte[WallhavenClient.MaximumJsonBytes + 1])
+        });
+        using var http = new HttpClient(handler);
+        var client = new WallhavenClient(http);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => client.SearchAsync(new WallhavenFilters()));
+    }
+
+    private static bool ReadAllowAutoRedirect(HttpClient client)
+    {
+        object? handler = null;
+        for (var type = typeof(HttpClient); type is not null && handler is null; type = type.BaseType)
+            handler = type.GetField("_handler", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(client);
+
+        for (var type = handler?.GetType(); type is not null; type = type.BaseType)
+        {
+            if (type.GetProperty("AllowAutoRedirect", BindingFlags.Instance | BindingFlags.Public)
+                ?.GetValue(handler) is bool enabled)
+            {
+                return enabled;
+            }
+        }
+        throw new InvalidOperationException("Could not inspect the HttpClient handler.");
+    }
+
+    private sealed class ChunkedContent(byte[] bytes) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            stream.WriteAsync(bytes, 0, bytes.Length);
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false; // no Content-Length: forces the streaming size guard
+        }
     }
 
     private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)

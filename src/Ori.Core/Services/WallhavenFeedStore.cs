@@ -108,6 +108,20 @@ public static class WallhavenFeedStore
             if (document is null || document.Version != SchemaVersion)
                 return null;
 
+            // The document-level filters are Discover's current search state. An
+            // ordinary search updates them without touching any feed, so they must
+            // win over a feed's own filters. A v1 migration stores the same filters
+            // in both places, so legacy records keep their behaviour.
+            var documentFilters = Normalize(document.Filters);
+            if (documentFilters is not null)
+            {
+                var cadence = document.CadenceMinutes >= MinimumCadenceMinutes
+                              && document.CadenceMinutes <= MaximumCadenceMinutes
+                    ? document.CadenceMinutes
+                    : DefaultCadenceMinutes;
+                return (documentFilters, cadence);
+            }
+
             if (document.Feeds is { Count: > 0 })
             {
                 var first = document.Feeds[0];
@@ -118,14 +132,29 @@ public static class WallhavenFeedStore
                 return (filters, feedCadence);
             }
 
-            if (document.CadenceMinutes < MinimumCadenceMinutes
-                || document.CadenceMinutes > MaximumCadenceMinutes)
-            {
-                return null;
-            }
+            return null;
+        }
+    }
 
-            var legacyFilters = Normalize(document.Filters);
-            return legacyFilters is null ? null : (legacyFilters, document.CadenceMinutes);
+    /// <summary>
+    /// Persists only the document-level Discover filters. Feeds, their cadence, their
+    /// enabled flag and all accumulated fetch state stay exactly as they are on disk.
+    /// </summary>
+    public static void RememberSearchFilters(WallhavenFilters filters)
+    {
+        ArgumentNullException.ThrowIfNull(filters);
+        var normalized = Normalize(filters)
+            ?? throw new ArgumentException("Invalid Discover filters.", nameof(filters));
+
+        lock (SyncRoot)
+        {
+            // A raw read is deliberate: ReadCore() migrates v1 records and sanitizes
+            // feeds in memory, and persisting that result would create/rewrite feeds.
+            var existing = ReadDocumentRaw();
+            var document = existing is null
+                ? new FeedDocument(SchemaVersion, normalized, DefaultCadenceMinutes, false, null)
+                : existing with { Filters = normalized };
+            WriteCore(document);
         }
     }
 
@@ -302,9 +331,11 @@ public static class WallhavenFeedStore
                 var failures = Math.Min(feed.ConsecutiveFailures + 1, MaximumFailures);
                 var delaySeconds = Math.Min(
                     30L * (1L << Math.Min(failures - 1, 10)), (long)MaximumBackoff.TotalSeconds);
+                // Do not touch LastFetchedUtc here: SelectNextFeed also enforces the
+                // cadence from that timestamp, so stamping it on a failure turns a
+                // 30-second backoff into a full cadence wait.
                 feeds[index] = feed with
                 {
-                    LastFetchedUtc = now,
                     ConsecutiveFailures = failures,
                     BackoffUntilUtc = now + TimeSpan.FromSeconds(delaySeconds)
                 };
@@ -371,6 +402,30 @@ public static class WallhavenFeedStore
     internal static string ResolvePath() => _pathOverride ?? Path;
 
     // ----- persistence -----
+
+    /// <summary>
+    /// Reads the file exactly as stored, without v1 migration or feed sanitization.
+    /// Used by operations that must not change feeds as a side effect.
+    /// </summary>
+    private static FeedDocument? ReadDocumentRaw()
+    {
+        try
+        {
+            var target = ResolvePath();
+            if (!File.Exists(target) || new FileInfo(target).Length > 1024 * 1024)
+                return null;
+
+            using var stream = new FileStream(
+                target, FileMode.Open, FileAccess.Read, FileShare.Read,
+                16 * 1024, FileOptions.SequentialScan);
+            return JsonSerializer.Deserialize<FeedDocument>(stream, JsonOptions);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException
+                                       or NotSupportedException or ArgumentException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// Reads the record, migrating a v1 record in memory. A migration is marked

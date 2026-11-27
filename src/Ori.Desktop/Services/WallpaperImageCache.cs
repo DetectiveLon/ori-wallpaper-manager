@@ -23,6 +23,16 @@ public sealed class WallpaperImageCache
     public const long MaximumDecodedPixels = 50L * 1024 * 1024;
     public const int MaximumDimension = 32768;
 
+    /// <summary>Same formats the Windows apply path accepts; GIF and WebP are skipped.</summary>
+    public static IReadOnlyList<string> SupportedImageExtensions =>
+        WindowsDesktopWallpaper.SupportedImageExtensions;
+
+    public const string UnsupportedFormatMessage =
+        "Skipped: unsupported image format. Ori can only wallpaper with JPG, PNG, BMP, DIB or TIFF images; GIF and WebP are not supported.";
+
+    public static bool IsSupportedImageExtension(string extension) =>
+        WindowsDesktopWallpaper.IsSupportedImageExtension(extension);
+
     private const int MaximumRedirects = 4;
 
     // The download cache is a convenience, never the user's library. Cap it so months
@@ -288,15 +298,19 @@ public sealed class WallpaperImageCache
 
     private static string MediaTypeFor(string extension) => extension.ToLowerInvariant() switch
     {
-        ".jpg" => "image/jpeg",
+        ".jpg" or ".jpeg" => "image/jpeg",
         ".png" => "image/png",
-        ".gif" => "image/gif",
-        ".bmp" => "image/bmp",
-        ".webp" => "image/webp",
+        ".bmp" or ".dib" => "image/bmp",
+        ".tif" or ".tiff" => "image/tiff",
         _ => "application/octet-stream"
     };
 
-    private static string ValidateImageFile(string path)
+    /// <summary>
+    /// Sniffs the downloaded bytes and returns the extension only when Windows
+    /// can apply it. GIF/WebP and unknown formats get a clear "skipped/unsupported"
+    /// status instead of being admitted to the library and failing later.
+    /// </summary>
+    public static string ValidateImageFile(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         Span<byte> header = stackalloc byte[16];
@@ -307,17 +321,17 @@ public sealed class WallpaperImageCache
             extension = ".jpg";
         else if (count >= PngSignature.Length && header[..PngSignature.Length].SequenceEqual(PngSignature))
             extension = ".png";
-        else if (count >= 3 && header[0] == (byte)'G' && header[1] == (byte)'I' && header[2] == (byte)'F')
-            extension = ".gif";
         else if (count >= 2 && header[0] == (byte)'B' && header[1] == (byte)'M')
             extension = ".bmp";
-        else if (count >= 12
-            && header[0] == (byte)'R' && header[1] == (byte)'I' && header[2] == (byte)'F' && header[3] == (byte)'F'
-            && header[8] == (byte)'W' && header[9] == (byte)'E' && header[10] == (byte)'B' && header[11] == (byte)'P')
-            extension = ".webp";
+        else if (count >= 4
+            && ((header[0] == (byte)'I' && header[1] == (byte)'I' && header[2] == 0x2A && header[3] == 0x00)
+                || (header[0] == (byte)'M' && header[1] == (byte)'M' && header[2] == 0x00 && header[3] == (byte)'I')))
+            extension = ".tif";
 
-        if (extension is null)
-            throw new InvalidDataException("The downloaded file is not a supported image.");
+        // GIF and WebP deliberately have no branch here: Windows cannot apply
+        // them, so admitting them to the cache/library only defers the failure.
+        if (extension is null || !IsSupportedImageExtension(extension))
+            throw new InvalidDataException(UnsupportedFormatMessage);
 
         stream.Position = 0;
         var decoder = BitmapDecoder.Create(

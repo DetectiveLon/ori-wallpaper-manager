@@ -65,8 +65,10 @@ rewrite.
 ## Wave 6 ownership (v2-shell) — packaging, SDK pin, version identity, guards
 - Release packaging: `scripts/publish.ps1` (single source of truth: self-contained,
   single-file, win-x64), `build.ps1` (delegates `-Publish` to publish.ps1).
-- Installer: `tools/installer/**` (optional free Inno Setup `.iss`, per-user install
-  to `%LOCALAPPDATA%\Ori`, reuses the app's HKCU Run setting).
+- Installer: `tools/installer/**` (optional free Inno Setup `.iss`, per-user
+  binaries in `%LOCALAPPDATA%\Programs\Ori`; user data stays in the separate
+  `%LOCALAPPDATA%\Ori` folder and is never removed on uninstall; reuses the
+  app's HKCU Run setting).
 - Updater: `tools/Ori.Updater/**` (separate process; checks GitHub Releases
   manifest, verifies SHA-256, swaps the EXE after exit). Added to `Ori.sln`.
 - Toolchain/version: `global.json` (exact SDK 10.0.404), `Directory.Build.props`
@@ -79,12 +81,31 @@ rewrite.
   gates the release; publishes zip + standalone EXE + update manifest; signing
   noted as deferred).
 - Guards: `scripts/check-tray.ps1` (tray Notify), `scripts/check-invariants.ps1`
-  (new: SDK pin, no hardcoded 0.1.0, version alignment, feed/import/dedupe,
-  editable ComboBox), plus `check-theme.ps1`/`check-buttons.ps1` unchanged.
+  (SDK pin, no hardcoded versions, version alignment, feed/import/dedupe,
+  editable ComboBox, tray handler bodies), `check-theme.ps1`, and
+  `check-buttons.ps1` with an explicit binding-only allowlist (see
+  `docs/BUG-INVENTORY.md`).
 - Docs: all `docs/*.md`, `README.md`, `QA-FINDINGS.md` (scoped to the older
   feature/library-automation branch).
-- NOT wired: the app-side version-check call in `App.xaml.cs` (owned by another
-  agent). The exact one-line integration is documented in `docs/RELEASING.md`.
+- Wave 7 follow-up: the app-side version check is now wired via `UpdateChecker`
+  (called from `App.OnStartup`); applying an update remains manual.
+  `tests/Ori.Desktop.Tests` covers the public desktop helpers, CI runs Core tests
+  on both Linux and Windows, and `publish.ps1` stages `Ori.Updater.exe` in the zip.
+
+## Wave 7 ownership (v2-shell) — tests, guards, packaging, docs
+- Desktop helper tests: `tests/Ori.Desktop.Tests/**` (new net10.0-windows xunit
+  project, no WPF visuals), `Ori.sln`, and an `InternalsVisibleTo` entry in
+  `Ori.Desktop.csproj` only.
+- CI/guards: `.github/workflows/ci.yml` (Windows Core tests, desktop tests,
+  `check-buttons.ps1 -Strict`), `release.yml` (same guards + desktop tests),
+  `scripts/check-buttons.ps1` (binding-only allowlist),
+  `scripts/check-invariants.ps1` (handler-body behavior checks + version guard).
+- Packaging: `scripts/publish.ps1` (bundles `Ori.Updater.exe`, verifies the
+  generated manifest), `tools/installer/**` (correct binary/data path wording).
+- Docs: all `docs/*.md`, `README.md`, `QA-FINDINGS.md`.
+- Pending: no local build/test/launch in this wave; CI is the first full run.
+  All four static guards pass on the current tree (the owning agents removed the
+  hardcoded version strings the new guard detects).
 
 ## Build discipline
 - Do NOT run `build.ps1`, `dotnet build`, `dotnet test`, or launch Ori.exe. The integrator builds once after all agents finish, to avoid file locks and conflicting obj/ writes.

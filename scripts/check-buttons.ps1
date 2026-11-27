@@ -12,14 +12,17 @@
     This is an attribute-level guard only. It does not resolve Binding targets,
     verify command implementations, or detect handlers that exist in code-behind
     but are not wired in XAML. Binding-only controls (SelectedItem / IsChecked /
-    ItemsSource) are deliberately reported too, because they have no command or
-    event handler; docs/BUG-INVENTORY.md records which of those are genuinely
-    wired. Use it to triage the findings.
+    ItemsSource / Text) are legitimate: they are driven by a two-way binding
+    instead of a command. The known-good ones are listed in $bindingOnlyAllowlist
+    below and documented in docs/BUG-INVENTORY.md ("Binding-only allowlist");
+    they are not reported. Anything left is a real dead control. Line numbers are
+    deliberately not part of the allowlist keys, so harmless XAML reflow does not
+    create false findings.
 
     Prints a compact file:line:element report. Exits 1 only when -Strict is
-    supplied and findings exist; otherwise exits 0 and prints a warning count.
-    Uses only PowerShell built-ins and System.Xml: no external modules, and no
-    build/test/commit/push of the application.
+    supplied and unallowlisted findings exist; otherwise exits 0 and prints a
+    warning count. Uses only PowerShell built-ins and System.Xml: no external
+    modules, and no build/test/commit/push of the application.
 
 .EXAMPLE
     pwsh -NoProfile -File scripts/check-buttons.ps1
@@ -43,8 +46,49 @@ $targetElements = @('Button', 'ComboBox', 'CheckBox', 'ListBox')
 $handlerAttrs   = @('Click', 'SelectionChanged', 'Checked')
 $presentationNs = 'http://schemas.microsoft.com/winfx/2006/xaml/presentation'
 
-$findings     = New-Object System.Collections.Generic.List[string]
-$filesScanned = 0
+# Binding-only controls confirmed wired in docs/BUG-INVENTORY.md. Key format:
+#   '<relative xaml path>|<element local name>|<one {Binding Path} on that element>'
+# Paths use '/' so the same list works on Windows and Linux. Several entries may
+# share a key (e.g. two "PauseWhenFullscreen" check boxes on different screens).
+$bindingOnlyAllowlist = @(
+    'src/Ori.Desktop/Views/AutomationView.xaml|CheckBox|PauseWhenFullscreen',
+    'src/Ori.Desktop/Views/AutomationView.xaml|CheckBox|AutoFetchFromWallhaven',
+    'src/Ori.Desktop/Views/AutomationView.xaml|CheckBox|IsEnabled',
+    'src/Ori.Desktop/Views/AutomationView.xaml|ComboBox|CadenceMinutes',
+    'src/Ori.Desktop/Views/AutomationView.xaml|ComboBox|SelectedInterval',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedFeedCadence',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedSorting',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedTopRange',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedOrder',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedRatio',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedMonitor',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ListBox|SelectedCard',
+    'src/Ori.Desktop/Views/DisplaysView.xaml|ComboBox|SelectedPositionOption',
+    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedCollectionFilter',
+    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedSort',
+    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedDisplay',
+    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedCollection',
+    'src/Ori.Desktop/Views/LibraryView.xaml|CheckBox|FavoritesOnly',
+    'src/Ori.Desktop/Views/LibraryView.xaml|CheckBox|DeleteFileOnRemove',
+    'src/Ori.Desktop/Views/LibraryView.xaml|ListBox|SelectedEntry'
+)
+$allowlist = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($entry in $bindingOnlyAllowlist) { [void]$allowlist.Add($entry) }
+
+function Test-BindingOnly([string]$relativePath, [string]$elementName, [System.Collections.IDictionary]$attributes) {
+    foreach ($key in $attributes.Keys) {
+        $value = [string]$attributes[$key]
+        foreach ($match in [regex]::Matches($value, '\{\s*Binding\s+([A-Za-z_][A-Za-z0-9_.]*)')) {
+            $candidate = '{0}|{1}|{2}' -f $relativePath, $elementName, $match.Groups[1].Value
+            if ($allowlist.Contains($candidate)) { return $true }
+        }
+    }
+    return $false
+}
+
+$findings        = New-Object System.Collections.Generic.List[string]
+$allowedControls = 0
+$filesScanned    = 0
 
 if (-not (Test-Path -LiteralPath $xamlRoot -PathType Container)) {
     Write-Host "Dead-control audit: XAML root not found: $xamlRoot"
@@ -83,6 +127,7 @@ foreach ($file in $files) {
             }
 
             $relPath = $file.FullName.Substring($Root.Length).TrimStart('\', '/')
+            $relKey  = $relPath.Replace('\', '/')
 
             if ($targetElements -contains $elementName) {
                 $hasCommand = $attr.ContainsKey('Command')
@@ -92,8 +137,13 @@ foreach ($file in $files) {
                 }
 
                 if (-not $hasCommand -and -not $hasHandler) {
-                    [void]$findings.Add(('{0}:{1}  {2}  [no-command-no-handler]' -f
-                        $relPath, $line, $elementName))
+                    if (Test-BindingOnly $relKey $elementName $attr) {
+                        $allowedControls++
+                    }
+                    else {
+                        [void]$findings.Add(('{0}:{1}  {2}  [no-command-no-handler]' -f
+                            $relPath, $line, $elementName))
+                    }
                 }
             }
 
@@ -114,6 +164,7 @@ foreach ($file in $files) {
 
 Write-Host 'Ori dead-control check'
 Write-Host ('Scanned {0} XAML file(s) under {1}' -f $filesScanned, $xamlRoot)
+Write-Host ('Binding-only controls allowlisted: {0} (see docs/BUG-INVENTORY.md)' -f $allowedControls)
 
 if ($findings.Count -eq 0) {
     Write-Host 'PASS: no unbound controls or literal-disabled controls found.'

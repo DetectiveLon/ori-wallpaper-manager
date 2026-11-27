@@ -27,15 +27,18 @@ jobs:
       - name: Core tests
         run: dotnet test tests/Ori.Core.Tests/Ori.Core.Tests.csproj --configuration Release --no-restore
 
-      - name: Build solution (app + updater)
+      - name: Build solution (app + updater + tests)
         run: dotnet build Ori.sln --configuration Release --no-restore
+
+      - name: Desktop helper tests
+        run: dotnet test tests/Ori.Desktop.Tests/Ori.Desktop.Tests.csproj --configuration Release --no-restore
 
       - name: Static regression guards
         shell: pwsh
         run: |
           ./scripts/check-tray.ps1 -Strict
           ./scripts/check-theme.ps1
-          ./scripts/check-buttons.ps1
+          ./scripts/check-buttons.ps1 -Strict
           ./scripts/check-invariants.ps1
 
   release:
@@ -107,7 +110,7 @@ jobs:
           Self-contained, single-file win-x64 build. No .NET runtime to install.
 
           Assets:
-            ${{ steps.package.outputs.name }}  - portable zip (run Ori.exe inside)
+            ${{ steps.package.outputs.name }}  - portable zip (Ori.exe + Ori.Updater.exe)
             ${{ steps.package.outputs.exename }}  - standalone EXE used by auto-update
             update-manifest.json  - update manifest consumed by Ori.Updater
 

@@ -44,6 +44,11 @@ public partial class App : Application
     private static readonly Regex WindowsPathPattern = new(
         @"[A-Za-z]:\\[^\s,;:)\]]+",
         RegexOptions.Compiled);
+    // UNC shares (\\server\share\file) must be redacted too: a drive-letter-only
+    // pattern leaks the server and share names into the diagnostics log.
+    private static readonly Regex UncPathPattern = new(
+        @"\\\\[^\s,;:)\]]+",
+        RegexOptions.Compiled);
 
     /// <summary>Directory that holds the redacted diagnostics logs.</summary>
     public static string LogDirectory => Path.Combine(
@@ -75,6 +80,30 @@ public partial class App : Application
 
         Tray = new TrayIconService(OpenFromTray, ExitFromTray);
         Tray.Show("Ori — wallpaper manager");
+
+        // App.xaml deliberately has no StartupUri: the window is created here so
+        // the tray icon and rotation loops can run with the window hidden. WPF's
+        // default ShutdownMode (OnLastWindowClose) is overridden in App.xaml with
+        // OnExplicitShutdown, otherwise a never-shown MainWindow could end the
+        // process. Tray "Exit" calls Shutdown explicitly.
+        var startMinimized = UiPreferencesStore.Load().StartMinimized;
+        var window = new MainWindow();
+        Current.MainWindow = window;
+        if (startMinimized)
+        {
+            window.ShowInTaskbar = false;
+            // Leave the window hidden: no Show(). OpenFromTray restores it with
+            // ShowInTaskbar=true, WindowState.Normal, Show and Activate.
+            ShowFirstTrayHintOnce();
+        }
+        else
+        {
+            window.Show();
+        }
+
+        // Optional and bounded: a missing Ori.Updater.exe is a silent no-op and
+        // the check never delays the window or the tray.
+        _ = UpdateChecker.CheckOnStartupAsync();
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -199,24 +228,32 @@ public partial class App : Application
 
     /// <summary>
     /// Shows the "still running in the tray" hint the first time the window is
-    /// hidden via X / Alt+F4. One shot per process; null-safe when the tray icon
-    /// has not been created yet.
+    /// hidden — at startup for a start-minimized launch, or via X / Alt+F4.
+    /// One shot per process; null-safe when the tray icon is not ready yet.
     /// </summary>
     internal static void ShowFirstTrayHintOnce()
     {
         if (_trayHintShown)
             return;
         _trayHintShown = true;
-        Tray?.Notify(
-            "Ori",
-            "Ori is still running in the tray — click the icon to reopen.");
+        try
+        {
+            Tray?.Notify(
+                "Ori",
+                "Ori is still running in the tray — click the icon to reopen.");
+        }
+        catch (Exception)
+        {
+            // A balloon must never prevent a window from hiding or starting.
+        }
     }
 
     private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        LogFailure(e.Exception);
-        // Keep the app alive instead of silently exiting behind an async void handler.
+        // Mark handled first: LogFailure must never be able to leave an
+        // exception unhandled just because tray teardown threw.
         e.Handled = true;
+        LogFailure(e.Exception);
     }
 
     private static void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
@@ -255,17 +292,28 @@ public partial class App : Application
         // Non-intrusive, user-visible notice. Tray may be null during startup.
         // Rate-limited: a bug that fires on every layout pass must not produce a
         // stream of notifications. The log above always records every failure.
-        lock (LogGate)
+        try
         {
-            if (DateTimeOffset.UtcNow - _lastErrorNoticeUtc < TimeSpan.FromMinutes(1))
-                return;
-            _lastErrorNoticeUtc = DateTimeOffset.UtcNow;
+            lock (LogGate)
+            {
+                if (DateTimeOffset.UtcNow - _lastErrorNoticeUtc < TimeSpan.FromMinutes(1))
+                    return;
+                _lastErrorNoticeUtc = DateTimeOffset.UtcNow;
+            }
+
+            // Tray calls happen during dispatcher teardown as well. A disposed
+            // NotifyIcon or a shutting-down dispatcher must not mask the original
+            // failure or crash the error handler.
+            Tray?.Notify(
+                "Ori",
+                "Something went wrong. Details were saved to the diagnostic log.",
+                error: true);
+            Tray?.UpdateTooltip("Ori — an error was logged (hover for details)");
         }
-        Tray?.Notify(
-            "Ori",
-            "Something went wrong. Details were saved to the diagnostic log.",
-            error: true);
-        Tray?.UpdateTooltip("Ori — an error was logged (hover for details)");
+        catch (Exception)
+        {
+            // The log above is the authoritative record; notifications are best-effort.
+        }
     }
 
     /// <summary>
@@ -348,20 +396,29 @@ public partial class App : Application
         return $"{DateTimeOffset.UtcNow:O} {type}: {message}{Environment.NewLine}{stack}{Environment.NewLine}";
     }
 
-    private static string Redact(string value)
+    /// <summary>
+    /// Removes URLs, drive-letter paths and UNC shares from diagnostic text,
+    /// keeping only the final file name so a log still identifies the image.
+    /// Public so other components (and tests) use one redaction policy.
+    /// </summary>
+    public static string Redact(string value)
     {
         if (string.IsNullOrEmpty(value))
             return string.Empty;
 
         var text = UrlPattern.Replace(value, "[url]");
-        return WindowsPathPattern.Replace(text, match =>
-        {
-            var raw = match.Value;
-            var slash = raw.LastIndexOf('\\');
-            return slash >= 0 && slash + 1 < raw.Length
-                ? raw[(slash + 1)..]
-                : "[path]";
-        });
+        return UncPathPattern.Replace(
+            WindowsPathPattern.Replace(text, RedactPathMatch),
+            RedactPathMatch);
+    }
+
+    private static string RedactPathMatch(Match match)
+    {
+        var raw = match.Value;
+        var slash = raw.LastIndexOf('\\');
+        return slash >= 0 && slash + 1 < raw.Length
+            ? raw[(slash + 1)..]
+            : "[path]";
     }
 }
 

@@ -125,10 +125,33 @@
                                                    Style="{StaticResource CaptionTextStyle}"
                                                    TextWrapping="Wrap" Margin="0,10,0,0" />
 
+                                        <!-- Filters are editable here: the draft is committed only by
+                                             Save filters, which validates through the feed store. -->
+                                        <Grid Margin="0,10,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" Margin="0,0,8,0" MinWidth="180">
+                                                <TextBlock Text="SEARCH QUERY" Style="{StaticResource FieldLabelStyle}" />
+                                                <TextBox Text="{Binding FilterQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                         FontSize="13" Height="36"
+                                                         ToolTip="Wallhaven search expression for this feed (at most 300 characters). Saved with Save filters."
+                                                         AutomationProperties.Name="Feed search query" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="Save filters"
+                                                    Style="{StaticResource CardActionButton}"
+                                                    VerticalAlignment="Bottom"
+                                                    Command="{Binding SaveFiltersCommand}"
+                                                    ToolTip="Validate and save this feed's filters. Cadence, enabled state, fetch history and feed order stay unchanged."
+                                                    AutomationProperties.Name="Save this feed's filters" />
+                                        </Grid>
+
                                         <WrapPanel Margin="0,8,0,0">
                                             <Button Content="Fetch now" Style="{StaticResource CardActionButton}"
                                                     Command="{Binding FetchNowCommand}"
-                                                    ToolTip="Fetch this feed now, regardless of its cadence, and apply the first new image."
+                                                    IsEnabled="{Binding CanFetchNow}"
+                                                    ToolTip="Requires the global Wallhaven toggle. Fetch this feed now, regardless of its cadence, and apply the first new image."
                                                     AutomationProperties.Name="Fetch this feed now" />
                                             <Button Content="Move up" Style="{StaticResource CardActionButton}"
                                                     Command="{Binding MoveUpCommand}"
@@ -324,8 +347,8 @@
                                                     AutomationProperties.Name="Pause or resume rotation on this display" />
                                             <Button Content="Previous" Style="{StaticResource CardActionButton}"
                                                     Command="{Binding PreviousCommand}"
-                                                    IsEnabled="{Binding CanRotateNow}"
-                                                    ToolTip="Re-apply the previous wallpaper on this display and restart the interval."
+                                                    IsEnabled="{Binding CanUsePrevious}"
+                                                    ToolTip="Re-apply the previous wallpaper on this display and restart the interval. Enabled once a wallpaper has been replaced here."
                                                     AutomationProperties.Name="Restore the previous wallpaper on this display" />
                                             <Button Content="Rotate now" Style="{StaticResource CardActionButton}"
                                                     Command="{Binding RotateNowCommand}"

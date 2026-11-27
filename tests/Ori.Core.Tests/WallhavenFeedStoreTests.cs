@@ -328,7 +328,8 @@ public sealed class WallhavenFeedStoreTests : IDisposable
             var stored = Assert.Single(WallhavenFeedStore.ListFeeds());
             Assert.Equal(failure, stored.ConsecutiveFailures);
             Assert.Equal(at + delays[failure - 1], stored.BackoffUntilUtc);
-            Assert.Equal(at, stored.LastFetchedUtc);
+            // A failure must not start the cadence clock; only a success does.
+            Assert.Null(stored.LastFetchedUtc);
         }
 
         WallhavenFeedStore.RecordFetchResult("missing", success: false, now: t0.AddHours(1));
@@ -350,6 +351,120 @@ public sealed class WallhavenFeedStoreTests : IDisposable
         File.WriteAllText(_path, "{\"Version\":99}");
         Assert.Empty(WallhavenFeedStore.ListFeeds());
         Assert.Equal(2, Directory.GetFiles(_directory, _fileName + ".corrupt-*").Length);
+    }
+
+    [Fact]
+    public void FailureBackoffEndsBeforeTheCadenceWould()
+    {
+        var t0 = new DateTimeOffset(2026, 7, 1, 10, 0, 0, TimeSpan.Zero);
+        WallhavenFeedStore.UpsertFeed(Feed("a", "A"));
+        WallhavenFeedStore.SetAutoFetchEnabled(true);
+
+        WallhavenFeedStore.RecordFetchResult("a", success: false, now: t0);
+
+        var stored = Assert.Single(WallhavenFeedStore.ListFeeds());
+        Assert.Null(stored.LastFetchedUtc);
+        Assert.Equal(t0.AddSeconds(30), stored.BackoffUntilUtc);
+
+        // default respectCadence:true: the 30s backoff is the only gate.
+        Assert.Null(WallhavenFeedStore.GetNextDueFeed(t0.AddSeconds(10)));
+        Assert.Equal("a", WallhavenFeedStore.GetNextDueFeed(t0.AddSeconds(31))!.Id);
+
+        // A success still starts the full cadence window.
+        var successAt = t0.AddSeconds(31);
+        WallhavenFeedStore.RecordFetchResult("a", success: true, now: successAt);
+        Assert.Null(WallhavenFeedStore.GetNextDueFeed(successAt.AddMinutes(59)));
+        Assert.Equal("a", WallhavenFeedStore.GetNextDueFeed(successAt.AddMinutes(60))!.Id);
+    }
+
+    [Fact]
+    public void RememberSearchFiltersPersistsOnlyTheDocumentFilters()
+    {
+        var t0 = new DateTimeOffset(2026, 7, 2, 8, 0, 0, TimeSpan.Zero);
+        WallhavenFeedStore.SetAutoFetchEnabled(true);
+        WallhavenFeedStore.UpsertFeed(new RotationFeed
+        {
+            Id = "a",
+            Name = "A",
+            Filters = new WallhavenFilters { Query = "old" },
+            CadenceMinutes = 15,
+            LastFetchedUtc = t0,
+            BackoffUntilUtc = t0.AddMinutes(2),
+            ConsecutiveFailures = 2,
+            LastAppliedId = "wall-1"
+        });
+        var before = WallhavenFeedStore.ListFeeds();
+
+        WallhavenFeedStore.RememberSearchFilters(new WallhavenFilters
+        {
+            Query = "new",
+            Categories = WallhavenCategory.Anime
+        });
+
+        Assert.Equal(before, WallhavenFeedStore.ListFeeds());
+        Assert.Equal("new", WallhavenFeedStore.Load()!.Query);
+        Assert.Equal(WallhavenCategory.Anime, WallhavenFeedStore.Load()!.Categories);
+        Assert.True(WallhavenFeedStore.IsAutoFetchEnabled());
+        using var document = JsonDocument.Parse(File.ReadAllText(_path));
+        Assert.Equal(2, document.RootElement.GetProperty("Version").GetInt32());
+    }
+
+    [Fact]
+    public void RememberSearchFiltersOnAnEmptyStoreCreatesNoFeed()
+    {
+        WallhavenFeedStore.RememberSearchFilters(new WallhavenFilters { Query = "sky" });
+
+        Assert.Empty(WallhavenFeedStore.ListFeeds());
+        Assert.False(WallhavenFeedStore.IsAutoFetchEnabled());
+        Assert.Equal("sky", WallhavenFeedStore.Load()!.Query);
+    }
+
+    [Fact]
+    public void MixedValidAndInvalidFeedsAreSanitizedOneAtATime()
+    {
+        var t0 = new DateTimeOffset(2026, 8, 1, 9, 0, 0, TimeSpan.Zero);
+        var validA = new RotationFeed
+        {
+            Id = "good-a",
+            Name = "Good A",
+            Filters = new WallhavenFilters { Query = "sky" },
+            CadenceMinutes = 15,
+            LastFetchedUtc = t0.AddMinutes(-10),
+            BackoffUntilUtc = t0.AddMinutes(2),
+            ConsecutiveFailures = 3,
+            LastAppliedId = "wall-1"
+        };
+        var validB = new RotationFeed
+        {
+            Id = "good-b",
+            Name = "Good B",
+            Filters = new WallhavenFilters { Query = "city" },
+            CadenceMinutes = 75,
+            Enabled = false,
+            ConsecutiveFailures = 1
+        };
+        WriteRaw(JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Filters = new WallhavenFilters { Query = "master" },
+            CadenceMinutes = 60,
+            AutoFetchEnabled = true,
+            Feeds = new object?[]
+            {
+                validA,
+                validA with { Id = "bad id!" },
+                null,
+                validB,
+                validA with { Id = "bad-filters", Filters = new WallhavenFilters { Categories = WallhavenCategory.None } }
+            }
+        }));
+
+        var feeds = WallhavenFeedStore.ListFeeds();
+
+        Assert.Equal(2, feeds.Count);
+        Assert.Equal(validA, feeds[0]);
+        Assert.Equal(validB, feeds[1]);
+        Assert.True(WallhavenFeedStore.IsAutoFetchEnabled());
     }
 
     [Fact]

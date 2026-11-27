@@ -57,7 +57,7 @@ public sealed class WallhavenClient
                 "An auto-redirecting HttpClient can forward the X-API-Key header to another host. Use CreateHttpClient().",
                 nameof(http));
         if (!_http.DefaultRequestHeaders.UserAgent.Any())
-            _http.DefaultRequestHeaders.UserAgent.ParseAdd("Ori-Wallpaper/0.1 (+https://github.com/)");
+            _http.DefaultRequestHeaders.UserAgent.ParseAdd(OriVersion.UserAgent);
     }
 
     private static bool HasAutoRedirectEnabled(HttpClient client)

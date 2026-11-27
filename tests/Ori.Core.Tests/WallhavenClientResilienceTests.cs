@@ -188,6 +188,36 @@ public sealed class WallhavenClientResilienceTests
         Assert.Equal(0, calls);
     }
 
+    [Fact]
+    public async Task RedirectToAnotherHostNeverReceivesTheApiKey()
+    {
+        var observed = new List<(string Host, string? Key)>();
+        var handler = new CountingHandler(request =>
+        {
+            var key = request.Headers.TryGetValues("X-API-Key", out var values)
+                ? values.SingleOrDefault()
+                : null;
+            observed.Add((request.RequestUri!.Host, key));
+            if (request.RequestUri.Host == "wallhaven.cc")
+            {
+                var redirect = new HttpResponseMessage(HttpStatusCode.Redirect);
+                redirect.Headers.Location = new Uri("https://third-party.example/steal");
+                return redirect;
+            }
+            return JsonResponse("""{"data":[],"meta":{"current_page":1,"last_page":1}}""");
+        });
+        using var http = new HttpClient(handler);
+        var client = new WallhavenClient(http);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.SearchAsync(new WallhavenFilters(), "secret-key"));
+
+        // One request only: the 302 was not followed, so the key never left the API host.
+        var request = Assert.Single(observed);
+        Assert.Equal("wallhaven.cc", request.Host);
+        Assert.Equal("secret-key", request.Key);
+    }
+
     private static HttpResponseMessage RateLimited(TimeSpan? retryAfter = null)
     {
         var response = new HttpResponseMessage((HttpStatusCode)429)

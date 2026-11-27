@@ -250,8 +250,12 @@ public sealed class DisplaysViewModel : ViewModelBase
         {
             SetSelectedMonitor(monitor, persist: true);
             WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, imagePath);
+            // Applying a per-monitor image resets a leaked global Span to Fill.
+            // Re-read the OS fit mode so the picker, illustration and Span
+            // warning update in the same frame as the new wallpaper.
+            RefreshPosition();
             RefreshDisplays();
-            Status = $"Wallpaper applied to {monitor.DisplayName}.";
+            Status = $"Wallpaper applied to {monitor.DisplayName}. Fit mode: {PositionDescription}";
         }
         catch (Exception ex)
         {
@@ -503,9 +507,6 @@ public sealed class DisplayCardViewModel : ViewModelBase
     public string WallpaperName => string.IsNullOrWhiteSpace(CurrentWallpaper)
         ? "No wallpaper reported by Windows"
         : Path.GetFileName(CurrentWallpaper.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-
-    /// <summary>Kept for existing bindings; cards show WallpaperName instead of the raw path.</summary>
-    public string WallpaperText => WallpaperName;
 
     public string WallpaperPathToolTip => CurrentWallpaper ?? "Windows did not report a wallpaper path for this display.";
 

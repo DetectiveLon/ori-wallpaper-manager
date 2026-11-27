@@ -150,6 +150,13 @@ public sealed class DiscoverViewModel : ViewModelBase
     private static readonly WallpaperImageCache LibraryImages = new();
     private static readonly WallpaperLibraryStore Library = new();
 
+    // Only formats Ori can apply as a desktop wallpaper belong in the library. Kept in
+    // sync with ValidateWallpaperImage below so saving and applying agree.
+    private static readonly HashSet<string> LibraryImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".bmp", ".dib", ".tif", ".tiff"
+    };
+
     private readonly DelegateCommand _searchCommand;
     private readonly DelegateCommand _previousCommand;
     private readonly DelegateCommand _nextCommand;
@@ -164,11 +171,13 @@ public sealed class DiscoverViewModel : ViewModelBase
     private readonly DelegateCommand _refreshFeedsCommand;
     private readonly DelegateCommand _removeFeedCommand;
     private readonly DelegateCommand _toggleFeedEnabledCommand;
+    private readonly DelegateCommand _saveApiKeyCommand;
 
     private WallhavenSearchPage? _currentPage;
     private WallhavenFilters? _currentFilters;
     private CancellationTokenSource? _searchCts;
     private bool _busy;
+    private bool _hasSearched;
     private int _searchStarting;
     private string _status = "Choose filters and search.";
     private string _pageText = string.Empty;
@@ -288,6 +297,8 @@ public sealed class DiscoverViewModel : ViewModelBase
             parameter => parameter is string, ReportCommandFailure);
         _toggleFeedEnabledCommand = new DelegateCommand(ToggleFeedEnabledAsync,
             parameter => parameter is string, ReportCommandFailure);
+        // Saving the key is an explicit user action, never a side effect of searching.
+        _saveApiKeyCommand = new DelegateCommand(_ => SaveApiKey(), _ => true, ReportCommandFailure);
     }
 
     // Filter state. Most values are plain auto-properties (two-way bindings write
@@ -411,6 +422,29 @@ public sealed class DiscoverViewModel : ViewModelBase
         private set => SetProperty(ref _busy, value);
     }
 
+    /// <summary>True once at least one search has completed, so the empty overlay can
+    /// distinguish "not searched yet" from "searched and nothing matched".</summary>
+    public bool HasSearched
+    {
+        get => _hasSearched;
+        private set
+        {
+            if (SetProperty(ref _hasSearched, value))
+            {
+                OnPropertyChanged(nameof(EmptyStateTitle));
+                OnPropertyChanged(nameof(EmptyStateMessage));
+            }
+        }
+    }
+
+    public string EmptyStateTitle => HasSearched
+        ? "No matches found"
+        : "No wallpapers yet";
+
+    public string EmptyStateMessage => HasSearched
+        ? "No wallpapers matched your filters. Try removing a filter or broadening your tag query."
+        : "Choose your filters, then select Search wallpapers to explore Wallhaven.";
+
     public ICommand SearchCommand => _searchCommand;
     public ICommand PreviousCommand => _previousCommand;
     public ICommand NextCommand => _nextCommand;
@@ -425,6 +459,7 @@ public sealed class DiscoverViewModel : ViewModelBase
     public ICommand RefreshFeedsCommand => _refreshFeedsCommand;
     public ICommand RemoveFeedCommand => _removeFeedCommand;
     public ICommand ToggleFeedEnabledCommand => _toggleFeedEnabledCommand;
+    public ICommand SaveApiKeyCommand => _saveApiKeyCommand;
 
     /// <summary>Enumerates displays once the view is loaded; detection failures stay non-fatal.</summary>
     public void LoadDisplays()
@@ -469,6 +504,30 @@ public sealed class DiscoverViewModel : ViewModelBase
         {
             ApiKey = string.Empty;
         }
+    }
+
+    /// <summary>
+    /// Explicit, button-triggered persistence of the API key. Discover never saves the
+    /// key as a side effect of searching; this is a deliberate opt-in that uses the same
+    /// protected store Settings uses.
+    /// </summary>
+    private Task SaveApiKey()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(ApiKey))
+            {
+                Status = "Enter an API key before saving it.";
+                return Task.CompletedTask;
+            }
+            ApiKeyStore.Save(ApiKey);
+            Status = "API key saved locally (DPAPI-protected). It will be reused on later visits.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not save the API key: {ex.Message}";
+        }
+        return Task.CompletedTask;
     }
 
     /// <summary>Cancels any in-flight search; called when the view unloads.</summary>
@@ -540,16 +599,18 @@ public sealed class DiscoverViewModel : ViewModelBase
             var succeeded = await SearchPageAsync(1, null);
             if (succeeded)
             {
-                // Remember the query and persist the exact filters for automatic rotation.
-                // Settings is the single source of truth for the API key; searching never saves it.
+                // Remember the query and the document-level filters without touching any
+                // saved feed. An ordinary search must never rename a feed, change its
+                // cadence or silently re-enable it. Settings is the single source of truth
+                // for the API key; searching never saves it.
                 RecordTags(filters.Query);
                 try
                 {
-                    WallhavenFeedStore.Save(filters, 60);
+                    WallhavenFeedStore.RememberSearchFilters(filters);
                 }
                 catch
                 {
-                    // Feed persistence is a convenience; it must not fail a completed search.
+                    // Remembering filters is a convenience; it must not fail a completed search.
                 }
             }
         }
@@ -670,8 +731,9 @@ public sealed class DiscoverViewModel : ViewModelBase
 
     /// <summary>
     /// Saves the current filters as an explicitly named rotation feed. This is the
-    /// authoring path: the silent Save(filters, 60) in SearchFirstPageAsync only
-    /// maintains the legacy compat record and never touches these feeds.
+    /// only Discover path that creates or updates feeds: an ordinary search merely
+    /// remembers the document-level filters via RememberSearchFilters and leaves
+    /// every saved feed (its name, cadence and enabled state) untouched.
     /// </summary>
     private Task SaveAsFeedAsync()
     {
@@ -820,6 +882,9 @@ public sealed class DiscoverViewModel : ViewModelBase
             foreach (var wallpaper in result.Items)
                 Results.Add(new WallpaperCard(wallpaper));
 
+            // A completed zero-result search is still a search: the overlay must not
+            // keep telling the user to press Search when they already did.
+            HasSearched = true;
             Status = result.Items.Count == 0
                 ? "No wallpapers matched. Try removing a filter."
                 : $"Found {result.Items.Count} wallpapers.";
@@ -886,22 +951,50 @@ public sealed class DiscoverViewModel : ViewModelBase
         try
         {
             var path = await LibraryImages.SaveToLibraryAsync(wallpaper);
-            await Library.UpsertAsync(new WallpaperLibraryEntry
+            var extension = Path.GetExtension(path);
+            if (!LibraryImageExtensions.Contains(extension))
             {
-                Id = wallpaper.Id,
-                Title = $"Wallhaven #{wallpaper.Id}",
-                PageUrl = wallpaper.PageUrl.ToString(),
-                ImageUrl = wallpaper.ImageUrl.ToString(),
-                LocalPath = path,
-                Category = wallpaper.Category,
-                Purity = wallpaper.Purity,
-                Width = wallpaper.Width,
-                Height = wallpaper.Height,
-                Ratio = wallpaper.Ratio,
-                SavedAtUtc = DateTimeOffset.UtcNow,
-                Collection = "Unsorted"
-            });
-            Status = $"Wallpaper #{wallpaper.Id} saved to your local library.";
+                Status = $"Wallpaper #{wallpaper.Id} is '{extension.TrimStart('.')}' and cannot be saved. Supported formats: jpg, jpeg, png, bmp, dib, tif, tiff.";
+                return;
+            }
+
+            // Hashing and indexing are metadata: the image is already on disk, so a
+            // failure here must not be reported as "the wallpaper was not saved".
+            string? contentHash = null;
+            try
+            {
+                contentHash = WallpaperLibraryStore.ComputeSha256(path);
+            }
+            catch
+            {
+                // No hash is better than a failed save; duplicates detection simply
+                // falls back to its path/size heuristic for this entry.
+            }
+
+            try
+            {
+                await Library.UpsertAsync(new WallpaperLibraryEntry
+                {
+                    Id = wallpaper.Id,
+                    Title = $"Wallhaven #{wallpaper.Id}",
+                    PageUrl = wallpaper.PageUrl.ToString(),
+                    ImageUrl = wallpaper.ImageUrl.ToString(),
+                    LocalPath = path,
+                    Category = wallpaper.Category,
+                    Purity = wallpaper.Purity,
+                    Width = wallpaper.Width,
+                    Height = wallpaper.Height,
+                    Ratio = wallpaper.Ratio,
+                    SavedAtUtc = DateTimeOffset.UtcNow,
+                    ContentHash = contentHash ?? string.Empty,
+                    Collection = "Unsorted"
+                });
+                Status = $"Wallpaper #{wallpaper.Id} saved to your local library.";
+            }
+            catch (Exception ex)
+            {
+                Status = $"Wallpaper #{wallpaper.Id} saved to disk, but its library entry could not be indexed: {ex.Message}";
+            }
         }
         catch (Exception ex)
         {
@@ -1011,6 +1104,18 @@ public sealed class DiscoverViewModel : ViewModelBase
             // collected and rotated (and so the file participates in cleanup).
             try
             {
+                // The hash is best-effort metadata; an unhashed entry still participates
+                // in duplicates detection through its path/size fallback.
+                string? contentHash = null;
+                try
+                {
+                    contentHash = WallpaperLibraryStore.ComputeSha256(path);
+                }
+                catch
+                {
+                    // Leave the hash empty rather than failing an already-applied wallpaper.
+                }
+
                 await Library.UpsertAsync(new WallpaperLibraryEntry
                 {
                     Id = wallpaper.Id,
@@ -1024,6 +1129,7 @@ public sealed class DiscoverViewModel : ViewModelBase
                     Height = wallpaper.Height,
                     Ratio = wallpaper.Ratio,
                     SavedAtUtc = DateTimeOffset.UtcNow,
+                    ContentHash = contentHash ?? string.Empty,
                     Collection = "Unsorted"
                 });
             }

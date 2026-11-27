@@ -10,12 +10,37 @@
 Live-tested on a Windows 11 desktop with SDK 10.0.404, Release build from
 `build.ps1`. Screenshot filenames are listed without any local file paths.
 
+## Current `v2-shell` cross-check (not live-verified in this wave)
+
+The older items below are kept verbatim for traceability. On `v2-shell` their
+status is now:
+
+- Full-screen pause is **no longer foreground-only**:
+  `FullscreenWindowDetector` enumerates all visible top-level windows and matches
+  each display's geometry, remembering known blockers through focus changes.
+  A real game must still be smoke-tested before this is closed as live-verified.
+- The title-bar double-click handler is **wired**: the title bar `Border` has no
+  `MouseDoubleClick` event, so `MouseLeftButtonDown` dispatches to
+  `OnTitleBarMouseDoubleClick` when `ClickCount == 2`.
+- `OverviewView` is **gone** (files deleted, nav key removed); Discover is the
+  landing page.
+- Auto-update is **being wired**: `App.OnStartup` now calls `UpdateChecker`,
+  which runs the bundled `Ori.Updater.exe check` in the background and reports
+  status in Settings plus a tray balloon. Applying an update is still manual;
+  the network path has not been live-tested.
+- The optional installer puts binaries in `%LOCALAPPDATA%\Programs\Ori`, while
+  all user data stays in `%LOCALAPPDATA%\Ori` and is preserved on uninstall.
+- New `tests/Ori.Desktop.Tests` unit tests cover trusted URIs, wallpaper path
+  validation, log redaction, start-minimized persistence and manifest alignment.
+  They are authored here but their first execution is CI (no local build in this
+  wave).
+
 ## Final status (that session)
 
 - Fixed 14 issues; 9 new regression tests. 45/45 core tests pass, WPF build 0 warnings/0 errors.
 - Final smoke: app launches, both monitors detected, Displays and Automation render, no modal; a seeded schedule restored with a live countdown; graceful close now exits cleanly. Live close testing found and fixed a WPF re-entrant `Close()` bug in the first shutdown implementation.
 - Fixed in addition to item 1 below: silent process exit (global exception handlers + wrapped library handlers); Library UI decoded every image on the UI thread and re-rendered per keystroke (now background decode + 180 ms debounce); Start error overwritten by cleanup; wallpaper apply forcing global Fill fit mode; Discover Search button off-screen; blocking detection modal; reset-during-pause double notification; throwing loop callbacks killing rotation; API key forwarded on auto-redirecting HttpClient; no path back to "Unsorted"; relative index path crash; invalid WallhavenOrder silently mapping to "desc"; stale Overview copy; CTA highlighted as nav.
-- Still open at that time: duplicated detection presentation in three pages (detection itself now shares one service); two disagreeing image pipelines; foreground-only full-screen detection; schedule persistence not surviving a monitor-ID change; library no virtualization or collections UI. Several of these were addressed later in `v2-shell`.
+- Still open at that time: duplicated detection presentation in three pages (detection itself now shares one service); two disagreeing image pipelines; foreground-only full-screen detection (now all-window enumeration in `v2-shell`); schedule persistence not surviving a monitor-ID change; library no virtualization or collections UI. Several of these were addressed later in `v2-shell`.
 - Not tested then: real Wallhaven search/download, full-screen pause with a game, installer.
 
 - UI pass: Settings was a dead placeholder — now has a DPAPI-protected Wallhaven API key field, cache clearing, data paths, and version info; key save/remove verified live. Default WPF buttons/comboboxes rendered as white blocks (disabled state overrode local colours); added dark implicit styles and verified the interval dropdown still opens/selects and disabled buttons stay dark. Docs updated.

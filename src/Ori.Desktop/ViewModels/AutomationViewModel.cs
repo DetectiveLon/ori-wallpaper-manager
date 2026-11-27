@@ -58,8 +58,18 @@ public sealed class AutomationViewModel : ViewModelBase
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _uiTimer;
     private readonly DispatcherTimer _feedTimer;
+
+    // The UI mutates _sessions while rotation/feed callbacks read it from the thread
+    // pool. Every dictionary access goes through this lock; callers snapshot to an
+    // array so no enumeration happens while another thread changes the dictionary.
+    private readonly object _sessionsGate = new();
     private readonly Dictionary<string, DisplayScheduleViewModel> _sessions =
         new(StringComparer.OrdinalIgnoreCase);
+
+    // Last set of states written successfully. A transient LoadAsync failure must
+    // never turn into an empty save that deletes schedules for unplugged monitors.
+    private IReadOnlyDictionary<string, DisplayScheduleState> _lastKnownStates =
+        new Dictionary<string, DisplayScheduleState>(StringComparer.OrdinalIgnoreCase);
 
     // Cadence, backoff and failure counts are Core-owned now; this class only keeps
     // the master mirror, a shutdown/enable cancellation source and the overlap guard.
@@ -131,6 +141,16 @@ public sealed class AutomationViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Immutable view of the live sessions for background callbacks. Never enumerate
+    /// _sessions directly: the UI adds/removes displays while feeds and loops run.
+    /// </summary>
+    private DisplayScheduleViewModel[] SnapshotSessions()
+    {
+        lock (_sessionsGate)
+            return _sessions.Values.ToArray();
+    }
+
     private void SetLibraryStatus(string message)
     {
         void apply()
@@ -139,7 +159,10 @@ public sealed class AutomationViewModel : ViewModelBase
             UpdateGlobalStatus();
         }
 
-        // Feed fetches report library changes from a background thread.
+        // Feed fetches report library changes from a background thread. During
+        // shutdown there is no dispatcher left to report to, so drop the message.
+        if (_dispatcher.HasShutdownStarted)
+            return;
         if (_dispatcher.CheckAccess())
             apply();
         else
@@ -167,6 +190,10 @@ public sealed class AutomationViewModel : ViewModelBase
             UpdateGlobalStatus();
         }
 
+        // Dispatcher-safe: a feed timer firing during shutdown must not escape an
+        // async void handler because InvokeAsync ran against a dead dispatcher.
+        if (_dispatcher.HasShutdownStarted)
+            return;
         if (_dispatcher.CheckAccess())
             apply();
         else
@@ -243,6 +270,9 @@ public sealed class AutomationViewModel : ViewModelBase
             else
             {
                 CancelFeedFetch();
+                // RefreshFeeds republishes CanFetchNow so the Fetch now buttons can
+                // explain/disable themselves while the master is off.
+                RefreshFeeds();
                 SetFeedStatus(string.Empty);
                 UpdateAllSessions();
             }
@@ -267,7 +297,8 @@ public sealed class AutomationViewModel : ViewModelBase
     /// <summary>
     /// Called from the view's Loaded handler. The view is cached, so this runs on
     /// every visit: availability is re-read each time while schedule restore and
-    /// the UI ticker stay one-shot.
+    /// the UI ticker stay one-shot. A failed first load leaves _initialized false,
+    /// so a later visit retries instead of leaving the page permanently broken.
     /// </summary>
     public async Task InitializeAsync()
     {
@@ -275,8 +306,6 @@ public sealed class AutomationViewModel : ViewModelBase
             return;
 
         var firstLoad = !_initialized;
-        if (firstLoad)
-            _initialized = true;
 
         // The shell calls this at startup and the view calls it on every visit, so
         // feed state must be re-read on both paths. Restore/timers stay one-shot.
@@ -297,11 +326,15 @@ public sealed class AutomationViewModel : ViewModelBase
             return;
         }
 
+        // Do not publish _initialized until everything below succeeded. If restore
+        // or either timer throws, the next visit takes this path again; state that
+        // was already restored is idempotent (loops refuse to start twice).
         await RestoreSchedulesAsync();
         if (!_uiTimer.IsEnabled)
             _uiTimer.Start();
         if (!_feedTimer.IsEnabled)
             _feedTimer.Start();
+        _initialized = true;
     }
 
     /// <summary>
@@ -314,7 +347,7 @@ public sealed class AutomationViewModel : ViewModelBase
         _feedTimer.Stop();
         CancelFeedFetch();
 
-        foreach (var session in _sessions.Values)
+        foreach (var session in SnapshotSessions())
         {
             session.UserPaused = false;
             session.LoopCancellation?.Cancel();
@@ -331,7 +364,7 @@ public sealed class AutomationViewModel : ViewModelBase
     {
         RequestStop();
 
-        var tasks = _sessions.Values.Select(session => StopSessionAsync(session)).ToArray();
+        var tasks = SnapshotSessions().Select(session => StopSessionAsync(session)).ToArray();
         if (tasks.Length == 0)
             return;
 
@@ -344,7 +377,10 @@ public sealed class AutomationViewModel : ViewModelBase
         if (_shutdownRequested)
             return;
 
-        var states = _sessions.Values.Select(current => new DisplayScheduleState(
+        // Snapshot under the sessions lock: the nextRunChanged callback can run on a
+        // threadpool thread while the UI adds/removes displays. Also persist the
+        // one-deep history so Previous survives a restart.
+        var states = SnapshotSessions().Select(current => new DisplayScheduleState(
             current.Monitor.Id,
             current.SelectedInterval,
             ReferenceEquals(current, session) && shouldRun.HasValue
@@ -354,7 +390,10 @@ public sealed class AutomationViewModel : ViewModelBase
             current.NextRunUtc,
             current.LastAppliedId,
             current.PauseWhenFullscreen,
-            current.Fingerprint)).ToArray();
+            current.Fingerprint)
+        {
+            PreviousAppliedPath = current.PreviousAppliedPath
+        }).ToArray();
 
         await SaveMergedStatesAsync(states);
     }
@@ -365,6 +404,8 @@ public sealed class AutomationViewModel : ViewModelBase
     /// from <see cref="_sessions"/>: its schedule must stay on disk so a later
     /// fingerprint match can adopt it. This also stops one session's save from
     /// replacing another session's saved interval/pause/deadline with defaults.
+    /// A failed (or silently empty) read skips the write entirely: overwriting with
+    /// no entries would delete the schedules for every unplugged monitor.
     /// </summary>
     private async Task SaveMergedStatesAsync(
         IEnumerable<DisplayScheduleState> overrides,
@@ -379,10 +420,16 @@ public sealed class AutomationViewModel : ViewModelBase
                 try
                 {
                     saved = await _schedules.LoadAsync();
+                    // ScheduleStore swallows transient IO errors and returns an empty
+                    // dictionary. Treat that as a failed read when we know we have
+                    // saved states, rather than erasing them.
+                    if (saved.Count == 0 && _lastKnownStates.Count > 0)
+                        return;
                 }
                 catch
                 {
-                    saved = new Dictionary<string, DisplayScheduleState>(StringComparer.OrdinalIgnoreCase);
+                    // Transient read failure: leave schedules.json exactly as it is.
+                    return;
                 }
 
                 var merged = new Dictionary<string, DisplayScheduleState>(StringComparer.OrdinalIgnoreCase);
@@ -399,6 +446,8 @@ public sealed class AutomationViewModel : ViewModelBase
                     merged[state.MonitorId] = state;
 
                 await _schedules.SaveAsync(merged.Values);
+                _lastKnownStates = new Dictionary<string, DisplayScheduleState>(
+                    merged, StringComparer.OrdinalIgnoreCase);
             }
             finally
             {
@@ -449,10 +498,12 @@ public sealed class AutomationViewModel : ViewModelBase
         var adopted = false;
         var identityDirty = false;
 
+        var sessions = SnapshotSessions();
+
         // Pass one: a saved entry whose id matches a live display belongs to that
         // display. Claim every such entry before any adoption so a newer session
         // cannot steal it just because it is enumerated first.
-        foreach (var session in _sessions.Values)
+        foreach (var session in sessions)
         {
             var fingerprint = session.Fingerprint;
             if (!byId.TryGetValue(session.Monitor.Id, out var direct))
@@ -472,7 +523,7 @@ public sealed class AutomationViewModel : ViewModelBase
         }
 
         // Pass two: adopt only saved entries that no live display is already using.
-        foreach (var session in _sessions.Values)
+        foreach (var session in sessions)
         {
             if (resolved.ContainsKey(session))
                 continue;
@@ -494,6 +545,26 @@ public sealed class AutomationViewModel : ViewModelBase
                 break;
             }
 
+            if (matchId is null && !string.IsNullOrWhiteSpace(session.Monitor.DeviceName))
+            {
+                // Fallback: a driver/USB/GPU change can replace both the COM path
+                // and the geometry, leaving no fingerprint match. If exactly one
+                // unclaimed saved entry names the same panel, adopt it. Claimed
+                // entries (pass one or an earlier adoption) are never candidates.
+                var sameDevice = byId
+                    .Where(pair => !claimed.Contains(pair.Key))
+                    .Where(pair => string.Equals(
+                        FingerprintDeviceName(pair.Value.MonitorFingerprint),
+                        session.Monitor.DeviceName,
+                        StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                if (sameDevice.Length == 1)
+                {
+                    matchId = sameDevice[0].Key;
+                    matchState = sameDevice[0].Value;
+                }
+            }
+
             if (matchId is null || matchState is null)
                 continue;
 
@@ -511,7 +582,7 @@ public sealed class AutomationViewModel : ViewModelBase
         }
 
         var restored = new List<(DisplayScheduleViewModel Session, DisplayScheduleState State)>();
-        foreach (var session in _sessions.Values)
+        foreach (var session in sessions)
         {
             if (resolved.TryGetValue(session, out var state) && (scope is null || scope.Contains(session)))
                 restored.Add((session, state));
@@ -526,6 +597,8 @@ public sealed class AutomationViewModel : ViewModelBase
             if (IntervalsByName.ContainsKey(state.IntervalName))
                 session.SelectedInterval = state.IntervalName;
             session.LastAppliedId = state.LastAppliedId;
+            // Restore the one-deep history so Previous works after a restart.
+            session.PreviousAppliedPath = state.PreviousAppliedPath;
             session.ApplyRestoredPausePolicy(state.PauseWhenFullscreen);
 
             // Populate the whole session before any loop starts: the first
@@ -547,7 +620,8 @@ public sealed class AutomationViewModel : ViewModelBase
                 LastAppliedId = session.LastAppliedId,
                 UserPaused = session.UserPaused,
                 NextRunUtc = session.NextRunUtc,
-                ShouldRun = session.ActiveSchedule
+                ShouldRun = session.ActiveSchedule,
+                PreviousAppliedPath = session.PreviousAppliedPath
             });
         }
 
@@ -574,6 +648,20 @@ public sealed class AutomationViewModel : ViewModelBase
 
             await StartRotationAsync(session, state.NextRunUtc, restoring: true);
         }
+    }
+
+    /// <summary>
+    /// Reads the device name out of a ScheduleStore fingerprint
+    /// ("name|left,top,widthxheight") for the same-panel adoption fallback.
+    /// </summary>
+    private static string? FingerprintDeviceName(string? fingerprint)
+    {
+        if (string.IsNullOrWhiteSpace(fingerprint))
+            return null;
+
+        var separator = fingerprint.IndexOf('|');
+        var name = separator < 0 ? fingerprint : fingerprint[..separator];
+        return name.Trim();
     }
 
     private async Task RefreshLibraryStatusAsync()
@@ -628,22 +716,25 @@ public sealed class AutomationViewModel : ViewModelBase
                 .Select(monitor => monitor.Id)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var removed in _sessions.Values
-                         .Where(session => !connectedIds.Contains(session.Monitor.Id))
-                         .ToArray())
+            foreach (var removed in SnapshotSessions()
+                         .Where(session => !connectedIds.Contains(session.Monitor.Id)))
             {
                 // Suspend, do not stop: the loop is cancelled in memory but the saved
                 // ShouldRun/interval/pause/deadline stay on disk. Writing false here
                 // would make fingerprint adoption impossible when the panel returns.
                 await StopSessionAsync(removed, keepSavedSchedule: true);
                 Schedules.Remove(removed);
-                _sessions.Remove(removed.Monitor.Id);
+                lock (_sessionsGate)
+                    _sessions.Remove(removed.Monitor.Id);
             }
 
             var added = new List<DisplayScheduleViewModel>();
             foreach (var monitor in monitors)
             {
-                if (_sessions.TryGetValue(monitor.Id, out var existing))
+                DisplayScheduleViewModel? existing;
+                lock (_sessionsGate)
+                    _sessions.TryGetValue(monitor.Id, out existing);
+                if (existing is not null)
                 {
                     existing.Monitor = monitor;
                     UpdateSessionUi(existing);
@@ -651,7 +742,8 @@ public sealed class AutomationViewModel : ViewModelBase
                 }
 
                 var session = new DisplayScheduleViewModel(monitor, this);
-                _sessions.Add(monitor.Id, session);
+                lock (_sessionsGate)
+                    _sessions.Add(monitor.Id, session);
                 Schedules.Add(session);
                 UpdateSessionUi(session);
                 added.Add(session);
@@ -998,8 +1090,9 @@ public sealed class AutomationViewModel : ViewModelBase
                     PathsEqual(entry.LocalPath, monitorAtSelection.CurrentWallpaper))?.Id;
             }
 
-            // A freshly fetched image wins once, so Fetch now is visibly applied.
-            // It is only used while the file is actually on disk.
+            // A freshly fetched image wins once, whether the sweep queued it for the
+            // next scheduled change or Fetch now applied it immediately. It is only
+            // used while the file is actually on disk.
             var pending = session.PendingFeedEntryId is { } pendingId
                 ? available.FirstOrDefault(entry => string.Equals(
                     entry.Id, pendingId, StringComparison.OrdinalIgnoreCase))
@@ -1057,7 +1150,11 @@ public sealed class AutomationViewModel : ViewModelBase
                 WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, selected.LocalPath);
 
                 // Keep a one-deep history of applied paths for the Previous command.
+                // A restored schedule may not have LastAppliedPath yet; in that case
+                // the path being replaced is the one on the monitor snapshot.
                 var outgoing = session.LastAppliedPath;
+                if (string.IsNullOrWhiteSpace(outgoing))
+                    outgoing = monitorAtSelection.CurrentWallpaper;
                 if (!string.IsNullOrWhiteSpace(outgoing) && !PathsEqual(outgoing, selected.LocalPath))
                     session.PreviousAppliedPath = outgoing;
                 session.LastAppliedPath = selected.LocalPath;
@@ -1114,14 +1211,23 @@ public sealed class AutomationViewModel : ViewModelBase
 
     private async void OnFeedTimerTick(object? sender, EventArgs e)
     {
-        if (_shutdownRequested
-            || Volatile.Read(ref _feedFetchInFlight) != 0
-            || !AutoFetchFromWallhaven)
+        try
         {
-            return;
-        }
+            if (_shutdownRequested
+                || Volatile.Read(ref _feedFetchInFlight) != 0
+                || !AutoFetchFromWallhaven)
+            {
+                return;
+            }
 
-        await FetchDueFeedSafelyAsync();
+            await FetchDueFeedSafelyAsync();
+        }
+        catch (Exception ex)
+        {
+            // async void has no caller to observe a throw; at shutdown the dispatcher
+            // may be gone, so SetFeedStatus drops the message instead of rethrowing.
+            SetFeedStatus($"Feed check failed: {ex.Message}");
+        }
     }
 
     /// <summary>Fire-and-forget wrapper for startup, the master toggle and the timer.</summary>
@@ -1168,7 +1274,10 @@ public sealed class AutomationViewModel : ViewModelBase
             if (feed is null || !feed.Enabled)
                 return;
 
-            await FetchFeedAsync(feed.Id, cancellationToken).ConfigureAwait(false);
+            // Scheduled sweep: store the images and queue them for the next normal
+            // rotation. Applying here would reset every running display's countdown.
+            await FetchFeedAsync(feed.Id, cancellationToken, applyImmediately: false)
+                .ConfigureAwait(false);
         }
         finally
         {
@@ -1176,9 +1285,18 @@ public sealed class AutomationViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Fetches one named feed now, ignoring its cadence.</summary>
+    /// <summary>
+    /// Fetches one named feed now, ignoring its cadence, and applies the result.
+    /// The global Wallhaven opt-in gates this action just as it gates the sweep.
+    /// </summary>
     internal async Task FetchNowAsync(string feedId)
     {
+        if (!AutoFetchFromWallhaven)
+        {
+            SetFeedStatus("Turn on automatic Wallhaven fetching before using Fetch now.");
+            return;
+        }
+
         if (_shutdownRequested || Interlocked.Exchange(ref _feedFetchInFlight, 1) != 0)
         {
             SetFeedStatus("A Wallhaven fetch is already running.");
@@ -1188,7 +1306,7 @@ public sealed class AutomationViewModel : ViewModelBase
         var token = EnsureFeedCts();
         try
         {
-            await FetchFeedAsync(feedId, token).ConfigureAwait(false);
+            await FetchFeedAsync(feedId, token, applyImmediately: true).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -1205,11 +1323,15 @@ public sealed class AutomationViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Downloads up to three unseen wallpapers for one feed, records the outcome in
-    /// Core (which owns cadence/backoff/failure state), then makes the first new image
-    /// visible. Network failures are reported and never stop a rotation loop.
+    /// Downloads up to three unseen wallpapers for one feed and records the outcome in
+    /// Core (which owns cadence/backoff/failure state). With applyImmediately=true (Fetch
+    /// now) the first new image is applied; the scheduled sweep queues it instead so
+    /// rotation deadlines stay untouched. Network failures never stop a rotation loop.
     /// </summary>
-    internal async Task FetchFeedAsync(string feedId, CancellationToken cancellationToken)
+    internal async Task FetchFeedAsync(
+        string feedId,
+        CancellationToken cancellationToken,
+        bool applyImmediately = false)
     {
         var now = DateTimeOffset.UtcNow;
         var feed = FindFeed(feedId);
@@ -1301,13 +1423,21 @@ public sealed class AutomationViewModel : ViewModelBase
             {
                 message = $"'{feedName}' found no new wallpapers.";
             }
-            else
+            else if (applyImmediately)
             {
                 appliedId = await ApplyFetchedWallpapersAsync(
                     addedIds[0], feedName, cancellationToken).ConfigureAwait(false);
                 message = appliedId is not null
                     ? $"Added {addedIds.Count} new wallpaper(s) from '{feedName}' and applied one."
                     : $"Added {addedIds.Count} new wallpaper(s) from '{feedName}'. The first one is pending for the next rotation.";
+            }
+            else
+            {
+                // Scheduled fetch: no RotateNowAsync, no countdown reset. Eligible
+                // schedules pick the image up on their own next tick.
+                await QueueFetchedWallpapersAsync(addedIds[0], feedName).ConfigureAwait(false);
+                message = $"Added {addedIds.Count} new wallpaper(s) from '{feedName}'. "
+                          + "The first one will be applied on the next scheduled change.";
             }
 
             TryRecordFetch(() => WallhavenFeedStore.RecordFetchResult(feedId, true, now, appliedId));
@@ -1338,14 +1468,47 @@ public sealed class AutomationViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Makes a freshly downloaded image visible. Running schedules take it as their
-    /// pending selection and rotate immediately; with no running schedule it is applied
-    /// to the primary display directly. Paused or busy displays keep the pending id.
+    /// Queues a freshly downloaded image for the next scheduled rotation. Used only
+    /// by the 15-second sweep: it deliberately never calls RotateNowAsync, so it
+    /// cannot reset a display's countdown or override its schedule. Idle displays
+    /// simply pick the image up when their schedule starts.
+    /// </summary>
+    private async Task QueueFetchedWallpapersAsync(string entryId, string feedName)
+    {
+        var running = SnapshotSessions().Where(IsRunning).ToArray();
+        if (running.Length == 0 || _dispatcher.HasShutdownStarted)
+            return;
+
+        await _dispatcher.InvokeAsync(() =>
+        {
+            // Even paused displays keep the pending id so a later resume still gets
+            // the image; only eligible ones are told about it now.
+            foreach (var session in running)
+                session.PendingFeedEntryId = entryId;
+
+            foreach (var session in running.Where(session =>
+                         !ShouldPause(session)
+                         && !session.IsStarting
+                         && !session.ManualRotationRunning
+                         && !session.PreviousRotationRunning))
+            {
+                session.StatusMessage =
+                    $"Fetched from '{feedName}'. The new image will be applied on the next scheduled change.";
+                UpdateSessionUi(session);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Makes a freshly downloaded image visible right away (Fetch now). Running
+    /// schedules take it as their pending selection and rotate immediately; with no
+    /// running schedule it is applied to the primary display directly. Paused or busy
+    /// displays keep the pending id. The scheduled sweep uses the queue-only path.
     /// </summary>
     private async Task<string?> ApplyFetchedWallpapersAsync(
         string entryId, string feedName, CancellationToken cancellationToken)
     {
-        var running = _sessions.Values.Where(IsRunning).ToArray();
+        var running = SnapshotSessions().Where(IsRunning).ToArray();
         if (running.Length > 0)
         {
             foreach (var session in running)
@@ -1367,19 +1530,23 @@ public sealed class AutomationViewModel : ViewModelBase
             }
 
             // Paused/busy: keep the pending id so the new image is not lost.
-            await _dispatcher.InvokeAsync(() =>
+            if (!_dispatcher.HasShutdownStarted)
             {
-                foreach (var session in running.Where(session => session.PendingFeedEntryId is not null))
+                await _dispatcher.InvokeAsync(() =>
                 {
-                    session.StatusMessage = $"Fetched from '{feedName}'. The new image will be applied on the next change.";
-                    UpdateSessionUi(session);
-                }
-            });
+                    foreach (var session in running.Where(session => session.PendingFeedEntryId is not null))
+                    {
+                        session.StatusMessage = $"Fetched from '{feedName}'. The new image will be applied on the next change.";
+                        UpdateSessionUi(session);
+                    }
+                });
+            }
             return null;
         }
 
-        var target = _sessions.Values.FirstOrDefault(session => session.Monitor.IsPrimary)
-                     ?? _sessions.Values.FirstOrDefault();
+        var sessions = SnapshotSessions();
+        var target = sessions.FirstOrDefault(session => session.Monitor.IsPrimary)
+                     ?? sessions.FirstOrDefault();
         if (target is null)
             return null;
 
@@ -1389,11 +1556,14 @@ public sealed class AutomationViewModel : ViewModelBase
         if (ShouldPause(target))
         {
             target.PendingFeedEntryId = entryId;
-            await _dispatcher.InvokeAsync(() =>
+            if (!_dispatcher.HasShutdownStarted)
             {
-                target.StatusMessage = $"Fetched from '{feedName}'. The new image will be applied when this display is no longer paused.";
-                UpdateSessionUi(target);
-            });
+                await _dispatcher.InvokeAsync(() =>
+                {
+                    target.StatusMessage = $"Fetched from '{feedName}'. The new image will be applied when this display is no longer paused.";
+                    UpdateSessionUi(target);
+                });
+            }
             return null;
         }
 
@@ -1421,7 +1591,11 @@ public sealed class AutomationViewModel : ViewModelBase
 
                 var monitor = target.Monitor;
                 WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, entry.LocalPath);
+                // History: the wallpaper being replaced is the previous one, even
+                // when LastAppliedPath has not been populated after a restore.
                 var outgoing = target.LastAppliedPath;
+                if (string.IsNullOrWhiteSpace(outgoing))
+                    outgoing = monitorAtSelection.CurrentWallpaper;
                 if (!string.IsNullOrWhiteSpace(outgoing) && !PathsEqual(outgoing, entry.LocalPath))
                     target.PreviousAppliedPath = outgoing;
                 target.LastAppliedPath = entry.LocalPath;
@@ -1522,8 +1696,22 @@ public sealed class AutomationViewModel : ViewModelBase
 
     internal void SetFeedCadence(string id, int minutes)
     {
-        var clamped = Math.Clamp(minutes, 1, 7 * 24 * 60);
+        // Product spec floor: feeds check Wallhaven no more often than every 15
+        // minutes. Existing legacy values are shown but clamped on the next edit.
+        var clamped = Math.Clamp(minutes, 15, 7 * 24 * 60);
         MutateFeed(id, feed => feed with { CadenceMinutes = clamped });
+    }
+
+    /// <summary>
+    /// Commits an edited search expression. Everything else on the record —
+    /// enable state, cadence, round-robin order, last fetch, backoff and failure
+    /// count — is copied through unchanged by MutateFeed's with-expression/upsert.
+    /// </summary>
+    internal void UpdateFeedFilters(string id, string query)
+    {
+        var trimmed = query?.Trim() ?? string.Empty;
+        if (MutateFeed(id, feed => feed with { Filters = feed.Filters with { Query = trimmed } }))
+            SetFeedStatus("Saved the feed's search filters.");
     }
 
     internal void MoveFeedUp(string id) => MoveFeed(id, -1);
@@ -1560,14 +1748,18 @@ public sealed class AutomationViewModel : ViewModelBase
         RefreshFeeds();
     }
 
-    /// <summary>RotationFeed is an immutable record; edits are a with-copy then an upsert.</summary>
-    private void MutateFeed(string id, Func<RotationFeed, RotationFeed> mutate)
+    /// <summary>
+    /// RotationFeed is an immutable record; edits are a with-copy then an in-place
+    /// upsert, so order and fetch/backoff/failure state are preserved. Returns false
+    /// when validation or persistence failed (the reason is reported in the page).
+    /// </summary>
+    private bool MutateFeed(string id, Func<RotationFeed, RotationFeed> mutate)
     {
         try
         {
             var feed = FindFeed(id);
             if (feed is null)
-                return;
+                return false;
             var updated = mutate(feed);
             updated.Validate();
             WallhavenFeedStore.UpsertFeed(updated);
@@ -1575,8 +1767,11 @@ public sealed class AutomationViewModel : ViewModelBase
         catch (Exception ex)
         {
             SetFeedStatus($"Could not update the feed: {ex.Message}");
+            RefreshFeeds();
+            return false;
         }
         RefreshFeeds();
+        return true;
     }
 
     private static RotationFeed? FindFeed(string id)
@@ -1713,7 +1908,7 @@ public sealed class AutomationViewModel : ViewModelBase
 
     private void UpdateAllSessions()
     {
-        foreach (var session in _sessions.Values)
+        foreach (var session in SnapshotSessions())
             UpdateSessionUi(session);
     }
 
@@ -1782,6 +1977,13 @@ public sealed class AutomationViewModel : ViewModelBase
             && !session.PreviousRotationRunning
             && !_shutdownRequested
             && hasSource;
+        // Previous needs an actual history entry, not just an available image.
+        session.CanUsePrevious = !session.IsStarting
+            && !session.ManualRotationRunning
+            && !session.PreviousRotationRunning
+            && !_shutdownRequested
+            && !string.IsNullOrWhiteSpace(session.PreviousAppliedPath)
+            && File.Exists(session.PreviousAppliedPath);
         session.CanStop = running || session.IsStarting || session.ManualRotationRunning || session.PreviousRotationRunning;
         session.IntervalEnabled = !busy;
 
@@ -1806,7 +2008,7 @@ public sealed class AutomationViewModel : ViewModelBase
     {
         try
         {
-            var next = _sessions.Values
+            var next = SnapshotSessions()
                 .Where(session => IsRunning(session)
                                   && session.NextRunUtc is not null
                                   && !session.UserPaused
@@ -1933,6 +2135,7 @@ public sealed class DisplayScheduleViewModel : ViewModelBase
     private bool _canStart;
     private bool _canPause;
     private bool _canRotateNow;
+    private bool _canUsePrevious;
     private bool _canStop;
     private bool _intervalEnabled = true;
     private bool _pauseWhenFullscreen = true;
@@ -2031,6 +2234,13 @@ public sealed class DisplayScheduleViewModel : ViewModelBase
     {
         get => _canRotateNow;
         internal set => SetProperty(ref _canRotateNow, value, nameof(CanRotateNow));
+    }
+
+    /// <summary>Previous is enabled only when a restorable history entry exists.</summary>
+    public bool CanUsePrevious
+    {
+        get => _canUsePrevious;
+        internal set => SetProperty(ref _canUsePrevious, value, nameof(CanUsePrevious));
     }
 
     public bool CanStop

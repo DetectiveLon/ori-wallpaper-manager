@@ -10,7 +10,8 @@ A static-wallpaper manager for Windows 11 that makes finding, previewing, saving
 2. **Library** - all saved files, collections, favourites, local-folder import, duplicate detection, and search.
 3. **Displays** - a scaled diagram of the real monitor layout; select a display; choose source/image; fit mode with a live preview; span control.
 4. **Auto rotation** - global and per-display schedules, Wallhaven rotation feeds with cadence and round-robin cycling, exact next-run time, previous, pause, resume, and fullscreen deferral.
-5. **Settings** - appearance, startup, cache, provider credentials, and privacy.
+5. **Settings** - appearance, startup (including start-minimized-to-tray, on by
+   default), update status, cache, provider credentials, and privacy.
 
 (The former **Overview** screen was removed in `v2-shell`; Discover is the landing page. The former **Automation** page is now called Auto rotation; its internal key is unchanged.)
 
@@ -51,6 +52,9 @@ Wallhaven provider requirements:
 - The next interval starts after a rotation attempt completes, not while a previous request is still running.
 - Missed ticks after sleep/restart are skipped, never replayed as a burst.
 - Fullscreen/game pause is rechecked immediately before applying the wallpaper.
+  Detection enumerates all visible top-level windows against each display's
+  geometry, not just the foreground window, and remembers a blocker through brief
+  focus changes.
 - Pause/resume and next/previous are explicit user actions.
 - Errors are visible and logged; the current wallpaper remains unchanged on failure.
 - Scheduling state survives app restarts without performing a surprise immediate rotation.
@@ -68,6 +72,6 @@ Wallhaven provider requirements:
 ## Packaging and updates
 
 - The shipped build is self-contained and single-file for `win-x64`: no .NET runtime is required on the target PC.
-- A free, optional per-user installer installs to `%LOCALAPPDATA%\Ori` and reuses the app's launch-at-sign-in setting.
-- Updates are checked by a **separate** process (`Ori.Updater`) against a GitHub Releases JSON manifest; the new EXE's SHA-256 is verified before the app is closed, the file swapped and the app relaunched. The in-app check is documented as an integration step, not yet wired (see `docs/RELEASING.md`).
+- A free, optional per-user installer installs binaries to `%LOCALAPPDATA%\Programs\Ori`, reuses the app's launch-at-sign-in setting, and never deletes user data under `%LOCALAPPDATA%\Ori`.
+- Updates are checked by a **separate** process (`Ori.Updater`) against a GitHub Releases JSON manifest. The portable zip bundles `Ori.Updater.exe`; `App.OnStartup` runs a non-blocking `check`, and the result appears in Settings and a tray balloon. The apply/swap step remains a deliberate manual update for now (see `docs/RELEASING.md`).
 - Binaries are not code-signed; SmartScreen reputation is deferred, not ignored.

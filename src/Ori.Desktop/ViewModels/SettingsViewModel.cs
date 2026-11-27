@@ -24,15 +24,14 @@ public sealed class SettingsViewModel : ViewModelBase
     // Log entries start with an ISO-8601 timestamp (see App.LogFailure).
     private static readonly Regex LogEntryPattern = new(
         @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", RegexOptions.Compiled);
-    private static readonly Regex WindowsPathPattern = new(
-        @"(?:[A-Za-z]:\\|\\\\)[^\s""<>|]+", RegexOptions.Compiled);
 
     private string _apiKey = string.Empty;
     private string _keyStatus = string.Empty;
     private string _cacheStatus = string.Empty;
     private string _status = string.Empty;
-    private int _cacheFileCount;
-    private long _cacheSizeBytes;
+    private readonly UiPreferencesStore _uiPreferences = UiPreferencesStore.Load();
+    private bool _startMinimized;
+    private string _startMinimizedStatus = string.Empty;
     private bool _startupEnabled;
     private string _startupToggleLabel = string.Empty;
     private string _startupStatus = string.Empty;
@@ -51,6 +50,11 @@ public sealed class SettingsViewModel : ViewModelBase
         ClearOrphansCommand = new RelayCommand(_ => OpenClearOrphansConfirmation());
         ConfirmClearOrphansCommand = new RelayCommand(_ => { _ = ClearOrphansAsync(); });
         CancelClearOrphansCommand = new RelayCommand(_ => IsClearOrphansConfirmationOpen = false);
+        RepairLibraryPathsCommand = new RelayCommand(_ => { _ = RepairLibraryPathsAsync(); });
+        ToggleStartMinimizedCommand = new RelayCommand(_ => RefreshStartMinimizedStatus());
+
+        _startMinimized = _uiPreferences.StartMinimized;
+        _startMinimizedStatus = DescribeStartMinimized(_startMinimized);
 
         _startupEnabled = _startup.IsEnabled();
         _startupToggleLabel = _startupEnabled ? "Disable launch at login" : "Enable launch at login";
@@ -87,18 +91,6 @@ public sealed class SettingsViewModel : ViewModelBase
         set => SetProperty(ref _cacheStatus, value, nameof(CacheStatus));
     }
 
-    public int CacheFileCount
-    {
-        get => _cacheFileCount;
-        set => SetProperty(ref _cacheFileCount, value, nameof(CacheFileCount));
-    }
-
-    public long CacheSizeBytes
-    {
-        get => _cacheSizeBytes;
-        set => SetProperty(ref _cacheSizeBytes, value, nameof(CacheSizeBytes));
-    }
-
     public string Status
     {
         get => _status;
@@ -131,6 +123,45 @@ public sealed class SettingsViewModel : ViewModelBase
         private set => SetProperty(ref _startupStatus, value, nameof(StartupStatus));
     }
 
+    /// <summary>Start hidden with only the tray icon visible.</summary>
+    public bool StartMinimized
+    {
+        get => _startMinimized;
+        set
+        {
+            if (!SetProperty(ref _startMinimized, value, nameof(StartMinimized)))
+                return;
+
+            try
+            {
+                _uiPreferences.StartMinimized = value;
+                _uiPreferences.Save();
+                RefreshStartMinimizedStatus();
+            }
+            catch (Exception ex)
+            {
+                StartMinimizedStatus = $"Could not save this preference: {ex.Message}";
+                Status = StartMinimizedStatus;
+            }
+
+            OnPropertyChanged(nameof(StartMinimizedAutomationName));
+        }
+    }
+
+    public string StartMinimizedAutomationName =>
+        $"Start minimized to tray: {(StartMinimized ? "On" : "Off")}";
+
+    public string StartMinimizedStatus
+    {
+        get => _startMinimizedStatus;
+        private set => SetProperty(ref _startMinimizedStatus, value, nameof(StartMinimizedStatus));
+    }
+
+    /// <summary>Result of the optional startup version check (empty when unavailable).</summary>
+    public string UpdateStatus => UpdateChecker.LastStatusText;
+
+    public void RefreshUpdateStatus() => OnPropertyChanged(nameof(UpdateStatus));
+
     public bool IsClearOrphansConfirmationOpen
     {
         get => _isClearOrphansConfirmationOpen;
@@ -156,6 +187,8 @@ public sealed class SettingsViewModel : ViewModelBase
     public ICommand ClearOrphansCommand { get; }
     public ICommand ConfirmClearOrphansCommand { get; }
     public ICommand CancelClearOrphansCommand { get; }
+    public ICommand RepairLibraryPathsCommand { get; }
+    public ICommand ToggleStartMinimizedCommand { get; }
 
     /// <summary>Raised when the stored key is removed so the view can clear its PasswordBox.</summary>
     public event Action? ApiKeyCleared;
@@ -244,6 +277,7 @@ public sealed class SettingsViewModel : ViewModelBase
                 "Ori diagnostics",
                 $"Version: {ReadVersion()}",
                 $"OS: {RuntimeInformation.OSDescription}",
+                $"Log: {App.GetDiagnosticsSummary()}",
                 $"Last error: {lastError}");
             Clipboard.SetText(summary);
             Status = "Redacted diagnostics copied to clipboard.";
@@ -269,6 +303,39 @@ public sealed class SettingsViewModel : ViewModelBase
         catch (Exception ex)
         {
             Status = $"Could not open the error log: {ex.Message}";
+        }
+    }
+
+    private static string DescribeStartMinimized(bool enabled) => enabled
+        ? "Ori starts hidden in the tray — click the tray icon to open it."
+        : "Ori opens its window when it starts.";
+
+    private void RefreshStartMinimizedStatus()
+    {
+        StartMinimizedStatus = DescribeStartMinimized(StartMinimized);
+        Status = StartMinimized
+            ? "Ori will start minimized to the tray."
+            : "Ori will open its window at startup.";
+    }
+
+    /// <summary>
+    /// Repairs stale absolute paths in the library index before orphan cleanup,
+    /// using the shared repair routine so Settings and Library behave the same.
+    /// </summary>
+    private async Task RepairLibraryPathsAsync()
+    {
+        Status = "Checking library paths…";
+        try
+        {
+            var library = new WallpaperLibraryStore();
+            var repaired = await library.PersistRepairedPathsAsync().ConfigureAwait(true);
+            Status = repaired
+                ? "Library paths repaired. You can now clear orphan wallpaper files."
+                : "No library paths needed repair.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not repair library paths: {ex.Message}";
         }
     }
 
@@ -312,7 +379,7 @@ public sealed class SettingsViewModel : ViewModelBase
                 && wallpaperNames.Contains(Path.GetFileName(entry.LocalPath)));
             if (unresolved > 0)
             {
-                Status = $"Nothing deleted: {unresolved} library entr{(unresolved == 1 ? "y points" : "ies point")} at a missing copy of a file in this folder. Visit the Library to repair the paths, then try again.";
+                Status = $"Nothing deleted: {unresolved} library entr{(unresolved == 1 ? "y points" : "ies point")} at a missing copy of a file in this folder. Use 'Repair library paths' above, then try again.";
                 return;
             }
 
@@ -379,8 +446,6 @@ public sealed class SettingsViewModel : ViewModelBase
                 catch { return 0L; }
             });
 
-            CacheFileCount = files.Length;
-            CacheSizeBytes = bytes;
             CacheStatus = $"{files.Length} cached file(s), {bytes / 1024.0 / 1024.0:F1} MB.";
         }
         catch (Exception ex)
@@ -401,16 +466,21 @@ public sealed class SettingsViewModel : ViewModelBase
             var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
             var informational = assembly
                 .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-            if (string.IsNullOrWhiteSpace(informational))
-                return "0.1.0 (fallback)";
-            // Strip source-revision metadata (e.g. "1.2.3+abc123" -> "1.2.3").
-            var plus = informational.IndexOf('+');
-            var version = plus >= 0 ? informational[..plus] : informational;
-            return version.Trim();
+            if (!string.IsNullOrWhiteSpace(informational))
+            {
+                // Strip source-revision metadata (e.g. "1.2.3+abc123" -> "1.2.3").
+                var plus = informational.IndexOf('+');
+                var version = plus >= 0 ? informational[..plus] : informational;
+                return version.Trim();
+            }
+
+            // No informational version: derive from the actual assembly version
+            // instead of showing a stale hardcoded fallback.
+            return assembly.GetName().Version?.ToString() ?? "unknown";
         }
         catch
         {
-            return "0.1.0 (fallback)";
+            return "unknown";
         }
     }
 
@@ -429,7 +499,7 @@ public sealed class SettingsViewModel : ViewModelBase
                 // The first physical line of an entry is "<timestamp> <ExceptionType>: <message>".
                 // Stack frames live on later lines, so this never includes a full stack.
                 var summary = lines[i][match.Length..].Trim();
-                return Redact(summary);
+                return App.Redact(summary);
             }
             return "none recorded";
         }
@@ -438,7 +508,4 @@ public sealed class SettingsViewModel : ViewModelBase
             return "unavailable";
         }
     }
-
-    private static string Redact(string value) =>
-        WindowsPathPattern.Replace(value, "<path>");
 }

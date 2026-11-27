@@ -27,17 +27,35 @@ A machine-checkable companion lives at `scripts/check-buttons.ps1` (attribute-le
 guard: flags `Button`/`ComboBox`/`CheckBox`/`ListBox` with no `Command` and no
 `Click`/`SelectionChanged`/`Checked` handler, plus literal `IsEnabled="False"`).
 It intentionally cannot detect the semantic failures marked **broken** below —
-those need this document. On the current tree it reports 17 findings, all of them
-binding-only `SelectedItem` / `IsChecked` / `ItemsSource` controls that this
-inventory confirms are genuinely wired. A newer `scripts/check-invariants.ps1`
-also guards the packaging/SDK/version invariants added in `v2-shell`.
+those need this document. Before allowlisting it reported 21 findings, all of them
+binding-only `SelectedItem` / `IsChecked` / `ItemsSource` / `Text` controls that this
+inventory confirms are genuinely wired. Those 21 are now an explicit allowlist in
+the script (see "Binding-only allowlist" below), leaving zero findings; CI and
+Release call the script with `-Strict` so any new dead control fails the build.
+`scripts/check-invariants.ps1` also guards the packaging/SDK/version invariants
+added in `v2-shell`, now including tray handler bodies and hardcoded versions.
+
+## Binding-only allowlist (`scripts/check-buttons.ps1`)
+
+These controls intentionally have no `Command`/`Click` handler: they act through
+a two-way `SelectedItem`, `IsChecked`, `ItemsSource` or `Text` binding. The script
+keys entries by relative XAML path, element name and one binding path, so moving
+a control to another line does not change the result. Adding a new binding-only
+control requires a reviewed entry here **and** in the script.
+
+| View | Controls (binding path) |
+|---|---|
+| AutomationView | Master pause check (`PauseWhenFullscreen`); auto-fetch check (`AutoFetchFromWallhaven`); feed enabled check (`IsEnabled`); feed cadence combo (`CadenceMinutes`); interval combo (`SelectedInterval`) |
+| DiscoverView | Feed cadence (`SelectedFeedCadence`); sorting (`SelectedSorting`); toplist period (`SelectedTopRange`); order (`SelectedOrder`); aspect ratio (`SelectedRatio`); target display (`SelectedMonitor`); results list (`SelectedCard`) |
+| DisplaysView | Fit-mode combo (`SelectedPositionOption`) |
+| LibraryView | Collection filter (`SelectedCollectionFilter`); sort (`SelectedSort`); favourites check (`FavoritesOnly`); apply-to combo (`SelectedDisplay`); entries list (`SelectedEntry`); move-to-collection editable combo (`SelectedCollection`); delete-file check (`DeleteFileOnRemove`) |
 
 ## Inventory
 
 | Screen | Control | Expected action | Wiring (command or handler) | Status | Notes |
 |---|---|---|---|---|---|
 | Shell (MainWindow) | Title bar drag region (Border) | Drag the window | `MouseLeftButtonDown="OnTitleBarMouseLeftButtonDown"` → `DragMove()` | works | Handler ignores presses on caption buttons via `FindAncestor<Button>`. |
-| Shell (MainWindow) | Title bar double-click | Maximize / restore | `OnTitleBarMouseDoubleClick` exists in `MainWindow.xaml.cs` but **no `MouseDoubleClick` attribute in XAML** | broken | Dead handler. The title-bar Border wires only `MouseLeftButtonDown`; this is the remaining "dead interaction" in the shell. |
+| Shell (MainWindow) | Title bar double-click | Maximize / restore | `MouseLeftButtonDown="OnTitleBarMouseLeftButtonDown"` dispatches to `OnTitleBarMouseDoubleClick` when `ClickCount == 2` | works | `Border` has no `MouseDoubleClick` event, so the handler is driven from the left-button-down event instead; the previously dead handler is now wired. |
 | Shell (MainWindow) | Minimize button | Ordinary taskbar minimize | `Click="OnMinimizeClick"` → `SystemCommands.MinimizeWindow` | works | `OnStateChanged` was removed; minimizing no longer hides to tray. Resolves the user-reported minimize-to-tray issue. |
 | Shell (MainWindow) | Maximize button | Maximize / restore | `Click="OnMaximizeClick"` → `SystemCommands.MaximizeWindow` / `RestoreWindow` | works | Glyph switches on `WindowState` via `DataTrigger`; WM_GETMINMAXINFO clamping keeps a maximized window inside the work area. |
 | Shell (MainWindow) | Close (X) button | Hide the window to tray, keep rotation running | `Click="OnCloseClick"` → `SystemCommands.CloseWindow`; `Closing` → `OnClosing`; when `!App.ExplicitExit`: `e.Cancel=true`, `ShowInTaskbar=false`, `Hide()` | works | Reworked mid-pass: X no longer exits; only the tray "Exit" menu item sets `App.ExplicitExit=true` and shuts down. `StopRotationForShutdown` handles both paths. Needs a live smoke test that hidden windows stop rotation on Exit. |
@@ -48,10 +66,10 @@ also guards the packaging/SDK/version invariants added in `v2-shell`.
 | Shell (MainWindow) | Sidebar "Automation" nav | Open Automation | `Click="Navigate"` `Tag="Automation"` | works | Navigation also caches the view for shutdown handling. |
 | Shell (MainWindow) | Sidebar "Overview" nav | — | Removed: no `Tag="Overview"` button remains in `MainWindow.xaml` | works | Resolved: Overview was removed from the shell as planned for Wave 5. |
 | Shell (MainWindow) | `PageBody` ContentControl | Host the current view | `Content="{Binding CurrentView}"` | works | Startup now hosts Discover, never a null Overview view. |
-| Overview (OverviewView) | Whole screen — hero CTA + six cards | Navigate to sections | `NavigateCommand` with `CommandParameter` on all seven buttons | broken | `OverviewView.xaml(.cs)` still exists but is **orphaned**: no navigation key and no `new OverviewView()` in source. Dead files, never shown at runtime. |
-| Overview (OverviewView) | Hero CTA "Explore wallpapers" | Navigate to Discover | `Command="{Binding NavigateCommand}" CommandParameter="Discover"` | broken | Unreachable screen; the command could only resolve if a DataContext were supplied, which never happens. |
-| Overview (OverviewView) | Card "Overview" | Navigate to Overview | `Command="{Binding NavigateCommand}" CommandParameter="Overview"` | broken | Unreachable, and the key no longer has a view. |
-| Overview (OverviewView) | Cards "Discover"/"Library"/"Displays"/"Automation"/"Settings" | Navigate to each screen | `NavigateCommand` with matching `CommandParameter` | broken | Valid keys, but the screen is unreachable. Safe to delete these files. |
+| Overview (OverviewView) | Whole screen — removed | — | No `OverviewView` files, navigation key or view remain in source | works (resolved) | Orphaned files deleted; Discover is the only landing page. |
+| Overview (OverviewView) | Hero CTA "Explore wallpapers" | — | Removed with the screen | works (resolved) | No unreachable screen remains. |
+| Overview (OverviewView) | Card "Overview" | — | Removed with the screen | works (resolved) | Overview key has no view and is not navigable. |
+| Overview (OverviewView) | Cards "Discover"/"Library"/"Displays"/"Automation"/"Settings" | — | Removed with the screen | works (resolved) | Those screens remain reachable from the shell sidebar. |
 | Discover | Tags textbox | Enter Wallhaven query | `{Binding Tags, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}` → plain auto-property | works | Free-text only. Backlog P2 ("smarter tag discovery": suggestions, presets, learned preferences) is not implemented — see Backlog section. |
 | Discover | Category chips (General/Anime/People) | Toggle Wallhaven categories | `IsChecked` two-way to bool auto-properties | works | Read by `DiscoverViewModel.BuildFilters`. |
 | Discover | Purity chips (SFW/Sketchy/NSFW) | Toggle purity filters | `IsChecked` two-way to bool auto-properties | works | `BuildFilters` rejects NSFW without an API key; an `ApiKeyBox` exists on this page. |
@@ -96,7 +114,7 @@ also guards the packaging/SDK/version invariants added in `v2-shell`.
 | Settings | Launch-at-login toggle button | Toggle HKCU Run entry | `Command="{Binding ToggleStartupCommand}"` | works | `StartupService` never throws; status reported inline. |
 | Settings | GitHub hyperlink | Open source URL | `RequestNavigate="OnRequestNavigate"` (code-behind) | works | — |
 | Settings | "Open data folder" button | Open local data directory | `Command="{Binding OpenDataFolderCommand}"` | works | — |
-| Settings | About / version area | Installer and auto-update controls | **No control exists** | broken | The app still has no in-app update button. `tools/Ori.Updater` and the optional installer exist, but the version-check call is documented only (`docs/RELEASING.md`); `App.xaml.cs` is owned by another agent. |
+| Settings | About / version area | Show version and update status | `SettingsViewModel.UpdateStatus` bound to the about area; `App.OnStartup` calls `UpdateChecker.CheckOnStartupAsync()` | works (check only) | A background `Ori.Updater.exe check` reports status in Settings and a tray balloon. There is deliberately no in-app "apply" button: updating is still a manual GitHub Releases download. Live network verification is pending. |
 | Tray (App + TrayIconService) | Tray icon single-click / double-click | Show and restore the window | `NotifyIcon.MouseClick` / `MouseDoubleClick` gated on `MouseButtons.Left` | works | Plain `Click`/`DoubleClick` are intentionally NOT used: WinForms raises them for right/middle clicks too, which would make the window impossible to keep hidden. `App.OpenFromTray` is idempotent. |
 | Tray (App + TrayIconService) | Rotation / failure notifications | Show a tray balloon tip | `Notify(string, string, bool)` → `NotifyIcon.ShowBalloonTip` | works | Exposed by `TrayIconService` for `v2-shell` tray notifications. |
 | Tray (App + TrayIconService) | "Open Ori" menu item | Restore window | `openItem.Click` → `App.OpenFromTray` | works | Sets `ShowInTaskbar=true`, restores state, `Show()` + `Activate()`. |
@@ -109,8 +127,8 @@ also guards the packaging/SDK/version invariants added in `v2-shell`.
 | Minimize goes to tray instead of taskbar | Earlier: `OnStateChanged` set `ShowInTaskbar=false` + `Hide()`. Final: no `OnStateChanged`; `OnMinimizeClick` only calls `MinimizeWindow` | works (resolved) |
 | X-close behaviour | Earlier: X exited via `SystemCommands.CloseWindow`. Final: `OnClosing` cancels the close and hides to tray unless `App.ExplicitExit`; only tray "Exit" shuts down | works (changed; needs live smoke) |
 | Tray icon click / double-click | Earlier: only `ContextMenuStrip`. Final: `MouseClick` / `MouseDoubleClick` gated to `MouseButtons.Left` (plain `Click` is deliberately avoided) | works (resolved) |
-| Dead menus / lists | Tray click and the Overview nav button are now wired/removed. Remaining dead items: title-bar double-click handler defined but not wired; `OverviewView` unreachable | broken (partially resolved) |
-| Overview filler pages | Overview nav removed from `MainWindow.xaml`, startup navigates to Discover, `NavigationService` has no overview case. `OverviewView.xaml(.cs)` files remain but are orphaned | works (shell resolved; dead files remain) |
+| Dead menus / lists | Tray click is wired, Overview nav and `OverviewView` files are removed, and title-bar double-click is dispatched from `ClickCount == 2` in the wired left-button-down handler | works (resolved statically; live smoke pending) |
+| Overview filler pages | Overview nav removed from `MainWindow.xaml`, startup navigates to Discover, `NavigationService` has no overview case, and the orphaned `OverviewView.xaml(.cs)` files are deleted | works (resolved) |
 
 ## Feature backlog (updated for v2-shell)
 
@@ -122,7 +140,7 @@ for "working".
 | Item | Priority | Current state in code | Status |
 |---|---|---|---|
 | Automatic Wallhaven rotation (fetch/rotate/cache without manual search, pick or download) | P1 | Implemented in `v2-shell`: persisted tag feeds (`WallhavenFeedStore`) drive fetch/rotate/cache | done in v2-shell |
-| Installer and auto-update | P1 | Self-contained single-file release + `tools/installer/` (Inno Setup) + `tools/Ori.Updater`; the in-app check is documented but not wired (`App.xaml.cs` owned by another agent) | partly done (wiring pending) |
+| Installer and auto-update | P1 | Self-contained single-file release + `tools/installer/` (Inno Setup) + `tools/Ori.Updater`; startup check now wired via `UpdateChecker` and the zip bundles `Ori.Updater.exe`; in-app apply remains manual | partly done (check wired; apply pending, live verification pending) |
 | Smarter tag discovery (suggestions, presets, learned preferences) | P2 | Implemented in `v2-shell`: tag presets + editable ComboBox; learned preference model not implemented | partly done |
 | Clearer status and notifications; real image import and organization | P2 | Implemented in `v2-shell`: tray `Notify` balloon tips, folder import + SHA-256 dedupe + collections; rename not implemented | done in v2-shell (rename pending) |
 
@@ -137,7 +155,9 @@ for "working".
 - Items marked **suspect** need a live smoke test by the integrator before being
   closed; items marked **broken** are statically provable and need a source change
   owned by the integrator (this pass owns only this document and the checker).
-- The checker was executed on the final tree with PowerShell 7: 17 findings,
-  exit 0 by default and exit 1 with `-Strict`. The companion
-  `scripts/check-invariants.ps1` was also run and passed. No build, test, commit
-  or push of the application was performed by this inventory pass.
+- The checker was re-run with PowerShell 7 after the allowlist landed: 21
+  documented binding-only controls skipped, 0 findings, exit 0 both by default
+  and with `-Strict`. Before the allowlist it reported those same 21 findings
+  (warning-only). The companion `scripts/check-invariants.ps1` was also run; it
+  passes with the new handler-body and version guards. No build, test,
+  launch, commit or push of the application was performed by this pass.

@@ -44,9 +44,11 @@ public sealed class WallpaperLibraryStore
     private static readonly StringComparison PathComparison = OperatingSystem.IsWindows()
         ? StringComparison.OrdinalIgnoreCase
         : StringComparison.Ordinal;
+    // WindowsDesktopWallpaper cannot apply webp/gif, so importing them would create
+    // library cards that can never be used as a wallpaper. Existing entries are kept.
     private static readonly HashSet<string> ImportableExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".jpg", ".jpeg", ".png", ".webp", ".bmp"
+        ".jpg", ".jpeg", ".png", ".bmp"
     };
 
     private readonly string _indexPath;
@@ -79,6 +81,29 @@ public sealed class WallpaperLibraryStore
             return entries
                 .OrderByDescending(entry => entry.SavedAtUtc)
                 .ToArray();
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Runs the same in-memory path repair as every read and commits it to disk when
+    /// at least one stored path changed. Returns whether an index write happened.
+    /// </summary>
+    public async Task<bool> PersistRepairedPathsAsync(CancellationToken cancellationToken = default)
+    {
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var (entries, repaired) = await ReadCoreWithRepairInfoAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (!repaired)
+                return false;
+
+            await WriteCoreAsync(entries, cancellationToken).ConfigureAwait(false);
+            return true;
         }
         finally
         {
@@ -370,7 +395,7 @@ public sealed class WallpaperLibraryStore
     }
 
     /// <summary>
-    /// Recursively imports jpg/jpeg/png/webp/bmp files, hashing each one with SHA-256
+    /// Recursively imports jpg/jpeg/png/bmp files, hashing each one with SHA-256
     /// and skipping files whose hash already exists in the library (or in this batch).
     /// Reparse points are never traversed, so a symlink/junction cannot escape the folder.
     /// Returns the number of entries added.
@@ -633,8 +658,15 @@ public sealed class WallpaperLibraryStore
 
     private async Task<List<WallpaperLibraryEntry>> ReadCoreAsync(CancellationToken cancellationToken)
     {
+        var (entries, _) = await ReadCoreWithRepairInfoAsync(cancellationToken).ConfigureAwait(false);
+        return entries;
+    }
+
+    private async Task<(List<WallpaperLibraryEntry> Entries, bool Repaired)> ReadCoreWithRepairInfoAsync(
+        CancellationToken cancellationToken)
+    {
         if (!File.Exists(_indexPath))
-            return [];
+            return ([], false);
 
         var info = new FileInfo(_indexPath);
         if (info.Length > MaximumIndexBytes)
@@ -664,7 +696,7 @@ public sealed class WallpaperLibraryStore
         if (document is null)
         {
             QuarantineIndex();
-            return [];
+            return ([], false);
         }
 
         if (document.Version != LegacySchemaVersion && document.Version != SchemaVersion)
@@ -680,7 +712,9 @@ public sealed class WallpaperLibraryStore
         // Version-1 entries simply lacked the new fields. Applying the normalizer to
         // both versions fills safe defaults and keeps every existing entry intact.
         var entries = (document.Entries ?? []).Select(NormalizeForCurrentSchema).ToList();
-        return RepairLocalPaths(entries);
+        var repaired = RepairLocalPaths(entries);
+        // RepairLocalPaths returns the original list when nothing changed.
+        return (repaired, !ReferenceEquals(repaired, entries));
     }
 
     /// <summary>
@@ -744,6 +778,29 @@ public sealed class WallpaperLibraryStore
         return repaired ?? entries;
 
         static string? Existing(string path) => File.Exists(path) ? path : null;
+    }
+
+    /// <summary>
+    /// Computes the same uppercase SHA-256 the import path uses, or null when the file
+    /// cannot be read (locked, missing, malformed path). Never throws for those cases.
+    /// </summary>
+    public static string? ComputeSha256(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        try
+        {
+            using var stream = new FileStream(
+                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                64 * 1024, FileOptions.SequentialScan);
+            return Convert.ToHexString(SHA256.HashData(stream));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or NotSupportedException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

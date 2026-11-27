@@ -5,11 +5,12 @@ Builds and packages the self-contained, single-file win-x64 release for Ori.
 .DESCRIPTION
 This is the SINGLE SOURCE OF TRUTH for release packaging. It:
   1. resolves a tag-driven version ( -Tag > -Version > csproj <Version> ),
-  2. runs the Core tests,
+  2. runs the Core and desktop helper tests,
   3. publishes the WPF app as self-contained + single-file + win-x64,
   4. stamps the version into the assembly AND the application manifest,
   5. writes README.md and a generated RELEASE-NOTES.txt (no runtime prerequisite),
-  6. produces a portable zip, a standalone update EXE and an update manifest,
+  6. produces a portable zip (app + notes + updater), a standalone update EXE and
+      an update manifest whose version/asset alignment is verified before exit,
   7. prints absolute paths and SHA-256 hashes.
 
 No secrets, no code signing and no installer are involved. Requires the exact
@@ -69,6 +70,9 @@ try {
         Write-Host "==> Running Core tests for Ori $Version"
         dotnet test tests/Ori.Core.Tests/Ori.Core.Tests.csproj --configuration Release
         if ($LASTEXITCODE -ne 0) { throw "dotnet test failed with exit code $LASTEXITCODE." }
+        Write-Host "==> Running desktop helper tests for Ori $Version"
+        dotnet test tests/Ori.Desktop.Tests/Ori.Desktop.Tests.csproj --configuration Release
+        if ($LASTEXITCODE -ne 0) { throw "dotnet test failed with exit code $LASTEXITCODE." }
     }
     else {
         Write-Host '==> Skipping tests (caller already ran them).'
@@ -111,6 +115,22 @@ try {
         throw "Publish did not produce $publishedExe."
     }
 
+    # --- Stage the separate updater helper in the same portable folder --------
+    # Auto-update needs Ori.Updater.exe next to Ori.exe. Publishing it into the
+    # staging directory (rather than copying it later) keeps the zip self-contained.
+    Write-Host '==> Publishing Ori.Updater.exe into the portable package'
+    dotnet publish tools/Ori.Updater/Ori.Updater.csproj `
+        --configuration Release `
+        --runtime win-x64 `
+        --self-contained true `
+        "-p:Version=$Version" `
+        --output $stageDir
+    if ($LASTEXITCODE -ne 0) { throw "Updater publish failed with exit code $LASTEXITCODE." }
+    $publishedUpdater = Join-Path $stageDir 'Ori.Updater.exe'
+    if (-not (Test-Path -LiteralPath $publishedUpdater)) {
+        throw "Updater publish did not produce $publishedUpdater."
+    }
+
     # --- Add documentation ---------------------------------------------------
     Copy-Item -Path (Join-Path $repoRoot 'README.md') `
         -Destination (Join-Path $stageDir 'README.md') -Force
@@ -122,9 +142,12 @@ Ori is a clean-room Windows 11 wallpaper manager. Extract this folder and run
 Ori.exe. This build is SELF-CONTAINED: the .NET runtime is bundled, so there is
 no .NET Desktop Runtime to install.
 
+Included here:
+  * Ori.Updater.exe - the separate helper used by automatic updates.
+
 Optional (not included here):
   * A per-user Inno Setup installer: see tools/installer/README.md.
-  * Automatic updates via Ori.Updater: see docs/RELEASING.md.
+  * Automatic update wiring: see docs/RELEASING.md.
 
 This package is not code-signed. Windows SmartScreen may warn on first run until
 the app builds reputation; signing is deferred, not ignored. It contains no API
@@ -159,6 +182,16 @@ keys or secrets. Wallhaven images remain the property of their original owners.
     }
     $manifestPath = Join-Path $artifactsDir 'update-manifest.json'
     $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+
+    # Parse the file we just wrote back: a manifest that disagrees with its own
+    # asset is worse than no manifest at all, so fail the publish immediately.
+    $written = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    if ($written.version -ne $Version -or
+        $written.assetName -ne $exeName -or
+        $written.sha256 -ne $exeHash.ToLowerInvariant() -or
+        $written.url -ne $manifest.url) {
+        throw 'Generated update-manifest.json is not aligned with the published EXE.'
+    }
 
     # Keep the raw EXE for the optional Inno Setup build.
     Copy-Item -LiteralPath $publishedExe -Destination (Join-Path $artifactsDir 'Ori.exe') -Force

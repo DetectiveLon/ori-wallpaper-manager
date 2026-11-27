@@ -7,15 +7,18 @@ produces a small, per-user installer. Inno Setup is free/open source and is
 
 ## What it does
 
-- Installs the self-contained, single-file `Ori.exe` into
-  `%LOCALAPPDATA%\Ori` (no administrator rights needed).
+- Installs the self-contained, single-file `Ori.exe` into the binaries folder
+  `%LOCALAPPDATA%\Programs\Ori` (no administrator rights needed).
 - Adds a Start menu folder and an Add/Remove Programs (uninstall) entry.
 - Adds an optional desktop shortcut.
 - **Reuses the app's own launch-at-sign-in setting**: the installer deliberately
   does not write `HKCU\...\Run`. That entry is created and managed by Ori
   itself under Settings → Startup, so the two can never disagree.
-- Preserves user data (`library`, `logs`, `schedules`, `feed` subfolders) on
-  uninstall; only the files the installer created are removed.
+- Preserves user data on uninstall. All data lives in the separate
+  `%LOCALAPPDATA%\Ori` folder (`library`, `logs`, `schedules`, `feed`, `cache`,
+  `ui-preferences.json`), which is outside the install folder and is never
+  deleted; only files the installer created under `%LOCALAPPDATA%\Programs\Ori`
+  are removed.
 
 ## Build steps
 

@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sys="clr-namespace:System;assembly=System.Runtime"
              xmlns:local="clr-namespace:Ori.Desktop"
-             StartupUri="MainWindow.xaml">
+             ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
         <!-- Compares a nav button's Tag with the shell's SelectedItem.Key. -->
         <local:NavKeyMatchConverter x:Key="NavKeyMatchConverter" />

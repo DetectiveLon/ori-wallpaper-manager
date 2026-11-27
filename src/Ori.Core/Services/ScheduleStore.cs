@@ -17,7 +17,8 @@ public sealed record DisplayScheduleState(
     DateTimeOffset? NextRunUtc,
     string? LastAppliedId,
     bool PauseWhenFullscreen = true,
-    string? MonitorFingerprint = null);
+    string? MonitorFingerprint = null,
+    string? PreviousAppliedPath = null);
 
 /// <summary>
 /// Small versioned JSON store for per-display schedules. A corrupt or unsupported

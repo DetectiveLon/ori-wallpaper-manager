@@ -23,7 +23,7 @@ source and let the tag override it.
 For tag `v1.0.0`, `artifacts/` contains:
 
 - `ori-1.0.0-win-x64.zip` — portable zip (self-contained `Ori.exe`,
-  `README.md`, `RELEASE-NOTES.txt`).
+  `Ori.Updater.exe`, `README.md`, `RELEASE-NOTES.txt`).
 - `ori-1.0.0-win-x64.exe` — standalone EXE used by auto-update.
 - `update-manifest.json` — JSON manifest consumed by `Ori.Updater`.
 - `Ori.exe` — the raw single-file EXE used by the optional Inno Setup build.
@@ -44,8 +44,10 @@ release notes.
 
 1. Make sure the code you want to ship is merged and its CI checks are green.
    The **Release** workflow has a `verify` job that runs restore, Core tests,
-   the full solution build and all static guards before publishing. A red
-   commit cannot be tagged into a release.
+   the full solution build, the desktop helper tests and all static guards
+   (`check-buttons.ps1 -Strict` included) before publishing. A red commit cannot
+   be tagged into a release. CI separately runs Core tests on both Linux and
+   Windows so the Windows-only path branch is covered on every PR.
 2. Create and push a tag matching the intended version:
 
    ```bash
@@ -77,43 +79,37 @@ into `artifacts/` (gitignored).
 
 Inno Setup is free and optional. See `tools/installer/README.md` and
 `tools/installer/build-installer.ps1`. It produces `ori-<version>-setup.exe`
-that installs to `%LOCALAPPDATA%\Ori`, adds Start menu/uninstall entries and
-reuses the app's own launch-at-sign-in setting. It is not built by CI by
-default.
+that installs binaries to `%LOCALAPPDATA%\Programs\Ori`, adds Start
+menu/uninstall entries and reuses the app's own launch-at-sign-in setting. User
+data lives in the separate `%LOCALAPPDATA%\Ori` folder and is never deleted by
+uninstall. It is not built by CI by default.
 
-## Auto-update: what is built and what is NOT wired
+## Auto-update: check wired, apply still manual
 
 Built and shipped:
 
 - `tools/Ori.Updater` — a separate console process that fetches
   `update-manifest.json`, compares `version` against the running app's
-  `AssemblyInformationalVersion`, verifies SHA-256, and (on `apply`) waits for
-  the app to exit, backs up the old EXE, swaps in the new one and relaunches.
-  It is added to `Ori.sln` and built by CI.
-- The release pipeline publishes the manifest and standalone EXE as assets.
+  `AssemblyInformationalVersion` and verifies SHA-256. Its `apply` mode can wait
+  for the app to exit, back up the old EXE, swap in the new one and relaunch.
+  It is added to `Ori.sln`, built by CI, **and staged into the portable zip** by
+  `scripts/publish.ps1`.
+- The release pipeline publishes the manifest and standalone EXE as assets and
+  parses the generated manifest back to confirm version/asset alignment.
 
-**Not wired (documented integration step):** the automatic version check is not
-yet called from the app. `App.xaml.cs` is owned by another agent. The exact
-integration, once that file is available for edit, is to call the updater in
-`OnStartup` after the tray is initialized and before/around showing the main
-window, for example:
+**Wired in this wave:** `App.OnStartup` calls
+`Ori.Desktop.Services.UpdateChecker.CheckOnStartupAsync()`. The checker launches
+the bundled `Ori.Updater.exe check --exe <running Ori.exe>` once per process in
+the background, with a 12-second timeout and silent failure on network/JSON
+errors. It puts short status text in Settings (`UpdateStatus`) and raises a tray
+balloon when an update is available. A missing updater (development builds) is a
+no-op.
 
-```csharp
-// In Ori.Desktop/App.xaml.cs, inside OnStartup after Tray.Show(...):
-_ = Ori.Desktop.Services.UpdateChecker.CheckOnStartupAsync();
-```
-
-Where `UpdateChecker.CheckOnStartupAsync()` is a thin wrapper that launches the
-bundled `Ori.Updater.exe check` with `--exe <path to running Ori.exe>`,
-parses the JSON `CheckResult` from stdout, and — if `updateAvailable` is true —
-offers the user a "Update now" action that launches
-`Ori.Updater.exe apply --exe <path> --pid <current pid> --relaunch`, then
-shuts the app down so the updater can swap the file.
-
-Until that one-line call (and its wrapper) is added, users update manually by
-downloading the latest release. This is a deliberate boundary: the main app
-cannot overwrite its own running EXE, so the check and swap must live in the
-separate updater process.
+**Still manual:** there is deliberately no in-app "apply now" button. Users
+download the new release from GitHub and run the installer or replace the zip.
+The main app cannot overwrite its own running EXE; the check and swap must live
+in the separate updater process. A live end-to-end check against a real release
+is still pending, so treat the network path as unverified.
 
 ## What is not inside the zip
 

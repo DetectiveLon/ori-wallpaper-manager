@@ -15,6 +15,11 @@ public sealed class WallhavenImageDownloader
     // from the canonical limits in WallpaperImageCache.
     public const int MaximumThumbnailBytes = (int)WallpaperImageCache.MaximumThumbnailBytes;
     public const int MaximumWallpaperBytes = (int)WallpaperImageCache.MaximumFullImageBytes;
+    public const string UnsupportedFormatMessage = WallpaperImageCache.UnsupportedFormatMessage;
+
+    /// <summary>True only for formats Windows can apply as a wallpaper.</summary>
+    public static bool IsSupportedImageExtension(string extension) =>
+        WallpaperImageCache.IsSupportedImageExtension(extension);
 
     private static readonly WallpaperImageCache Cache = new();
 

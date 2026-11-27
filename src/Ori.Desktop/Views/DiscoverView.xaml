@@ -293,9 +293,16 @@
                             </Expander.Header>
                             <StackPanel Margin="2,2,0,4">
                                 <TextBlock Text="API key" Style="{StaticResource DiscoverFieldLabel}" />
-                                <PasswordBox x:Name="ApiKeyBox" MinHeight="34" Margin="0,0,0,10" Padding="9,5"
+                                <PasswordBox x:Name="ApiKeyBox" MinHeight="34" Margin="0,0,0,6" Padding="9,5"
                                              AutomationProperties.Name="Wallhaven API key"
-                                             ToolTip="Stored locally and sent only to Wallhaven" />
+                                             ToolTip="Used for searches in this visit and sent only to Wallhaven. Nothing is saved until you press Save key." />
+                                <TextBlock Style="{StaticResource HintText}"
+                                           Text="Not saved automatically. Save it here or in Settings so NSFW results stay available on later visits and in rotation." />
+                                <Button Content="Save key" Style="{StaticResource TagButton}"
+                                        Command="{Binding SaveApiKeyCommand}"
+                                        HorizontalAlignment="Left"
+                                        AutomationProperties.Name="Save API key locally"
+                                        ToolTip="Explicitly save this key (DPAPI-protected); Settings can also save or remove it" />
                                 <TextBlock Text="Sorting" Style="{StaticResource DiscoverFieldLabel}" />
                                 <ComboBox Style="{StaticResource FieldCombo}" DisplayMemberPath="Label"
                                           ItemsSource="{Binding SortingChoices}"
@@ -385,7 +392,7 @@
                                          ToolTip="Custom hex colors, comma-separated"
                                          AutomationProperties.Name="Custom hex colours" />
                                 <TextBlock Style="{StaticResource HintText}"
-                                           Text="Your API key is saved locally (DPAPI-protected) and sent only to Wallhaven." />
+                                           Text="An API key is only used for this visit until you save it here or in Settings. Saved keys are DPAPI-protected and sent only to Wallhaven." />
                             </StackPanel>
                         </Expander>
                     </StackPanel>
@@ -598,9 +605,9 @@
                                        FontSize="54" Foreground="{StaticResource AccentBrush}"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
-                        <TextBlock Text="No wallpapers yet" Style="{StaticResource TitleTextStyle}"
+                        <TextBlock Text="{Binding EmptyStateTitle}" Style="{StaticResource TitleTextStyle}"
                                    HorizontalAlignment="Center" Margin="0,20,0,7" />
-                        <TextBlock Text="Choose your filters, then select Search wallpapers to explore Wallhaven."
+                        <TextBlock Text="{Binding EmptyStateMessage}"
                                    Style="{StaticResource BodyTextStyle}" TextWrapping="Wrap"
                                    TextAlignment="Center" MaxWidth="380" HorizontalAlignment="Center" />
                     </StackPanel>

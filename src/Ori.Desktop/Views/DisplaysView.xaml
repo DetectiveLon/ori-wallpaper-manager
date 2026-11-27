@@ -252,7 +252,7 @@
                         </ScrollViewer>
                     </Border>
 
-                    <TextBlock Grid.Row="2" Text="Per-monitor images apply only when the fit mode is not Span."
+                    <TextBlock Grid.Row="2" Text="Per-monitor images apply only when the fit mode is not Span. Applying one returns the shared fit mode from Span to Fill."
                                Style="{StaticResource CaptionTextStyle}" FontSize="12"
                                Margin="0,10,0,0" TextWrapping="Wrap" />
                 </Grid>

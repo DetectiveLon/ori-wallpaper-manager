@@ -9,14 +9,14 @@ namespace Ori.Desktop.ViewModels;
 
 /// <summary>
 /// A single navigation entry used by the shell. Key is the stable identifier
-/// passed to <see cref="MainViewModel.Navigate"/>; Section, ToolTip, AccessKey
-/// and AccessLabel are presentation hints consumed by the rail's DataTemplate
+/// passed to <see cref="MainViewModel.Navigate"/>; Section, ToolTip and
+/// AccessLabel are presentation hints consumed by the rail's DataTemplate
 /// so navigation is defined in exactly one place.
 /// </summary>
 public sealed class NavigationItem
 {
     public NavigationItem(string key, string label, string glyph)
-        : this(key, label, glyph, string.Empty, label, string.Empty, label, 0)
+        : this(key, label, glyph, string.Empty, label, label, 0)
     {
     }
 
@@ -26,7 +26,6 @@ public sealed class NavigationItem
         string glyph,
         string section,
         string toolTip,
-        string accessKey,
         string accessLabel,
         int tabIndex)
     {
@@ -35,7 +34,6 @@ public sealed class NavigationItem
         Glyph = glyph;
         Section = section;
         ToolTip = toolTip;
-        AccessKey = accessKey;
         AccessLabel = accessLabel;
         TabIndex = tabIndex;
     }
@@ -45,7 +43,6 @@ public sealed class NavigationItem
     public string Glyph { get; }
     public string Section { get; }
     public string ToolTip { get; }
-    public string AccessKey { get; }
 
     /// <summary>Label with the WPF "_" access-key marker, e.g. "_Discover".</summary>
     public string AccessLabel { get; }
@@ -64,7 +61,6 @@ public sealed class MainViewModel : ViewModelBase
     private UserControl? _currentView;
     private string _title = "Your desktop, in order.";
     private string _subtitle = "Choose what you want to see. Or let Ori take care of the rotation.";
-    private string _section = "ORI";
 
     public MainViewModel()
         : this(new NavigationService())
@@ -79,22 +75,22 @@ public sealed class MainViewModel : ViewModelBase
         {
             // FIND & SAVE
             new("Discover", "Discover", "\uE721", "FIND & SAVE",
-                "Search Wallhaven and save wallpapers (Alt+D)", "D", "_Discover", 3),
+                "Search Wallhaven and save wallpapers (Alt+D)", "_Discover", 3),
             new("Library", "My library", "\uE8B7", "FIND & SAVE",
-                "Browse wallpapers saved on this PC (Alt+L)", "L", "My _library", 4),
+                "Browse wallpapers saved on this PC (Alt+L)", "My _library", 4),
 
             // YOUR DESKTOP
             // REMOVAL POINT: "Displays" is still in the rail for now. When the
             // page is retired, delete this item and its "displays" header case;
             // NavigationService's "displays" case can go with it.
             new("Displays", "Displays", "\uE7F4", "YOUR DESKTOP",
-                "Choose an image for each monitor (Alt+P)", "P", "Dis_plays", 5),
+                "Choose an image for each monitor (Alt+P)", "Dis_plays", 5),
             new("Automation", "Auto rotation", "\uE8B3", "YOUR DESKTOP",
-                "Cycle Wallhaven sources and per-display rotation (Alt+A)", "A", "_Auto rotation", 6),
+                "Cycle Wallhaven sources and per-display rotation (Alt+A)", "_Auto rotation", 6),
 
             // APP
             new("Settings", "Settings", "\uE713", "APP",
-                "App preferences (Alt+S)", "S", "_Settings", 7)
+                "App preferences (Alt+S)", "_Settings", 7)
         };
 
         NavigateCommand = new RelayCommand(parameter => Navigate(parameter as string));
@@ -138,13 +134,6 @@ public sealed class MainViewModel : ViewModelBase
         _navigation.CreateView("Automation") as AutomationView;
 
     public ICommand NavigateCommand { get; }
-
-    /// <summary>Section of the selected page, shown as the header eyebrow.</summary>
-    public string Section
-    {
-        get => _section;
-        private set => SetProperty(ref _section, value);
-    }
 
     public string Title
     {
@@ -191,7 +180,6 @@ public sealed class MainViewModel : ViewModelBase
 
             if (match is not null)
             {
-                Section = match.Section;
                 if (!ReferenceEquals(match, _selectedItem))
                     SetProperty(ref _selectedItem, match);
             }

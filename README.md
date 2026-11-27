@@ -28,8 +28,9 @@ See `docs/IMPLEMENTATION_STATUS.md` for the current, per-wave status and
 
 ## Known limitations
 
-- Full-screen detection uses the foreground window's bounds; it does not identify
-  games by process name or see background full-screen windows.
+- Full-screen detection enumerates all visible top-level windows against each
+  display's bounds (not just the foreground window), but it still does not
+  identify games by process name. Live game verification is pending.
 - Windows exposes one shared wallpaper fit mode through `IDesktopWallpaper`;
   independent per-monitor fit modes need an image-composition layer.
 - The library renders all matching cards on one page (no virtualization).
@@ -46,9 +47,10 @@ runtime is bundled, so there is **no .NET Desktop Runtime to install**.
   extract it and run `Ori.exe`.
 - **Per-user installer (optional):** build the free Inno Setup installer from
   `tools/installer/` (see `tools/installer/README.md`). It installs to
-  `%LOCALAPPDATA%\Ori`, adds Start menu and uninstall entries, and reuses the
-  app's own launch-at-sign-in setting. Inno Setup is optional and not required
-  for the portable release.
+  `%LOCALAPPDATA%\Programs\Ori`, adds Start menu and uninstall entries, and
+  reuses the app's own launch-at-sign-in setting. User data under
+  `%LOCALAPPDATA%\Ori` is never deleted on uninstall. Inno Setup is optional and
+  not required for the portable release.
 
 ## Build from source
 
@@ -67,10 +69,10 @@ tag-driven local build:
 pwsh ./scripts/publish.ps1 -Tag v1.0.0
 ```
 
-It produces a self-contained single-file zip, a standalone EXE and an
-`update-manifest.json` for auto-update, and prints their SHA-256 hashes. See
-`docs/RELEASING.md` for the full release process, including the pending
-auto-update wiring step.
+It produces a self-contained single-file zip that includes `Ori.Updater.exe`, a
+standalone EXE and a self-checked `update-manifest.json`, and prints their
+SHA-256 hashes. See `docs/RELEASING.md` for the full release process: the
+startup update check is wired; applying an update is still manual.
 
 ## Privacy
 

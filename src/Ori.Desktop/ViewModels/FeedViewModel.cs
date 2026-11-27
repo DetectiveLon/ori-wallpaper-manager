@@ -9,11 +9,13 @@ namespace Ori.Desktop.ViewModels;
 /// One persisted Wallhaven rotation feed. The row is a projection of the Core feed
 /// record: an edit is committed through <see cref="AutomationViewModel"/> to the feed
 /// store, which pushes the fresh state back through <see cref="Update"/>. That way the
-/// page never keeps a second, drifting copy of name/cadence/enabled state.
+/// page never keeps a second, drifting copy of name/cadence/enabled/filter state.
 /// </summary>
 public sealed class FeedViewModel : ViewModelBase
 {
-    private static readonly int[] StandardCadences = { 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440, 10080 };
+    // Product spec: a feed cadence is 15 minutes to 7 days. Legacy values below the
+    // floor are still shown (EnsureCadenceOption) but the next edit clamps them up.
+    private static readonly int[] StandardCadences = { 15, 30, 60, 120, 240, 360, 720, 1440, 10080 };
 
     private readonly AutomationViewModel _owner;
     private readonly ObservableCollection<int> _cadenceOptions = new();
@@ -21,6 +23,9 @@ public sealed class FeedViewModel : ViewModelBase
     private string _name = string.Empty;
     private int _cadenceMinutes = 60;
     private bool _isEnabled;
+    private string _filterQuery = string.Empty;
+    private string _savedFilterQuery = string.Empty;
+    private bool _filterQueryLoaded;
     private string _statusText = string.Empty;
 
     public FeedViewModel(RotationFeed feed, AutomationViewModel owner)
@@ -30,7 +35,9 @@ public sealed class FeedViewModel : ViewModelBase
 
         // Every control delegates to the owner; Core persistence and the dispatcher
         // refresh both live there, so this row stays a thin binding surface.
-        ToggleCommand = new RelayCommand(_ => _owner.SetFeedEnabled(Id, !IsEnabled));
+        // ToggleCommand flips the CURRENT state: never call it from the IsEnabled
+        // setter (see the comment there), or the new value is stored inverted.
+        ToggleCommand = new RelayCommand(_ => CommitEnabled(!IsEnabled));
         RenameCommand = new RelayCommand(parameter => _owner.RenameFeed(Id, parameter as string ?? Name));
         SetCadenceCommand = new RelayCommand(parameter =>
             _owner.SetFeedCadence(Id, parameter is int minutes ? minutes : CadenceMinutes));
@@ -38,6 +45,7 @@ public sealed class FeedViewModel : ViewModelBase
         MoveDownCommand = new RelayCommand(_ => _owner.MoveFeedDown(Id));
         RemoveCommand = new RelayCommand(_ => _owner.RemoveFeed(Id));
         FetchNowCommand = new RelayCommand(_ => { _ = _owner.FetchNowAsync(Id); });
+        SaveFiltersCommand = new RelayCommand(_ => _owner.UpdateFeedFilters(Id, FilterQuery));
 
         Update(feed);
     }
@@ -54,6 +62,7 @@ public sealed class FeedViewModel : ViewModelBase
     public ICommand MoveDownCommand { get; }
     public ICommand RemoveCommand { get; }
     public ICommand FetchNowCommand { get; }
+    public ICommand SaveFiltersCommand { get; }
 
     /// <summary>TextBox binds with UpdateSourceTrigger=LostFocus; the setter commits the rename.</summary>
     public string Name
@@ -87,9 +96,28 @@ public sealed class FeedViewModel : ViewModelBase
         {
             if (!SetProperty(ref _isEnabled, value, nameof(IsEnabled)) || _suppressCommit)
                 return;
-            ToggleCommand.Execute(value);
+
+            // TRAP: ToggleCommand flips the *current* IsEnabled. WPF has already
+            // written this setter before a command could run, so calling
+            // ToggleCommand.Execute(value) here reads the new value back and stores
+            // its inverse; RefreshFeeds then snaps the checkbox to the old state.
+            // Commit the incoming value directly, exactly once, instead.
+            CommitEnabled(value);
         }
     }
+
+    /// <summary>
+    /// Editable search expression for this feed. Kept as a draft so typing cannot
+    /// write to the store; Save filters validates and commits it via the owner.
+    /// </summary>
+    public string FilterQuery
+    {
+        get => _filterQuery;
+        set => SetProperty(ref _filterQuery, value, nameof(FilterQuery));
+    }
+
+    /// <summary>Fetch now follows the same global opt-in as the automatic sweep.</summary>
+    public bool CanFetchNow => _owner.AutoFetchFromWallhaven;
 
     /// <summary>Human-readable summary of the persisted fetch/backoff/failure state.</summary>
     public string StatusText
@@ -107,6 +135,15 @@ public sealed class FeedViewModel : ViewModelBase
             SetProperty(ref _name, feed.Name ?? string.Empty, nameof(Name));
             SetProperty(ref _cadenceMinutes, feed.CadenceMinutes, nameof(CadenceMinutes));
             SetProperty(ref _isEnabled, feed.Enabled, nameof(IsEnabled));
+
+            // A feed sweep refreshes this row every few seconds. Reproject the query
+            // only when there is no unsaved draft, or typing would be wiped mid-edit.
+            var savedQuery = feed.Filters?.Query ?? string.Empty;
+            if (!_filterQueryLoaded || string.Equals(_filterQuery, _savedFilterQuery, StringComparison.Ordinal))
+                SetProperty(ref _filterQuery, savedQuery, nameof(FilterQuery));
+            _savedFilterQuery = savedQuery;
+            _filterQueryLoaded = true;
+
             SetProperty(ref _statusText, BuildStatus(feed), nameof(StatusText));
             EnsureCadenceOption(feed.CadenceMinutes);
         }
@@ -114,7 +151,13 @@ public sealed class FeedViewModel : ViewModelBase
         {
             _suppressCommit = false;
         }
+
+        // The master toggle lives on the owner, so a projection must refresh the
+        // Fetch now button state too (the toggle calls RefreshFeeds on both edges).
+        OnPropertyChanged(nameof(CanFetchNow));
     }
+
+    private void CommitEnabled(bool enabled) => _owner.SetFeedEnabled(Id, enabled);
 
     private void EnsureCadenceOption(int minutes)
     {

@@ -33,6 +33,19 @@ public static class WindowsDesktopWallpaper
 {
     private const string DesktopWallpaperClassId = "C2CF3110-460E-4FC1-B9D0-8A1C0C9CC4BD";
 
+    /// <summary>
+    /// The formats Windows can actually apply as a desktop wallpaper. The image
+    /// cache/downloader uses the same allowlist so a GIF or WebP is skipped
+    /// before it ever reaches this API.
+    /// </summary>
+    public static IReadOnlyList<string> SupportedImageExtensions { get; } = new[]
+    {
+        ".jpg", ".jpeg", ".png", ".bmp", ".dib", ".tif", ".tiff"
+    };
+
+    public static bool IsSupportedImageExtension(string extension) =>
+        SupportedImageExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+
     public static IReadOnlyList<DisplayMonitor> GetMonitors()
     {
         EnsureWindows();
@@ -203,8 +216,23 @@ public static class WindowsDesktopWallpaper
 
         WithDesktopWallpaper(desktop =>
         {
-            // The OS fit mode is global. Leave it alone unless the caller explicitly
-            // asked to change it; forcing Fill here crops wallpapers chosen elsewhere.
+            // Span is a global fit mode set by ApplySpanWallpaper. Windows then
+            // ignores per-monitor images, and no per-monitor caller passes a
+            // position, so the old Span would leak into every later apply. Reset
+            // it to Fill before setting this monitor's image. Other fit modes
+            // are left alone; forcing Fill would crop wallpapers chosen elsewhere.
+            try
+            {
+                desktop.GetPosition(out var current);
+                if (current == DesktopWallpaperPosition.Span)
+                    desktop.SetPosition(DesktopWallpaperPosition.Fill);
+            }
+            catch (COMException)
+            {
+                // Shells without GetPosition still accept SetWallpaper; the
+                // explicit position below (if any) is applied as requested.
+            }
+
             if (position is { } requested)
                 desktop.SetPosition(requested);
             desktop.SetWallpaper(monitorId, fullPath);
@@ -212,19 +240,20 @@ public static class WindowsDesktopWallpaper
         });
     }
 
-    private static string ValidateWallpaperPath(string imagePath)
+    /// <summary>
+    /// Validates a local wallpaper file against the format allowlist. Public so
+    /// callers and tests can check a path before applying it.
+    /// </summary>
+    public static string ValidateWallpaperPath(string imagePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(imagePath);
         var fullPath = Path.GetFullPath(imagePath);
         if (!File.Exists(fullPath))
             throw new FileNotFoundException("The selected wallpaper file does not exist.", fullPath);
 
-        var extension = Path.GetExtension(fullPath);
-        if (!new[] { ".jpg", ".jpeg", ".png", ".bmp", ".dib", ".tif", ".tiff" }
-            .Contains(extension, StringComparer.OrdinalIgnoreCase))
-        {
-            throw new InvalidDataException("Choose a JPG, PNG, BMP, or TIFF image.");
-        }
+        if (!IsSupportedImageExtension(Path.GetExtension(fullPath)))
+            throw new InvalidDataException(
+                "Skipped: unsupported image format. Choose a JPG, PNG, BMP, DIB or TIFF image; GIF and WebP cannot be applied to the desktop.");
 
         return fullPath;
     }

@@ -225,6 +225,16 @@ public sealed class TrayIconService : IDisposable
             return;
         }
 
-        dispatcher.Invoke(action);
+        // Notifications and error reports often come from rotation background
+        // threads. A synchronous Invoke can throw (or deadlock) while the
+        // dispatcher is shutting down; a fire-and-forget post is enough here.
+        try
+        {
+            dispatcher.BeginInvoke(action);
+        }
+        catch (InvalidOperationException)
+        {
+            // Dispatcher is already shut down; nothing can be shown.
+        }
     }
 }

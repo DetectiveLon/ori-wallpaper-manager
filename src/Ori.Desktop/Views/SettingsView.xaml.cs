@@ -31,6 +31,8 @@ public partial class SettingsView : UserControl
         _viewModel.ApiKeyCleared += OnApiKeyCleared;
 
         _viewModel.RefreshApiKey();
+        // The optional update check may finish after this view was constructed.
+        _viewModel.RefreshUpdateStatus();
         ApiKeyBox.Password = _viewModel.ApiKey;
     }
 

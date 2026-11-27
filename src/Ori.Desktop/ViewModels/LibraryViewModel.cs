@@ -34,6 +34,7 @@ public sealed class LibraryEntryViewModel : ViewModelBase
         // Tags and colours are formatted defensively: the store may model them as a
         // delimited string or as a collection, and both render the same way here.
         TagsText = TextOf(entry.Tags);
+        TagChips = BuildTagChips(TagsText);
         TagText = TagsText;
         ColorsText = TextOf(entry.Colors);
         ColorSwatches = BuildSwatches(ColorsText);
@@ -52,6 +53,11 @@ public sealed class LibraryEntryViewModel : ViewModelBase
     public string DetailText { get; }
 
     public string TagsText { get; }
+
+    /// <summary>Individual tags split from TagsText, shown as read-only chips on the card.</summary>
+    public IReadOnlyList<string> TagChips { get; }
+
+    public bool HasTags => TagChips.Count > 0;
 
     public string ColorsText { get; }
 
@@ -97,6 +103,11 @@ public sealed class LibraryEntryViewModel : ViewModelBase
         IEnumerable items => string.Join(", ", items.Cast<object?>().Where(item => item is not null)),
         _ => value.ToString() ?? string.Empty
     };
+
+    private static IReadOnlyList<string> BuildTagChips(string tags) =>
+        tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     private static IReadOnlyList<Brush> BuildSwatches(string colors)
     {
@@ -150,6 +161,11 @@ public sealed class LibraryViewModel : ViewModelBase
 
     private readonly WallpaperLibraryStore _store = new();
     private readonly Dispatcher _dispatcher;
+
+    // Collections created before any wallpaper is assigned have no entry in the index;
+    // keep them for this session and merge them with entry-derived names on reload.
+    private readonly HashSet<string> _emptyCollections = new(StringComparer.OrdinalIgnoreCase);
+
     private IReadOnlyList<WallpaperLibraryEntry> _entries = Array.Empty<WallpaperLibraryEntry>();
     private IReadOnlyList<WallpaperLibraryEntry> _filtered = Array.Empty<WallpaperLibraryEntry>();
     private CancellationTokenSource? _renderDebounce;
@@ -176,6 +192,9 @@ public sealed class LibraryViewModel : ViewModelBase
         FindDuplicatesCommand = new AsyncRelayCommand(_ => FindDuplicatesAsync(), ex => Status = $"Could not find duplicates: {ex.Message}");
         RemoveDuplicateCommand = new AsyncRelayCommand(p => RemoveDuplicateAsync(p as DuplicateEntryViewModel), ex => Status = $"Could not remove duplicate: {ex.Message}");
         SetTagsCommand = new AsyncRelayCommand(p => SetTagsAsync(p as LibraryEntryViewModel), ex => Status = $"Could not update tags: {ex.Message}");
+        ClearTagFilterCommand = new AsyncRelayCommand(
+            _ => { TagFilterText = string.Empty; return Task.CompletedTask; },
+            ex => Status = $"Could not clear the tag filter: {ex.Message}");
         PreviousPageCommand = new AsyncRelayCommand(
             _ => { GoPreviousPage(); return Task.CompletedTask; },
             ex => Status = $"Could not change page: {ex.Message}");
@@ -226,6 +245,8 @@ public sealed class LibraryViewModel : ViewModelBase
 
     public ICommand SetTagsCommand { get; }
 
+    public ICommand ClearTagFilterCommand { get; }
+
     public ICommand PreviousPageCommand { get; }
 
     public ICommand NextPageCommand { get; }
@@ -248,6 +269,18 @@ public sealed class LibraryViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _searchText, value))
+                ScheduleRender();
+        }
+    }
+
+    private string _tagFilterText = string.Empty;
+    /// <summary>Free-text tag filter. Separate several tags with commas to match any of them.</summary>
+    public string TagFilterText
+    {
+        get => _tagFilterText;
+        set
+        {
+            if (SetProperty(ref _tagFilterText, value))
                 ScheduleRender();
         }
     }
@@ -373,7 +406,6 @@ public sealed class LibraryViewModel : ViewModelBase
     public bool HasDuplicates => Duplicates.Count > 0;
 
     // Computed page state - raised explicitly by RefreshPageState().
-    public int PageSizeValue => PageSize;
     public bool CanGoPrevious => _currentPage > 0;
     public bool CanGoNext => _currentPage < _totalPages - 1;
     public string PageLabel => $"Page {_currentPage + 1} of {_totalPages}";
@@ -472,6 +504,7 @@ public sealed class LibraryViewModel : ViewModelBase
     {
         var names = _entries.Select(entry => entry.Collection)
             .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Concat(_emptyCollections)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -516,6 +549,10 @@ public sealed class LibraryViewModel : ViewModelBase
     {
         ++_renderGeneration;
         var query = SearchText.Trim();
+        var tagQuery = TagFilterText.Trim();
+        var tagTerms = tagQuery.Length == 0
+            ? Array.Empty<string>()
+            : tagQuery.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var collectionFilter = _selectedCollectionFilter;
         var filtered = _entries.Where(entry =>
                 (!FavoritesOnly || entry.IsFavorite)
@@ -524,7 +561,10 @@ public sealed class LibraryViewModel : ViewModelBase
                 && (query.Length == 0
                     || entry.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
                     || entry.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
-                    || entry.Collection.Contains(query, StringComparison.OrdinalIgnoreCase)));
+                    || entry.Collection.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || entry.Tags.Contains(query, StringComparison.OrdinalIgnoreCase))
+                && (tagTerms.Length == 0
+                    || tagTerms.Any(term => entry.Tags.Contains(term, StringComparison.OrdinalIgnoreCase))));
 
         // Sorting happens before paging so every page follows the selected order.
         _filtered = ApplySort(filtered).ToArray();
@@ -749,6 +789,10 @@ public sealed class LibraryViewModel : ViewModelBase
                 return;
             }
 
+            // The collection is now anchored by an entry; it no longer needs the
+            // session-only placeholder that kept it visible while empty.
+            _emptyCollections.Remove(target);
+
             // Reload entries and collection lists so a newly typed collection is
             // immediately available to the filter and every card.
             await ReloadAsync();
@@ -763,30 +807,44 @@ public sealed class LibraryViewModel : ViewModelBase
     private async Task CreateCollectionAsync()
     {
         var name = NewCollectionName?.Trim();
-        if (string.IsNullOrWhiteSpace(name) || string.Equals(name, Unsorted, StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(name)
+            || string.Equals(name, Unsorted, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, AllCollections, StringComparison.OrdinalIgnoreCase))
         {
             Status = "Enter a new collection name (other than 'Unsorted').";
             return;
         }
-        if (SelectedEntry is null)
+        if (CollectionFilters.Any(existing => string.Equals(existing, name, StringComparison.OrdinalIgnoreCase)))
         {
-            Status = "Select a wallpaper first, then choose New collection.";
+            Status = $"A collection named \"{name}\" already exists.";
             return;
         }
 
-        var title = SelectedEntry.Title;
+        var selected = SelectedEntry;
         try
         {
-            var changed = await _store.SetCollectionAsync(SelectedEntry.Id, name);
-            if (!changed)
+            if (selected is not null)
             {
-                Status = "That library entry no longer exists.";
-                return;
+                var changed = await _store.SetCollectionAsync(selected.Id, name);
+                if (!changed)
+                {
+                    Status = "That library entry no longer exists.";
+                    return;
+                }
+            }
+            else
+            {
+                // No wallpaper is needed: an empty collection is a valid destination
+                // for a later Move. It is kept for this session (the index only knows
+                // collections that have at least one entry).
+                _emptyCollections.Add(name);
             }
 
             NewCollectionName = string.Empty;
             await ReloadAsync();
-            Status = $"Created \"{name}\" and moved {title} into it.";
+            Status = selected is null
+                ? $"Created empty collection \"{name}\". Move a wallpaper into it to keep it after a restart."
+                : $"Created \"{name}\" and moved {selected.Title} into it.";
         }
         catch (Exception ex)
         {
@@ -856,7 +914,7 @@ public sealed class LibraryViewModel : ViewModelBase
 
             DuplicateStatus = found.Count == 0
                 ? "No duplicates found."
-                : $"{found.Count} duplicate(s) found. Remove only the ones you want gone.";
+                : $"{found.Count} duplicate(s) found. One wallpaper per group was kept as the original and is not listed; removing a row is metadata-only and keeps the image file on disk.";
             Status = DuplicateStatus;
         }
         catch (Exception ex)
@@ -877,7 +935,9 @@ public sealed class LibraryViewModel : ViewModelBase
                 Duplicates.Remove(item);
             OnPropertyChanged(nameof(HasDuplicates));
             await ReloadAsync();
-            DuplicateStatus = $"{Duplicates.Count} duplicate(s) remaining.";
+            DuplicateStatus = Duplicates.Count == 0
+                ? "No duplicates remaining."
+                : $"{Duplicates.Count} duplicate(s) remaining. Originals are kept; removal is metadata-only.";
             Status = removed
                 ? $"Removed duplicate \"{item.Name}\" from the library (file kept on disk)."
                 : "That library entry no longer exists.";

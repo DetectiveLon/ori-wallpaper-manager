@@ -98,6 +98,12 @@
                             AutomationProperties.Name="Clear cached images"
                             KeyboardNavigation.TabIndex="11" />
                     <TextBlock Text="{Binding CacheStatus}" Style="{StaticResource WrappedCaption}" Margin="0,10,0,0" />
+                    <Button Content="Repair library paths" Style="{StaticResource SecondaryButtonStyle}"
+                            Command="{Binding RepairLibraryPathsCommand}" Padding="14,8,14,8"
+                            HorizontalAlignment="Left" Margin="0,12,0,0"
+                            ToolTip="Repair library entries that still point at the old data folder after a move"
+                            AutomationProperties.Name="Repair library paths"
+                            KeyboardNavigation.TabIndex="20" />
                     <Button Content="Clear orphan wallpaper files" Style="{StaticResource SecondaryButtonStyle}"
                             Command="{Binding ClearOrphansCommand}" Padding="14,8,14,8"
                             HorizontalAlignment="Left" Margin="0,12,0,0"
@@ -177,6 +183,14 @@
                                 KeyboardNavigation.TabIndex="15" />
                     </Grid>
                     <TextBlock Text="{Binding StartupStatus}" Style="{StaticResource WrappedCaption}" Margin="0,10,0,0" />
+                    <CheckBox Content="Start minimized to tray" Margin="0,18,0,0"
+                              IsChecked="{Binding StartMinimized, Mode=TwoWay}"
+                              Command="{Binding ToggleStartMinimizedCommand}"
+                              AutomationProperties.Name="{Binding StartMinimizedAutomationName}"
+                              ToolTip="When on, Ori starts with only its tray icon visible; click the icon to open it"
+                              KeyboardNavigation.TabIndex="21" />
+                    <TextBlock Text="{Binding StartMinimizedStatus}" Style="{StaticResource WrappedCaption}"
+                               Margin="23,6,0,0" />
                 </StackPanel>
             </Border>
 
@@ -197,6 +211,8 @@
                         <TextBlock Text="{Binding SchedulesPathText}" Style="{StaticResource WrappedCaption}" Margin="0,7,0,0" />
                         <TextBlock Text="{Binding LogPathText}" Style="{StaticResource WrappedCaption}" Margin="0,7,0,0" />
                         <TextBlock Text="{Binding VersionInfo}" Style="{StaticResource WrappedCaption}" Margin="0,7,0,0" />
+                        <TextBlock Text="{Binding UpdateStatus}" Style="{StaticResource WrappedCaption}"
+                                   Margin="0,7,0,0" />
                     </StackPanel>
                     <TextBlock Margin="0,14,0,0" FontSize="12">
                         <Run Text="&#xE71B;   " FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"

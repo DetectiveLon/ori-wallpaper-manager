@@ -451,6 +451,66 @@ public sealed class WallpaperLibraryStoreFeatureTests
         Assert.True(File.Exists(image));
     }
 
+    [Fact]
+    public async Task ImportFolderSkipsFormatsWindowsDesktopWallpaperCannotApply()
+    {
+        using var temp = new TemporaryDirectory();
+        var folder = Path.Combine(temp.Path, "pictures");
+        Directory.CreateDirectory(folder);
+        WriteFile(folder, "a.jpg", [0x01]);
+        WriteFile(folder, "b.png", [0x02]);
+        WriteFile(folder, "c.webp", [0x03]);
+        WriteFile(folder, "d.gif", [0x04]);
+        var store = new WallpaperLibraryStore(Path.Combine(temp.Path, "library.json"));
+
+        Assert.Equal(2, await store.ImportFolderAsync(folder));
+
+        var entries = await store.GetAllAsync();
+        Assert.Equal(2, entries.Count);
+        Assert.DoesNotContain(entries, entry => entry.LocalPath.EndsWith(".webp", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(entries, entry => entry.LocalPath.EndsWith(".gif", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ComputeSha256MatchesKnownHashAndReturnsNullForMissingFile()
+    {
+        using var temp = new TemporaryDirectory();
+        byte[] content = [0x01, 0x02, 0x03, 0x04];
+        var path = WriteFile(temp.Path, "hash.jpg", content);
+
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(content)), WallpaperLibraryStore.ComputeSha256(path));
+        Assert.Null(WallpaperLibraryStore.ComputeSha256(Path.Combine(temp.Path, "missing.jpg")));
+    }
+
+    [Fact]
+    public async Task PersistRepairedPathsWritesOnlyWhenAPathChanged()
+    {
+        using var temp = new TemporaryDirectory();
+        var images = Path.Combine(temp.Path, "images");
+        Directory.CreateDirectory(images);
+        var moved = WriteFile(images, "moved.png", [0x01, 0x02]);
+        var stale = Path.Combine(temp.Path, "old-root", "images", "moved.png");
+        var index = Path.Combine(temp.Path, "library.json");
+        await File.WriteAllTextAsync(index, JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Entries = new[]
+            {
+                new { Id = "moved", Title = "Moved", LocalPath = stale, Collection = "Unsorted" }
+            }
+        }));
+        var store = new WallpaperLibraryStore(index, temp.Path);
+
+        Assert.True(await store.PersistRepairedPathsAsync());
+
+        using (var document = JsonDocument.Parse(await File.ReadAllTextAsync(index)))
+        {
+            var storedPath = document.RootElement.GetProperty("Entries")[0].GetProperty("LocalPath").GetString();
+            Assert.Equal(moved, storedPath);
+        }
+        Assert.False(await store.PersistRepairedPathsAsync());
+    }
+
     private static string WriteFile(string directory, string name, byte[] content)
     {
         var path = Path.Combine(directory, name);

@@ -1,8 +1,10 @@
 ; Ori per-user installer (Inno Setup 6, free/open source).
 ;
-; Installs the self-contained single-file Ori.exe to %LOCALAPPDATA%\Ori,
-; adds Start menu and Add/Remove Programs (uninstall) entries, and leaves the
-; launch-at-sign-in HKCU\...\Run entry to the app itself (Settings -> Startup).
+; Installs the self-contained single-file Ori.exe to
+; %LOCALAPPDATA%\Programs\Ori (binaries only), adds Start menu and Add/Remove
+; Programs (uninstall) entries, and leaves the launch-at-sign-in HKCU\...\Run
+; entry to the app itself (Settings -> Startup). Ori's user data lives in the
+; SEPARATE folder %LOCALAPPDATA%\Ori; this script never writes or removes it.
 ; No administrator rights are required and no secrets are embedded.
 ;
 ; Build (Inno Setup is OPTIONAL; see tools/installer/README.md):
@@ -36,6 +38,8 @@ AppPublisher={#AppPublisher}
 AppPublisherURL=https://github.com/DetectiveLon/ori-wallpaper-manager
 AppSupportURL=https://github.com/DetectiveLon/ori-wallpaper-manager/issues
 AppUpdatesURL=https://github.com/DetectiveLon/ori-wallpaper-manager/releases/latest
+; Binary location only. Keep it distinct from the app's data folder
+; %LOCALAPPDATA%\Ori so uninstalling can never touch user data.
 DefaultDirName={localappdata}\Programs\{#AppName}
 DefaultGroupName={#AppName}
 OutputDir=..\..\artifacts
@@ -81,6 +85,8 @@ Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename:
 Filename: "{app}\{#AppExeName}"; Description: "Launch Ori"; Flags: postinstall nowait skipifsilent
 
 [UninstallDelete]
-; Remove only the files we installed. User data under {app}\library, {app}\logs,
-; {app}\schedules and {app}\feed is intentionally preserved across uninstall.
+; Remove only files this installer created under {app} (= %LOCALAPPDATA%\Programs\Ori).
+; Ori's user data (library, logs, schedules, feed, cache, ui-preferences.json)
+; lives in the SEPARATE %LOCALAPPDATA%\Ori folder. No entry here targets that
+; folder, so uninstall NEVER deletes user data.
 Type: files; Name: "{app}\RELEASE-NOTES.txt"
