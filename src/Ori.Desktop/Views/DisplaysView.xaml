@@ -29,6 +29,11 @@
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
                 </Trigger>
+                <!-- Keyboard users get the same visible cue as mouse users. -->
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                    <Setter Property="BorderThickness" Value="2" />
+                </Trigger>
                 <DataTrigger Binding="{Binding IsSelected}" Value="True">
                     <Setter Property="Background" Value="{StaticResource AccentTintBrush}" />
                     <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
@@ -159,7 +164,8 @@
                                                    Margin="5,0,0,0" VerticalAlignment="Center" />
                                     </StackPanel>
 
-                                    <ItemsControl ItemsSource="{Binding Monitors}">
+                                    <ItemsControl ItemsSource="{Binding Monitors}"
+                                                  KeyboardNavigation.DirectionalNavigation="Contained">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
                                                 <Canvas />
@@ -176,10 +182,17 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <Border Style="{StaticResource MonitorCardStyle}"
+                                                        Focusable="True"
                                                         AutomationProperties.Name="{Binding DisplayName}"
                                                         ToolTip="Click to make this display the target for Apply actions.">
                                                     <Border.InputBindings>
                                                         <MouseBinding MouseAction="LeftClick"
+                                                            Command="{Binding DataContext.SelectMonitorCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}" />
+                                                        <KeyBinding Key="Enter"
+                                                            Command="{Binding DataContext.SelectMonitorCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}" />
+                                                        <KeyBinding Key="Space"
                                                             Command="{Binding DataContext.SelectMonitorCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             CommandParameter="{Binding}" />
                                                     </Border.InputBindings>
@@ -354,6 +367,12 @@
 
                             <TextBlock Text="{Binding PositionDescription}" Style="{StaticResource CaptionTextStyle}"
                                        FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0" />
+
+                            <!-- Explicit text cue when Windows did not report a fit mode. -->
+                            <TextBlock Text="Windows did not confirm the fit mode; Fill is only an assumption."
+                                       Foreground="{StaticResource WarningBrush}" FontSize="12"
+                                       TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding PositionFallbackVisible, Converter={StaticResource BoolToVisibility}}" />
 
                             <!-- Text, not just colour: Span really does ignore per-monitor images. -->
                             <Border Margin="0,12,0,0" Padding="12,10"

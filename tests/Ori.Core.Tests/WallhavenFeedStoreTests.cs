@@ -468,6 +468,119 @@ public sealed class WallhavenFeedStoreTests : IDisposable
     }
 
     [Fact]
+    public void RememberSearchFiltersQuarantinesACorruptFileBeforeOverwritingIt()
+    {
+        byte[] broken = "{ not json"u8.ToArray();
+        File.WriteAllBytes(_path, broken);
+
+        WallhavenFeedStore.RememberSearchFilters(new WallhavenFilters { Query = "sky" });
+
+        var backup = Assert.Single(Directory.GetFiles(_directory, _fileName + ".corrupt-*"));
+        Assert.Equal(broken, File.ReadAllBytes(backup));
+        Assert.Equal("sky", WallhavenFeedStore.Load()!.Query);
+    }
+
+    [Fact]
+    public void OversizedFeedFileIsQuarantinedInsteadOfBeingOverwritten()
+    {
+        var oversized = new byte[1024 * 1024 + 1];
+        oversized[0] = (byte)'{';
+        File.WriteAllBytes(_path, oversized);
+
+        WallhavenFeedStore.RememberSearchFilters(new WallhavenFilters { Query = "sky" });
+
+        var backup = Assert.Single(Directory.GetFiles(_directory, _fileName + ".corrupt-*"));
+        Assert.Equal(oversized.Length, new FileInfo(backup).Length);
+        Assert.Equal("sky", WallhavenFeedStore.Load()!.Query);
+    }
+
+    [Fact]
+    public void OversizedFeedFileIsQuarantinedOnRead()
+    {
+        File.WriteAllBytes(_path, new byte[1024 * 1024 + 1]);
+
+        Assert.Empty(WallhavenFeedStore.ListFeeds());
+
+        var backup = Assert.Single(Directory.GetFiles(_directory, _fileName + ".corrupt-*"));
+        Assert.Equal(1024 * 1024 + 1, new FileInfo(backup).Length);
+    }
+
+    [Fact]
+    public void UndefinedEnumsAreRejectedOnWrite()
+    {
+        var invalid = Feed("bad-enums", "Bad") with
+        {
+            Filters = new WallhavenFilters { Query = "sky", Sorting = (WallhavenSort)999 }
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => WallhavenFeedStore.UpsertFeed(invalid));
+        Assert.Empty(WallhavenFeedStore.ListFeeds());
+    }
+
+    [Fact]
+    public void UndefinedEnumsAreClampedOnReadInsteadOfDroppingTheFeed()
+    {
+        var invalidFilters = new WallhavenFilters
+        {
+            Query = "sky",
+            Sorting = (WallhavenSort)999,
+            Order = (WallhavenOrder)999,
+            TopRange = (WallhavenTopRange)999
+        };
+        WriteRaw(JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Filters = new WallhavenFilters { Query = "master" },
+            CadenceMinutes = 60,
+            AutoFetchEnabled = true,
+            Feeds = new[]
+            {
+                new RotationFeed
+                {
+                    Id = "bad-enums", Name = "Bad enums", Filters = invalidFilters, CadenceMinutes = 20
+                }
+            }
+        }));
+
+        var feed = Assert.Single(WallhavenFeedStore.ListFeeds());
+
+        Assert.Equal("bad-enums", feed.Id);
+        Assert.Equal(WallhavenSort.Random, feed.Filters.Sorting);
+        Assert.Equal(WallhavenOrder.Descending, feed.Filters.Order);
+        Assert.Equal(WallhavenTopRange.Month, feed.Filters.TopRange);
+    }
+
+    [Fact]
+    public void FutureFetchStateIsClampedToNowOnRead()
+    {
+        var now = DateTimeOffset.UtcNow;
+        WriteRaw(JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Filters = (WallhavenFilters?)null,
+            CadenceMinutes = 0,
+            AutoFetchEnabled = true,
+            Feeds = new[]
+            {
+                new RotationFeed
+                {
+                    Id = "a", Name = "A", Filters = new WallhavenFilters { Query = "sky" }, CadenceMinutes = 1,
+                    LastFetchedUtc = now.AddMinutes(5),
+                    BackoffUntilUtc = now.AddMinutes(10)
+                }
+            }
+        }));
+
+        var due = WallhavenFeedStore.GetNextDueFeed(now.AddMinutes(2));
+
+        Assert.NotNull(due);
+        Assert.Equal("a", due!.Id);
+        var stored = Assert.Single(WallhavenFeedStore.ListFeeds());
+        Assert.InRange(stored.LastFetchedUtc!.Value, now.AddSeconds(-5), DateTimeOffset.UtcNow);
+        Assert.InRange(stored.BackoffUntilUtc!.Value, now.AddSeconds(-5), DateTimeOffset.UtcNow);
+    }
+
+    [Fact]
     public void GetNextDueFeedReturnsNullWhenMasterOff()
     {
         var t0 = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero);

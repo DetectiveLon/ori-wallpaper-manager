@@ -8,6 +8,7 @@ public sealed class RedactTests
 {
     [Theory]
     [InlineData(@"C:\Users\Lon\Pictures\secret.jpg", "secret.jpg")]
+    [InlineData(@"C:/Users/Lon/secret.jpg", "secret.jpg")]
     [InlineData(@"C:\secret.txt", "secret.txt")]
     [InlineData(@"D:\wallhaven\cache\moon.png", "moon.png")]
     public void Redact_keeps_only_leaf_name_for_drive_paths(string value, string expected)

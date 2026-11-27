@@ -154,7 +154,7 @@ public sealed class DiscoverViewModel : ViewModelBase
     // sync with ValidateWallpaperImage below so saving and applying agree.
     private static readonly HashSet<string> LibraryImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".jpg", ".jpeg", ".png", ".bmp", ".dib", ".tif", ".tiff"
+        ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"
     };
 
     private readonly DelegateCommand _searchCommand;
@@ -175,6 +175,7 @@ public sealed class DiscoverViewModel : ViewModelBase
 
     private WallhavenSearchPage? _currentPage;
     private WallhavenFilters? _currentFilters;
+    private string? _pendingFeedUpdateName;
     private CancellationTokenSource? _searchCts;
     private bool _busy;
     private bool _hasSearched;
@@ -371,7 +372,16 @@ public sealed class DiscoverViewModel : ViewModelBase
 
     // Rotation feed authoring. Filters come from the same builder Search uses, so a
     // feed can never carry a query that the search endpoint would reject.
-    public string FeedName { get; set; } = string.Empty;
+    private string _feedName = string.Empty;
+    public string FeedName
+    {
+        get => _feedName;
+        set
+        {
+            if (SetProperty(ref _feedName, value))
+                _pendingFeedUpdateName = null;
+        }
+    }
     public int SelectedFeedCadence { get; set; } = 60;
     public IReadOnlyList<int> FeedCadenceChoices { get; } = [15, 30, 60, 120, 360, 720, 1440];
     public ObservableCollection<FeedItemViewModel> Feeds { get; } = [];
@@ -746,23 +756,49 @@ public sealed class DiscoverViewModel : ViewModelBase
             if (name.Length == 0)
                 name = $"Wallhaven feed {Feeds.Count + 1}";
 
-            var feed = new RotationFeed
+            // Re-saving the same name used to create another indistinguishable feed.
+            // The first click now asks for confirmation; a second click with the same
+            // name updates the existing feed instead of duplicating it.
+            var existing = WallhavenFeedStore.ListFeeds()
+                .FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null
+                && !string.Equals(_pendingFeedUpdateName, name, StringComparison.OrdinalIgnoreCase))
             {
-                Id = Guid.NewGuid().ToString("N"),
-                Name = name,
-                Filters = filters,
-                CadenceMinutes = SelectedFeedCadence,
-                Enabled = true,
-                LastFetchedUtc = null,
-                BackoffUntilUtc = null,
-                ConsecutiveFailures = 0,
-                LastAppliedId = null
-            };
+                _pendingFeedUpdateName = name;
+                Status = $"A rotation feed named “{name}” already exists. Press Save again to update it, or change the name to create a new one.";
+                return Task.CompletedTask;
+            }
+            _pendingFeedUpdateName = null;
+
+            var feed = existing is null
+                ? new RotationFeed
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Name = name,
+                    Filters = filters,
+                    CadenceMinutes = SelectedFeedCadence,
+                    Enabled = true,
+                    LastFetchedUtc = null,
+                    BackoffUntilUtc = null,
+                    ConsecutiveFailures = 0,
+                    LastAppliedId = null
+                }
+                : existing with
+                {
+                    Name = name,
+                    Filters = filters,
+                    CadenceMinutes = SelectedFeedCadence
+                };
             feed.Validate();
             WallhavenFeedStore.UpsertFeed(feed);
             RecordTags(filters.Query);
             RefreshFeeds();
-            Status = $"Rotation feed “{feed.Name}” saved — fetches every {feed.CadenceMinutes} min.";
+            // The field is two-way bound, so clear it through the notifying setter to
+            // empty the textbox as well as the view model after a successful save.
+            FeedName = string.Empty;
+            Status = existing is null
+                ? $"Rotation feed “{feed.Name}” saved — fetches every {feed.CadenceMinutes} min."
+                : $"Rotation feed “{feed.Name}” updated — fetches every {feed.CadenceMinutes} min.";
         }
         catch (Exception ex)
         {
@@ -894,7 +930,15 @@ public sealed class DiscoverViewModel : ViewModelBase
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            // A navigation change or unload cancels the in-flight request.
+            // A navigation change or unload cancels the in-flight request. Leave a
+            // terminal state: a cancelled search must not keep "Searching..." or a
+            // half-populated page on screen as if it had completed.
+            Results.Clear();
+            SelectedCard = null;
+            PageText = string.Empty;
+            _currentPage = null;
+            HasSearched = false;
+            Status = "Search cancelled.";
         }
         catch (Exception ex)
         {
@@ -954,7 +998,7 @@ public sealed class DiscoverViewModel : ViewModelBase
             var extension = Path.GetExtension(path);
             if (!LibraryImageExtensions.Contains(extension))
             {
-                Status = $"Wallpaper #{wallpaper.Id} is '{extension.TrimStart('.')}' and cannot be saved. Supported formats: jpg, jpeg, png, bmp, dib, tif, tiff.";
+                Status = $"Wallpaper #{wallpaper.Id} is '{extension.TrimStart('.')}' and cannot be saved. Supported formats: jpg, jpeg, png, bmp, tif, tiff.";
                 return;
             }
 

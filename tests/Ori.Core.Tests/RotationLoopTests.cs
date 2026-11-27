@@ -27,6 +27,15 @@ public sealed class RotationLoopTests
         Assert.Equal(now.AddMinutes(30), RotationLoop.CalculateNextRun(now, TimeSpan.FromMinutes(30), completed));
     }
 
+    [Fact]
+    public void BackwardsClockJumpDoesNotStretchTheInterval()
+    {
+        var now = new DateTimeOffset(2026, 11, 27, 12, 30, 0, TimeSpan.Zero);
+
+        Assert.Equal(now.AddMinutes(30), RotationLoop.CalculateNextRun(
+            now, TimeSpan.FromMinutes(30), now.AddMinutes(10)));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(10081)]

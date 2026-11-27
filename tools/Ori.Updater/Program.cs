@@ -21,7 +21,8 @@ internal static class Program
     // Bounded download so a hostile/broken manifest cannot fill the disk.
     private const long MaxDownloadBytes = 200L * 1024 * 1024;
 
-    private static readonly HttpClient Client = new()
+    // Redirects are followed manually by SecureHttp so every hop is scheme-checked.
+    private static readonly HttpClient Client = new(new HttpClientHandler { AllowAutoRedirect = false })
     {
         Timeout = TimeSpan.FromSeconds(60),
         DefaultRequestHeaders = { { "User-Agent", "Ori.Updater/1.0" } }
@@ -82,6 +83,17 @@ internal static class Program
                     throw;
                 }
 
+                // The swap succeeded: the .bak is no longer needed. Cleanup is
+                // best effort (a stale file is also removed by the installer's
+                // UninstallDelete entry), so a locked backup never fails an update.
+                try
+                {
+                    if (File.Exists(backupPath))
+                        File.Delete(backupPath);
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+
                 if (options.Relaunch && File.Exists(targetExe))
                 {
                     Process.Start(new ProcessStartInfo(targetExe) { UseShellExecute = true });
@@ -107,48 +119,21 @@ internal static class Program
         }
     }
 
-    private static async Task<Manifest> LoadManifestAsync(string url)
+    private static async Task<UpdateManifest> LoadManifestAsync(string url)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
-            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new UpdateException("The update manifest URL must be HTTPS.");
-        }
+        SecureHttp.RequireHttps(url, "The update manifest URL must be HTTPS.");
 
-        using var response = await Client.GetAsync(uri).ConfigureAwait(false);
+        using var response = await SecureHttp.GetAsync(Client, url).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         await using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-        var manifest = await JsonSerializer.DeserializeAsync<Manifest>(stream).ConfigureAwait(false);
-
-        if (manifest is null ||
-            string.IsNullOrWhiteSpace(manifest.Version) ||
-            string.IsNullOrWhiteSpace(manifest.AssetName) ||
-            string.IsNullOrWhiteSpace(manifest.Sha256) ||
-            string.IsNullOrWhiteSpace(manifest.Url))
-        {
-            throw new UpdateException("The update manifest is missing required fields.");
-        }
-
-        if (!Uri.TryCreate(manifest.Url, UriKind.Absolute, out var assetUri) ||
-            !string.Equals(assetUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new UpdateException("The update asset URL must be HTTPS.");
-        }
-
-        var assetName = Path.GetFileName(manifest.AssetName);
-        if (string.IsNullOrWhiteSpace(assetName) ||
-            !assetName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new UpdateException("The update asset must be a .exe file name.");
-        }
-
-        return manifest with { AssetName = assetName };
+        return await UpdateManifestParser.ParseAsync(stream).ConfigureAwait(false);
     }
 
-    private static async Task DownloadAndVerifyAsync(Manifest manifest, string destination)
+    private static async Task DownloadAndVerifyAsync(UpdateManifest manifest, string destination)
     {
-        using var response = await Client.GetAsync(manifest.Url, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
+        using var response = await SecureHttp.GetAsync(Client, manifest.Url, HttpCompletionOption.ResponseHeadersRead)
+            .ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         var declaredLength = response.Content.Headers.ContentLength;
@@ -257,8 +242,6 @@ internal static class Program
         string Sha256,
         string Url);
 
-    private sealed record Manifest(string Version, string AssetName, string Sha256, string Url);
-
     private enum UpdateAction { Check, Apply }
 
     private sealed class Options
@@ -326,6 +309,4 @@ internal static class Program
             };
         }
     }
-
-    private sealed class UpdateException(string message) : Exception(message);
 }

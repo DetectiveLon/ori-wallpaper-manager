@@ -23,10 +23,14 @@ $repoRoot  = Split-Path -Parent (Split-Path -Parent $scriptDir)
 $iss       = Join-Path $scriptDir 'Ori.iss'
 $manifest  = Join-Path $repoRoot 'artifacts/update-manifest.json'
 $sourceExe = Join-Path $repoRoot 'artifacts/Ori.exe'
+$sourceUpdater = Join-Path $repoRoot 'artifacts/Ori.Updater.exe'
 
 if (-not (Test-Path -LiteralPath $iss)) { throw "Missing installer script: $iss" }
 if (-not (Test-Path -LiteralPath $sourceExe)) {
     throw "Missing $sourceExe. Run scripts/publish.ps1 first to produce the single-file EXE."
+}
+if (-not (Test-Path -LiteralPath $sourceUpdater)) {
+    throw "Missing $sourceUpdater. Run scripts/publish.ps1 first to stage the updater."
 }
 
 if ([string]::IsNullOrWhiteSpace($Version) -and (Test-Path -LiteralPath $manifest)) {
@@ -58,7 +62,7 @@ if ([string]::IsNullOrWhiteSpace($CompilerPath) -or -not (Test-Path -LiteralPath
 
 Push-Location $scriptDir
 try {
-    & $CompilerPath "/DAppVersion=$Version" "/DSourceExe=$sourceExe" $iss
+    & $CompilerPath "/DAppVersion=$Version" "/DSourceExe=$sourceExe" "/DSourceUpdater=$sourceUpdater" $iss
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed with exit code $LASTEXITCODE." }
     Write-Host "Installer built for Ori $Version under artifacts/."
 }

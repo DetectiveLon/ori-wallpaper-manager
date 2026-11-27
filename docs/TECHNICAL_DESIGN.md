@@ -5,8 +5,8 @@
 - `Ori.Core`: provider contracts and implementations, filter models, scheduling rules, persistent settings models (including the rotation feed store), cache rules, library import/dedupe, and image metadata. No WPF references and no Windows COM types.
 - `Ori.Desktop`: WPF user interface, Windows monitor discovery, wallpaper application, tray integration and notifications, startup registration, DPAPI (`CurrentUser`), and Windows session/fullscreen detection.
 - `Ori.Core.Tests`: fast deterministic tests for all platform-independent behaviour.
-- `tools/Ori.Updater`: a separate console process (in `Ori.sln`) that checks a GitHub Releases JSON manifest, verifies SHA-256, and swaps the EXE after the app exits. It is not referenced by the app at runtime — the two communicate only through the manifest and process launch.
-- `tools/installer`: an optional Inno Setup `.iss` (per-user, `%LOCALAPPDATA%\Ori`). Not built by CI by default.
+- `tools/Ori.Updater`: a separate console process (in `Ori.sln`) that checks a GitHub Releases JSON manifest, verifies SHA-256, and swaps the EXE after the app exits. The app does not link the updater assembly; it launches `Ori.Updater.exe check` as a child process from `App.OnStartup` and communicates through the manifest and stdout.
+- `tools/installer`: an optional Inno Setup `.iss` (per-user; binaries to `%LOCALAPPDATA%\Programs\Ori`, user data stays in `%LOCALAPPDATA%\Ori`). Not built by CI by default.
 
 ## Provider boundary
 
@@ -35,8 +35,8 @@ Settings and collection metadata will be stored as versioned JSON with write-to-
 ## Packaging and self-update
 
 - Release packaging is centralized in `scripts/publish.ps1`: self-contained + single-file + `win-x64`, tag-driven version, and a generated `update-manifest.json` with the EXE's SHA-256. `build.ps1 -Publish` delegates to it.
-- The updater downloads only over HTTPS, caps the asset at 200 MB, verifies SHA-256 before swapping, backs up the running EXE to `.bak` and restores it on failure. The main app cannot overwrite itself, hence the separate process.
-- The in-app version-check call is not yet implemented (`App.xaml.cs` is owned by another agent); the exact integration is recorded in `docs/RELEASING.md`.
+- The updater downloads only over HTTPS (every redirect hop is scheme-checked), caps the asset at 200 MB, verifies SHA-256 before swapping, backs up the running EXE to `.bak`, restores it on failure and deletes it after a successful swap. The main app cannot overwrite itself, hence the separate process. `scripts/publish.ps1` stages the updater into the zip and into `artifacts/` for the optional installer, which installs it next to `Ori.exe`.
+- The in-app version check is wired: `App.OnStartup` calls `UpdateChecker.CheckOnStartupAsync()`, which runs the bundled updater's `check` command in the background. Applying an update remains a manual download/install; see `docs/RELEASING.md`.
 - Signing is deferred, not silently ignored.
 
 ## Safety limits

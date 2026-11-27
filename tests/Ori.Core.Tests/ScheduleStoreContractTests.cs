@@ -87,6 +87,71 @@ public sealed class ScheduleStoreContractTests
     }
 
     [Fact]
+    public async Task NullEntryInScheduleFileIsSkippedAndBackedUp()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ori-schedules-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "schedules.json");
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
+        {
+            Version = 1,
+            Entries = new object?[]
+            {
+                null,
+                new
+                {
+                    MonitorId = "DISPLAY1",
+                    IntervalName = "5 minutes",
+                    ShouldRun = true,
+                    UserPaused = false,
+                    NextRunUtc = (DateTimeOffset?)null,
+                    LastAppliedId = "wall-1"
+                }
+            }
+        }));
+        try
+        {
+            var loaded = await new ScheduleStore(path).LoadAsync();
+
+            Assert.Equal("wall-1", Assert.Single(loaded.Values).LastAppliedId);
+            Assert.False(File.Exists(path));
+            Assert.Single(Directory.GetFiles(directory, "schedules.json.corrupt-*"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task OversizedScheduleFileIsQuarantinedBeforeItCanBeOverwritten()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"ori-schedules-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "schedules.json");
+        var oversized = new byte[1024 * 1024 + 1];
+        oversized[0] = (byte)'{';
+        await File.WriteAllBytesAsync(path, oversized);
+        try
+        {
+            var store = new ScheduleStore(path);
+
+            Assert.Empty(await store.LoadAsync());
+            Assert.False(File.Exists(path));
+            var backup = Assert.Single(Directory.GetFiles(directory, "schedules.json.corrupt-*"));
+            Assert.Equal(oversized.Length, new FileInfo(backup).Length);
+
+            await store.SaveAsync([new DisplayScheduleState("DISPLAY1", "1 minute", true, false, null, null)]);
+            Assert.Single(await store.LoadAsync());
+            Assert.Single(Directory.GetFiles(directory, "schedules.json.corrupt-*"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PreviousAppliedPathRoundTripsThroughSchedulesJson()
     {
         var path = Path.Combine(Path.GetTempPath(), $"ori-schedules-{Guid.NewGuid():N}.json");

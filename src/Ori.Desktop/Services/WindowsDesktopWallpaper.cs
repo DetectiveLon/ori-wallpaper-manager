@@ -40,7 +40,7 @@ public static class WindowsDesktopWallpaper
     /// </summary>
     public static IReadOnlyList<string> SupportedImageExtensions { get; } = new[]
     {
-        ".jpg", ".jpeg", ".png", ".bmp", ".dib", ".tif", ".tiff"
+        ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"
     };
 
     public static bool IsSupportedImageExtension(string extension) =>
@@ -253,7 +253,7 @@ public static class WindowsDesktopWallpaper
 
         if (!IsSupportedImageExtension(Path.GetExtension(fullPath)))
             throw new InvalidDataException(
-                "Skipped: unsupported image format. Choose a JPG, PNG, BMP, DIB or TIFF image; GIF and WebP cannot be applied to the desktop.");
+                "Skipped: unsupported image format. Choose a JPG, PNG, BMP or TIFF image; GIF and WebP cannot be applied to the desktop.");
 
         return fullPath;
     }

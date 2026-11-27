@@ -9,8 +9,9 @@ Checks, without building or launching anything, that:
   * no hardcoded app version survives in SettingsViewModel.cs / WallhavenClient.cs,
   * csproj <Version> and app.manifest assemblyIdentity version agree,
   * rotation feed persistence, library import + dedupe methods exist,
-  * the tray MouseClick/MouseDoubleClick handler BODIES gate on
-    MouseButtons.Left (not just a MouseButtons.Left token somewhere in the file),
+  * each tray MouseClick/MouseDoubleClick handler is resolved by its target
+    (lambda or named method) and THAT body gates on MouseButtons.Left and calls
+    the open callback (not just a MouseButtons.Left token somewhere in the file),
     Notify shows a balloon tip, and no plain _notifyIcon.Click survives,
   * the editable collection ComboBox exists in the library view.
 
@@ -33,11 +34,8 @@ function Read-Text([string]$relative) {
     return Get-Content -LiteralPath $path -Raw
 }
 
-# Returns the balanced { ... } body that starts after $needle, or $null.
-function Get-BalancedBody([string]$text, [string]$needle) {
-    $start = $text.IndexOf($needle, [System.StringComparison]::Ordinal)
-    if ($start -lt 0) { return $null }
-    $open = $text.IndexOf('{', $start)
+# Returns the balanced { ... } body that starts at $open, or $null.
+function Get-BalancedBodyFrom([string]$text, [int]$open) {
     if ($open -lt 0) { return $null }
     $depth = 0
     for ($i = $open; $i -lt $text.Length; $i++) {
@@ -46,6 +44,38 @@ function Get-BalancedBody([string]$text, [string]$needle) {
             $depth--
             if ($depth -eq 0) { return $text.Substring($open, $i - $open + 1) }
         }
+    }
+    return $null
+}
+
+# Resolves the actual target of an event subscription: a lambda body, or the
+# named method's declaration. Taking the first '{' after the subscription text
+# can inspect an unrelated method when the handler is a method group.
+function Get-SubscriptionBody([string]$text, [string]$eventName) {
+    $pattern = '_notifyIcon\.' + [regex]::Escape($eventName) + '\s*\+=\s*([^;\r\n]+)'
+    $subscription = [regex]::Match($text, $pattern)
+    if (-not $subscription.Success) { return $null }
+
+    $target = $subscription.Groups[1].Value.Trim()
+    if ($target -match '=>') {
+        $arrow = $subscription.Groups[1].Index + $target.IndexOf('=>') + 2
+        $open = $text.IndexOf('{', $arrow)
+        if ($open -ge 0) { return Get-BalancedBodyFrom $text $open }
+        $end = $text.IndexOfAny(@("`r", "`n"), $arrow)
+        if ($end -lt 0) { $end = $text.Length }
+        return $text.Substring($arrow, $end - $arrow)
+    }
+
+    foreach ($identifier in [regex]::Matches($target, '[A-Za-z_][A-Za-z0-9_]*')) {
+        $name = $identifier.Value
+        if ($name -in @('new', 'EventHandler', 'sender', 'e', 'handler')) { continue }
+        $method = [regex]::Match(
+            $text,
+            '(?:private|public|protected|internal|static|async|sealed|partial|\s)*\b(?:void|Task)\s+' +
+                [regex]::Escape($name) + '\s*\(')
+        if (-not $method.Success) { continue }
+        $open = $text.IndexOf('{', $method.Index + $method.Length)
+        if ($open -ge 0) { return Get-BalancedBodyFrom $text $open }
     }
     return $null
 }
@@ -133,21 +163,25 @@ if ($tray) {
     if ($tray -match '_notifyIcon\.Click\s*\+=') { Add-Finding 'Plain _notifyIcon.Click subscription must not be used.' }
     if ($tray -match '_notifyIcon\.DoubleClick\s*\+=') { Add-Finding 'Plain _notifyIcon.DoubleClick subscription must not be used.' }
 
-    foreach ($handler in @('_notifyIcon.MouseClick +=', '_notifyIcon.MouseDoubleClick +=')) {
-        $body = Get-BalancedBody $tray $handler
+    foreach ($eventName in @('MouseClick', 'MouseDoubleClick')) {
+        $body = Get-SubscriptionBody $tray $eventName
         if (-not $body) {
-            Add-Finding ("Tray handler '{0}' has no parseable body." -f $handler)
+            Add-Finding ("Tray '{0}' subscription has no resolvable handler body." -f $eventName)
             continue
         }
         if ($body -notmatch 'MouseButtons\.Left') {
-            Add-Finding ("Tray handler '{0}' body does not gate on MouseButtons.Left." -f $handler)
+            Add-Finding ("Tray {0} handler body does not gate on MouseButtons.Left." -f $eventName)
         }
         if ($body -notmatch '_onOpen') {
-            Add-Finding ("Tray handler '{0}' body does not call the open callback." -f $handler)
+            Add-Finding ("Tray {0} handler body does not call the open callback." -f $eventName)
         }
     }
 
-    $notifyBody = Get-BalancedBody $tray 'void Notify('
+    $notifyMethod = [regex]::Match($tray, '\bvoid\s+Notify\s*\(')
+    $notifyBody = if ($notifyMethod.Success) {
+        Get-BalancedBodyFrom $tray $tray.IndexOf('{', $notifyMethod.Index + $notifyMethod.Length)
+    }
+    else { $null }
     if (-not $notifyBody) {
         Add-Finding 'Tray Notify(...) method has no parseable body.'
     }

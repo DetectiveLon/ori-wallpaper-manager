@@ -28,6 +28,7 @@ public partial class App : Application
     private static DateTimeOffset _lastErrorNoticeUtc;
 
     private Mutex? _instanceMutex;
+    private bool _ownsInstanceMutex;
     private EventWaitHandle? _activateEvent;
     private Thread? _activateThread;
 
@@ -41,8 +42,10 @@ public partial class App : Application
     private static readonly Regex UrlPattern = new(
         @"\b(?:https?|file)://\S+",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // Windows accepts either separator, and error text can contain C:/ paths.
+    // URLs are replaced first (see Redact), so this never eats a scheme.
     private static readonly Regex WindowsPathPattern = new(
-        @"[A-Za-z]:\\[^\s,;:)\]]+",
+        @"[A-Za-z]:[\\/][^\s,;:)\]]+",
         RegexOptions.Compiled);
     // UNC shares (\\server\share\file) must be redacted too: a drive-letter-only
     // pattern leaks the server and share names into the diagnostics log.
@@ -60,15 +63,49 @@ public partial class App : Application
         // Ori lives in the notification area and keeps a rotation engine running, so a
         // second launch from the Start menu or Explorer must not start a second copy
         // that writes the same library, schedule and cache files.
-        _instanceMutex = new Mutex(
-            initiallyOwned: true, InstanceMutexName, out var isFirstInstance);
-        if (!isFirstInstance)
+        //
+        // Create the activation event BEFORE the mutex check: otherwise a second
+        // launch in that gap cannot open a handle and exits with no activation.
+        try
         {
-            _instanceMutex.Dispose();
+            _activateEvent = new EventWaitHandle(
+                initialState: false, EventResetMode.AutoReset, ActivateEventName);
+        }
+        catch (Exception)
+        {
+            // A denied ACL must still let the single instance start; activation
+            // from later launches is simply unavailable in that case.
+            _activateEvent = null;
+        }
+
+        var isFirstInstance = false;
+        try
+        {
+            _instanceMutex = new Mutex(
+                initiallyOwned: true, InstanceMutexName, out isFirstInstance);
+            // initiallyOwned does not grant ownership when the mutex already exists.
+            if (!isFirstInstance && !TryReclaimInstanceMutex())
+            {
+                ReleaseInstanceHandles();
+                SignalRunningInstance();
+                Shutdown();
+                return;
+            }
+            _ownsInstanceMutex = true;
+        }
+        catch (AbandonedMutexException)
+        {
+            // A hard-killed previous owner left the mutex abandoned. Ownership
+            // transfers to this thread, so this launch is the live instance.
+            _ownsInstanceMutex = true;
+            try { _instanceMutex = new Mutex(initiallyOwned: false, InstanceMutexName); }
+            catch (Exception) { _instanceMutex = null; }
+        }
+        catch (Exception)
+        {
+            // An unusable mutex cannot be used to protect one instance; continue
+            // without a guard rather than deadlocking on every launch.
             _instanceMutex = null;
-            SignalRunningInstance();
-            Shutdown();
-            return;
         }
 
         StartActivationListener();
@@ -102,8 +139,72 @@ public partial class App : Application
         }
 
         // Optional and bounded: a missing Ori.Updater.exe is a silent no-op and
-        // the check never delays the window or the tray.
-        _ = UpdateChecker.CheckOnStartupAsync();
+        // the check never delays the window or the tray. The completion callback
+        // refreshes a Settings page that is already open; OnLoaded remains the
+        // fallback for a page opened after the check finished.
+        UpdateChecker.Completed += OnUpdateCheckCompleted;
+        var updateCheck = UpdateChecker.CheckOnStartupAsync();
+        _ = ObserveUpdateCheckAsync(updateCheck);
+    }
+
+    /// <summary>
+    /// Reclaims a named mutex that already existed. A process killed with Task
+    /// Manager leaves the mutex abandoned; WaitOne(0) succeeds in that case and
+    /// throws AbandonedMutexException, which also means this copy owns it.
+    /// </summary>
+    private bool TryReclaimInstanceMutex()
+    {
+        if (_instanceMutex is null)
+            return false;
+        try
+        {
+            try { return _instanceMutex.WaitOne(0); }
+            catch (AbandonedMutexException) { return true; }
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private void ReleaseInstanceHandles()
+    {
+        _instanceMutex?.Dispose();
+        _instanceMutex = null;
+        _ownsInstanceMutex = false;
+        _activateEvent?.Dispose();
+        _activateEvent = null;
+    }
+
+    /// <summary>Marshals an update-check completion to the live Settings view model.</summary>
+    private void OnUpdateCheckCompleted()
+    {
+        void Refresh()
+        {
+            try { (Current.MainWindow as MainWindow)?.RefreshSettingsUpdateStatus(); }
+            catch (Exception) { /* A status refresh must never break startup. */ }
+        }
+
+        try
+        {
+            // InvokeAsync is safe from the checker's worker thread and queues the
+            // refresh on the dispatcher; no view is created or navigated to here.
+            Dispatcher.InvokeAsync(Refresh);
+        }
+        catch (Exception)
+        {
+            // Dispatcher may already be shutting down.
+        }
+    }
+
+    /// <summary>Observes the fire-and-forget check so its task is never unobserved.</summary>
+    private static async Task ObserveUpdateCheckAsync(Task updateCheck)
+    {
+        try { await updateCheck.ConfigureAwait(false); }
+        catch (Exception) { /* Optional check; never fatal. */ }
+
+        var app = Current as App;
+        app?.OnUpdateCheckCompleted();
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -112,16 +213,14 @@ public partial class App : Application
         Tray = null;
         _activateEvent?.Dispose();
         _activateEvent = null;
-        try
+        if (_ownsInstanceMutex)
         {
-            _instanceMutex?.ReleaseMutex();
-        }
-        catch (ApplicationException)
-        {
-            // Already released on a failed start.
+            try { _instanceMutex?.ReleaseMutex(); }
+            catch (ApplicationException) { /* Already released on a failed start. */ }
         }
         _instanceMutex?.Dispose();
         _instanceMutex = null;
+        _ownsInstanceMutex = false;
         base.OnExit(e);
     }
 
@@ -172,17 +271,27 @@ public partial class App : Application
     /// </summary>
     private static void SignalRunningInstance()
     {
-        try
+        // Brief retry covers a launch racing the running copy's event creation.
+        // The event is normally already present because it is created before the
+        // mutex, but a slow ACL/filesystem lookup must not lose the activation.
+        for (var attempt = 0; attempt < 10; attempt++)
         {
-            if (EventWaitHandle.TryOpenExisting(ActivateEventName, out var handle))
+            try
             {
-                using (handle)
-                    handle.Set();
+                if (EventWaitHandle.TryOpenExisting(ActivateEventName, out var handle))
+                {
+                    using (handle)
+                        handle.Set();
+                    return;
+                }
             }
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-        {
-            // The second copy simply exits; nothing else can be done here.
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                // Nothing else can be done by the second copy.
+                return;
+            }
+
+            Thread.Sleep(25);
         }
     }
 
@@ -192,9 +301,10 @@ public partial class App : Application
     /// </summary>
     private void StartActivationListener()
     {
-        _activateEvent = new EventWaitHandle(
-            initialState: false, EventResetMode.AutoReset, ActivateEventName);
         var handle = _activateEvent;
+        if (handle is null)
+            return;
+
         _activateThread = new Thread(() =>
         {
             while (true)
@@ -224,6 +334,19 @@ public partial class App : Application
             Name = "Ori activation listener"
         };
         _activateThread.Start();
+
+        // AutoReset keeps a signal raised before the thread reaches WaitOne, but
+        // replay one pending activation here as well so a very early second launch
+        // cannot be lost in the listener's startup window.
+        try
+        {
+            if (handle.WaitOne(0))
+                Dispatcher.InvokeAsync(OpenFromTray);
+        }
+        catch (Exception)
+        {
+            // The listener thread handles signals from this point on.
+        }
     }
 
     /// <summary>
@@ -415,7 +538,7 @@ public partial class App : Application
     private static string RedactPathMatch(Match match)
     {
         var raw = match.Value;
-        var slash = raw.LastIndexOf('\\');
+        var slash = raw.LastIndexOfAny(new[] { '\\', '/' });
         return slash >= 0 && slash + 1 < raw.Length
             ? raw[(slash + 1)..]
             : "[path]";

@@ -15,6 +15,7 @@ public partial class MainWindow : Window
 {
     private readonly MainViewModel _shell = new();
     private bool _closingHandled;
+    private bool _shutdownRequested;
 
     public MainWindow()
     {
@@ -27,6 +28,18 @@ public partial class MainWindow : Window
         // Saved schedules must start at launch, not only when Automation is visited.
         // Fire-and-forget: the helper observes its own exceptions, so a failure
         // here can never block or crash startup.
+        StartAutomationBootstrap();
+    }
+
+    /// <summary>
+    /// Single entry point for the startup automation bootstrap. Once the user has
+    /// asked to exit, no further bootstrap may be started: it could restart the
+    /// rotation timers that shutdown is trying to stop.
+    /// </summary>
+    private void StartAutomationBootstrap()
+    {
+        if (_shutdownRequested || App.ExplicitExit)
+            return;
         _ = BootstrapAutomationAsync();
     }
 
@@ -39,10 +52,14 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task BootstrapAutomationAsync()
     {
+        if (_shutdownRequested || App.ExplicitExit)
+            return;
         try
         {
             var automationView = _shell.EnsureAutomationView();
-            if (automationView is null)
+            // Tray Exit can be requested while the cached view is being created.
+            // Recheck before initialising so no timer is armed after shutdown.
+            if (_shutdownRequested || App.ExplicitExit || automationView is null)
                 return;
             await automationView.ViewModel.InitializeAsync();
         }
@@ -67,6 +84,7 @@ public partial class MainWindow : Window
         }
 
         // Tray Exit: let the window close and stop rotation loops on the way out.
+        _shutdownRequested = true;
         StopRotationForShutdown();
     }
 
@@ -78,6 +96,7 @@ public partial class MainWindow : Window
     /// </summary>
     internal async Task StopRotationForShutdownAsync()
     {
+        _shutdownRequested = true;
         var automationView = _shell.AutomationView;
         if (_closingHandled || automationView is null)
             return;
@@ -102,6 +121,7 @@ public partial class MainWindow : Window
     /// </summary>
     internal void StopRotationForShutdown()
     {
+        _shutdownRequested = true;
         var automationView = _shell.AutomationView;
         if (_closingHandled || automationView is null)
             return;
@@ -116,6 +136,10 @@ public partial class MainWindow : Window
             // Shutdown must finish even if a loop fails to stop cleanly.
         }
     }
+
+    /// <summary>Forwards a completed update check to the live Settings page.
+    /// Does not create or navigate to Settings.</summary>
+    internal void RefreshSettingsUpdateStatus() => _shell.RefreshSettingsUpdateStatus();
 
     // Custom window chrome -------------------------------------------------
 

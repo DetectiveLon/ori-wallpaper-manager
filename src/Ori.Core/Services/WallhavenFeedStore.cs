@@ -15,6 +15,7 @@ namespace Ori.Core.Services;
 public static class WallhavenFeedStore
 {
     private const int SchemaVersion = 2;
+    private const long MaximumDocumentBytes = 1024 * 1024;
     public const int MinimumCadenceMinutes = 1;
     public const int MaximumCadenceMinutes = 7 * 24 * 60; // one week
     public const int MaximumFeeds = 20;
@@ -378,10 +379,15 @@ public static class WallhavenFeedStore
             var feed = enabled[(cursor + step) % enabled.Length];
             if (respectBackoff && feed.BackoffUntilUtc.HasValue && now < feed.BackoffUntilUtc.Value)
                 continue;
-            if (respectCadence && feed.LastFetchedUtc.HasValue
-                && now - feed.LastFetchedUtc.Value < TimeSpan.FromMinutes(feed.CadenceMinutes))
+            if (respectCadence && feed.LastFetchedUtc.HasValue)
             {
-                continue;
+                // A backwards clock jump must not turn elapsed time into a negative
+                // value that can hide the cadence check.
+                var elapsed = now - feed.LastFetchedUtc.Value;
+                if (elapsed < TimeSpan.Zero)
+                    elapsed = TimeSpan.Zero;
+                if (elapsed < TimeSpan.FromMinutes(feed.CadenceMinutes))
+                    continue;
             }
             return feed;
         }
@@ -409,18 +415,41 @@ public static class WallhavenFeedStore
     /// </summary>
     private static FeedDocument? ReadDocumentRaw()
     {
+        var target = ResolvePath();
+        if (!File.Exists(target))
+            return null;
+
         try
         {
-            var target = ResolvePath();
-            if (!File.Exists(target) || new FileInfo(target).Length > 1024 * 1024)
+            // RememberSearchFilters overwrites this record unconditionally. A file that
+            // exists but cannot be read must be kept, or every saved feed disappears.
+            if (new FileInfo(target).Length > MaximumDocumentBytes)
+            {
+                Quarantine();
                 return null;
+            }
 
-            using var stream = new FileStream(
-                target, FileMode.Open, FileAccess.Read, FileShare.Read,
-                16 * 1024, FileOptions.SequentialScan);
-            return JsonSerializer.Deserialize<FeedDocument>(stream, JsonOptions);
+            FeedDocument? document;
+            using (var stream = new FileStream(
+                       target, FileMode.Open, FileAccess.Read, FileShare.Read,
+                       16 * 1024, FileOptions.SequentialScan))
+            {
+                document = JsonSerializer.Deserialize<FeedDocument>(stream, JsonOptions);
+            }
+            // The stream must be closed before Quarantine moves the file on Windows.
+            if (document is null)
+            {
+                Quarantine();
+                return null;
+            }
+            return document;
         }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException
+        catch (JsonException)
+        {
+            Quarantine();
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                        or NotSupportedException or ArgumentException)
         {
             return null;
@@ -438,8 +467,11 @@ public static class WallhavenFeedStore
             var target = ResolvePath();
             if (!File.Exists(target))
                 return null;
-            if (new FileInfo(target).Length > 1024 * 1024)
+            if (new FileInfo(target).Length > MaximumDocumentBytes)
+            {
+                Quarantine();
                 return null;
+            }
 
             FeedDocument? document;
             using (var stream = new FileStream(
@@ -490,7 +522,7 @@ public static class WallhavenFeedStore
                 return null;
             }
 
-            return document with { Feeds = NormalizeFeeds(document.Feeds) };
+            return document with { Feeds = NormalizeFeeds(document.Feeds, DateTimeOffset.UtcNow) };
         }
         catch (JsonException)
         {
@@ -565,6 +597,11 @@ public static class WallhavenFeedStore
             Colors = (filters.Colors ?? Array.Empty<string>())
                 .Where(color => !string.IsNullOrWhiteSpace(color))
                 .ToArray(),
+            // Clamp unknown enums to documented defaults instead of discarding a
+            // whole feed (or Discover's saved search) when it is read back.
+            Sorting = Enum.IsDefined(filters.Sorting) ? filters.Sorting : WallhavenSort.Random,
+            Order = Enum.IsDefined(filters.Order) ? filters.Order : WallhavenOrder.Descending,
+            TopRange = Enum.IsDefined(filters.TopRange) ? filters.TopRange : WallhavenTopRange.Month,
             MinimumResolution = string.IsNullOrWhiteSpace(filters.MinimumResolution) ? null : filters.MinimumResolution,
             ExactResolution = string.IsNullOrWhiteSpace(filters.ExactResolution) ? null : filters.ExactResolution,
             Ratio = string.IsNullOrWhiteSpace(filters.Ratio) ? null : filters.Ratio,
@@ -580,15 +617,6 @@ public static class WallhavenFeedStore
             return null;
         }
 
-        // Validate() covers categories/purity, but an out-of-range enum from a
-        // corrupt file would still throw inside WallhavenQueryBuilder at fetch time.
-        if (!Enum.IsDefined(normalized.Sorting)
-            || !Enum.IsDefined(normalized.Order)
-            || !Enum.IsDefined(normalized.TopRange))
-        {
-            return null;
-        }
-
         return normalized;
     }
 
@@ -596,7 +624,9 @@ public static class WallhavenFeedStore
     /// Sanitizes a persisted feed list one entry at a time: a single bad feed is
     /// dropped instead of making the whole record unreadable.
     /// </summary>
-    private static IReadOnlyList<RotationFeed>? NormalizeFeeds(IReadOnlyList<RotationFeed>? feeds)
+    private static IReadOnlyList<RotationFeed>? NormalizeFeeds(
+        IReadOnlyList<RotationFeed>? feeds,
+        DateTimeOffset now)
     {
         if (feeds is null)
             return null;
@@ -636,6 +666,9 @@ public static class WallhavenFeedStore
                 Filters = filters,
                 CadenceMinutes = Math.Clamp(candidate.CadenceMinutes, MinimumCadenceMinutes, MaximumCadenceMinutes),
                 ConsecutiveFailures = Math.Clamp(candidate.ConsecutiveFailures, 0, MaximumFailures),
+                // A clock that jumped backwards must not freeze selection/backoff.
+                LastFetchedUtc = ClampToNow(candidate.LastFetchedUtc, now),
+                BackoffUntilUtc = ClampToNow(candidate.BackoffUntilUtc, now),
                 LastAppliedId = RotationFeed.IsSafeToken(
                     candidate.LastAppliedId, RotationFeed.MaximumAppliedIdLength, allowEmpty: true)
                     ? candidate.LastAppliedId
@@ -647,6 +680,9 @@ public static class WallhavenFeedStore
         }
         return normalized;
     }
+
+    private static DateTimeOffset? ClampToNow(DateTimeOffset? value, DateTimeOffset now) =>
+        value.HasValue && value.Value > now ? now : value;
 
     private sealed record FeedDocument(
         int Version,

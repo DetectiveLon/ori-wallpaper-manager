@@ -283,12 +283,20 @@
         <!-- Inline status strip. -->
         <Border Grid.Row="2" Style="{StaticResource CardStyle}" CornerRadius="9" Padding="11,8"
                 Margin="0,0,0,12">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="&#xE946;" Style="{StaticResource Glyph}" FontSize="13"
-                           Foreground="{StaticResource AccentBrush}" Margin="0,0,9,0" />
-                <TextBlock Text="{Binding Status}" Style="{StaticResource BodyTextStyle}"
-                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
-                           VerticalAlignment="Center" />
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE946;" Style="{StaticResource Glyph}" FontSize="13"
+                               Foreground="{StaticResource AccentBrush}" Margin="0,0,9,0" />
+                    <TextBlock Text="{Binding Status}" Style="{StaticResource BodyTextStyle}"
+                               Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+                <!-- Detection failures are kept out of Status (the refresh on load
+                     overwrites it), so show them on their own line when present. -->
+                <TextBlock Text="{Binding DisplayDetectionError}" Style="{StaticResource CardMeta}"
+                           Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap"
+                           Margin="26,4,0,0"
+                           Visibility="{Binding HasDisplayDetectionError, Converter={StaticResource BoolToVisibility}}" />
             </StackPanel>
         </Border>
 
@@ -321,11 +329,24 @@
                         <Setter Property="Padding" Value="0" />
                         <Setter Property="HorizontalContentAlignment" Value="Left" />
                         <Setter Property="VerticalContentAlignment" Value="Top" />
-                        <Setter Property="Focusable" Value="False" />
                         <Setter Property="Template">
                             <Setter.Value>
                                 <ControlTemplate TargetType="ListBoxItem">
-                                    <ContentPresenter />
+                                    <Border x:Name="CardSelection" Background="Transparent"
+                                            BorderBrush="Transparent" BorderThickness="2"
+                                            CornerRadius="14">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="CardSelection" Property="BorderBrush"
+                                                    Value="{StaticResource AccentBrush}" />
+                                        </Trigger>
+                                        <Trigger Property="IsKeyboardFocused" Value="True">
+                                            <Setter TargetName="CardSelection" Property="BorderBrush"
+                                                    Value="{StaticResource AccentBrush}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
                                 </ControlTemplate>
                             </Setter.Value>
                         </Setter>
@@ -605,7 +626,7 @@
                         <TextBlock Text="&#xE7AA;" Style="{StaticResource Glyph}" FontSize="30"
                                    Foreground="{StaticResource AccentBrush}" />
                     </Border>
-                    <TextBlock Text="Your library is waiting" Style="{StaticResource SectionTitleStyle}"
+                    <TextBlock Text="{Binding EmptyStateTitle}" Style="{StaticResource SectionTitleStyle}"
                                HorizontalAlignment="Center" Margin="0,14,0,8" />
                     <TextBlock Text="{Binding EmptyMessage}" Style="{StaticResource BodyTextStyle}"
                                TextWrapping="Wrap" TextAlignment="Center"

@@ -9,9 +9,10 @@ updated for the `v2-shell` branch. This is a backlog, not a commitment.
   single-file win-x64 build (no .NET runtime needed). A free, optional per-user
   Inno Setup installer builds from `tools/installer/`; a separate
   `tools/Ori.Updater` process checks a GitHub Releases manifest, verifies
-  SHA-256 and swaps the EXE. The auto-update check is only *documented* as an
-  integration step in `App.xaml.cs` (owned by another agent) — see
-  `docs/RELEASING.md`. Signing/SmartScreen is deferred, not ignored.
+  SHA-256 and swaps the EXE. The startup check is wired through
+  `UpdateChecker.CheckOnStartupAsync()` in `App.OnStartup`; applying an update
+  is still a manual download/install — see `docs/RELEASING.md`.
+  Signing/SmartScreen is deferred, not ignored.
 - [x] **Automatic Wallhaven rotation.** Implemented in `v2-shell`: an ordered
   list of named feeds with per-feed cadence, enable state and persisted fetch
   backoff lives in `WallhavenFeedStore`. Discover saves filters as a feed; Auto

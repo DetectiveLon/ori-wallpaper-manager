@@ -15,7 +15,11 @@ public sealed record WallpaperLibraryEntry
     public int Width { get; init; }
     public int Height { get; init; }
     public string Ratio { get; init; } = string.Empty;
-    public DateTimeOffset SavedAtUtc { get; init; } = DateTimeOffset.UtcNow;
+    /// <summary>
+    /// When the wallpaper was saved. Older indexes that omit this field keep a stable
+    /// <see cref="DateTimeOffset.MinValue"/> sentinel instead of taking UtcNow on every read.
+    /// </summary>
+    public DateTimeOffset SavedAtUtc { get; init; } = DateTimeOffset.MinValue;
     public bool IsFavorite { get; init; }
     public string Collection { get; init; } = "Unsorted";
 
@@ -134,6 +138,15 @@ public sealed class WallpaperLibraryStore
                 // download, so tags, colours, the content hash and the original save
                 // date are carried over unless the new value actually says something.
                 var existing = entries[index];
+                var contentHash = Coalesce(entry.ContentHash, existing.ContentHash);
+                if (string.IsNullOrWhiteSpace(entry.ContentHash)
+                    && !string.Equals(entry.LocalPath, existing.LocalPath, PathComparison))
+                {
+                    // A re-save pointing at a different file cannot keep the old
+                    // hash: dedupe and path repair both rely on it being accurate.
+                    contentHash = ComputeSha256(entry.LocalPath) ?? string.Empty;
+                }
+
                 entries[index] = entry with
                 {
                     IsFavorite = entry.IsFavorite || existing.IsFavorite,
@@ -144,13 +157,18 @@ public sealed class WallpaperLibraryStore
                     Colors = Coalesce(entry.Colors, existing.Colors),
                     SourceQuery = Coalesce(entry.SourceQuery, existing.SourceQuery),
                     SourceId = Coalesce(entry.SourceId, existing.SourceId),
-                    ContentHash = Coalesce(entry.ContentHash, existing.ContentHash),
+                    ContentHash = contentHash,
                     SavedAtUtc = existing.SavedAtUtc
                 };
             }
             else
             {
-                entries.Add(entry);
+                entries.Add(entry with
+                {
+                    SavedAtUtc = entry.SavedAtUtc == DateTimeOffset.MinValue
+                        ? DateTimeOffset.UtcNow
+                        : entry.SavedAtUtc
+                });
             }
 
             if (entries.Count > MaximumEntries)
@@ -306,16 +324,20 @@ public sealed class WallpaperLibraryStore
             if (entry is null)
                 return (false, false);
 
-            // Commit the index before touching the file. The other order leaves an
-            // entry whose image is gone whenever the index write fails, and the UI can
-            // never repair that. A leftover file is harmless: orphan cleanup finds it.
+            // Try the file before committing the index. An owned file that cannot be
+            // deleted must leave its entry behind so the caller can retry; an imported
+            // file outside Ori's folders is kept on purpose but its entry can go.
+            var fileDeleted = false;
+            if (deleteFile && !string.IsNullOrWhiteSpace(entry.LocalPath)
+                && TryGetOwnedImagePath(entry.LocalPath, out var ownedPath))
+            {
+                if (!TryDeleteImage(ownedPath, out var deleted))
+                    return (false, false);
+                fileDeleted = deleted;
+            }
+
             entries.Remove(entry);
             await WriteCoreAsync(entries, cancellationToken).ConfigureAwait(false);
-
-            var fileDeleted = deleteFile
-                && !string.IsNullOrWhiteSpace(entry.LocalPath)
-                && DeleteOwnedImage(entry.LocalPath);
-
             return (true, fileDeleted);
         }
         finally
@@ -325,21 +347,20 @@ public sealed class WallpaperLibraryStore
     }
 
     /// <summary>
-    /// Deletes an image only when it lives under Ori's own library or Wallpapers folder.
+    /// Checks whether an image lives under Ori's own library or Wallpapers folder.
     /// A wallpaper imported from a folder the user chose stays there, so removing the
-    /// library entry must never delete the user's original file. Returns whether a file
-    /// was actually removed.
+    /// library entry must never delete the user's original file.
     /// </summary>
-    private bool DeleteOwnedImage(string storedPath)
+    private bool TryGetOwnedImagePath(string storedPath, out string path)
     {
-        string path;
+        path = string.Empty;
         try
         {
             path = Path.GetFullPath(storedPath);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return false; // A malformed stored path must not make removal impossible.
+            return false; // A malformed stored path is never treated as ours to delete.
         }
 
         var allowed = new[]
@@ -347,23 +368,26 @@ public sealed class WallpaperLibraryStore
             Path.Combine(_dataRoot, "library"),
             Path.Combine(_dataRoot, "Wallpapers")
         };
-        if (!allowed.Any(directory =>
-                IsInsideRoot(path, Path.GetFullPath(directory), Path.GetFullPath(directory) + Path.DirectorySeparatorChar)))
-        {
-            return false;
-        }
+        // Copy the out parameter into a local: C# cannot capture out parameters in a lambda.
+        var fullPath = path;
+        return allowed.Any(directory =>
+            IsInsideRoot(fullPath, Path.GetFullPath(directory), Path.GetFullPath(directory) + Path.DirectorySeparatorChar));
+    }
 
+    private static bool TryDeleteImage(string path, out bool deleted)
+    {
+        deleted = false;
         try
         {
             if (!File.Exists(path))
-                return false;
+                return true; // Already gone: nothing to retry, but nothing was deleted now.
             File.Delete(path);
+            deleted = true;
             return true;
         }
         catch (IOException)
         {
-            // A locked image is left on disk; the entry is already gone.
-            return false;
+            return false; // A locked image keeps its library entry.
         }
         catch (UnauthorizedAccessException)
         {
@@ -415,7 +439,7 @@ public sealed class WallpaperLibraryStore
         // Hashing happens before the lock so large folders do not block other callers.
         var candidates = new List<WallpaperLibraryEntry>();
         var hashesInBatch = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in EnumerateImageFilesSafely(root, rootWithSeparator, cancellationToken))
+        foreach (var file in EnumerateImageFilesSafely(root, rootWithSeparator, progress, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report($"Hashing {Path.GetFileName(file)}…");
@@ -448,7 +472,8 @@ public sealed class WallpaperLibraryStore
                 LocalPath = file,
                 ContentHash = hash,
                 Category = "Local",
-                Collection = "Unsorted"
+                Collection = "Unsorted",
+                SavedAtUtc = DateTimeOffset.UtcNow
             });
         }
 
@@ -549,6 +574,7 @@ public sealed class WallpaperLibraryStore
     private static IEnumerable<string> EnumerateImageFilesSafely(
         string root,
         string rootWithSeparator,
+        IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
         var pending = new Stack<string>();
@@ -564,8 +590,17 @@ public sealed class WallpaperLibraryStore
             {
                 files = [.. Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)];
             }
+            catch (IOException)
+            {
+                // A subfolder can disappear or become unreachable (eject, rename,
+                // overlong path) between the stack push and the scan. Skip just that
+                // folder instead of aborting the whole import.
+                progress?.Report($"Skipped folder {directory}: it could not be read.");
+                files = [];
+            }
             catch (UnauthorizedAccessException)
             {
+                progress?.Report($"Skipped folder {directory}: access was denied.");
                 files = [];
             }
 
@@ -585,8 +620,14 @@ public sealed class WallpaperLibraryStore
             {
                 children = [.. Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly)];
             }
+            catch (IOException)
+            {
+                progress?.Report($"Skipped folder {directory}: it could not be listed.");
+                children = [];
+            }
             catch (UnauthorizedAccessException)
             {
+                progress?.Report($"Skipped folder {directory}: access was denied.");
                 children = [];
             }
 
@@ -670,7 +711,14 @@ public sealed class WallpaperLibraryStore
 
         var info = new FileInfo(_indexPath);
         if (info.Length > MaximumIndexBytes)
-            throw new InvalidDataException("The wallpaper library index exceeds the 8 MiB safety limit.");
+        {
+            var backup = QuarantineIndex();
+            var detail = backup is null
+                ? "The file could not be moved aside; close other copies of Ori and try again."
+                : $"A copy is at {backup} and the library starts empty; saved images are untouched.";
+            throw new InvalidDataException(
+                $"The wallpaper library index exceeds the 8 MiB safety limit. {detail}");
+        }
 
         LibraryDocument? document;
         try
@@ -711,7 +759,14 @@ public sealed class WallpaperLibraryStore
 
         // Version-1 entries simply lacked the new fields. Applying the normalizer to
         // both versions fills safe defaults and keeps every existing entry intact.
-        var entries = (document.Entries ?? []).Select(NormalizeForCurrentSchema).ToList();
+        // A null element (for example from a truncated array) must not abort every
+        // later read; keep a copy before dropping it.
+        var stored = document.Entries ?? [];
+        var entries = stored.Where(entry => entry is not null)
+            .Select(NormalizeForCurrentSchema).ToList();
+        if (entries.Count != stored.Count)
+            QuarantineIndex();
+
         var repaired = RepairLocalPaths(entries);
         // RepairLocalPaths returns the original list when nothing changed.
         return (repaired, !ReferenceEquals(repaired, entries));
@@ -724,10 +779,9 @@ public sealed class WallpaperLibraryStore
     /// empty cards and rotation reports that no images are available.
     /// </summary>
     /// <remarks>
-    /// Only an entry whose file name is present in the current images folder is
-    /// rebased, so wallpapers imported from a folder the user chose are never
-    /// touched, and an entry the user deleted stays missing instead of silently
-    /// pointing at a different file.
+    /// Only an entry whose file name is present in its stored parent (or in the
+    /// current images folder for Ori-owned folders) is rebased. A hashless import
+    /// from a folder the user chose is never re-pointed at a same-named file.
     /// </remarks>
     private List<WallpaperLibraryEntry> RepairLocalPaths(List<WallpaperLibraryEntry> entries)
     {
@@ -767,7 +821,14 @@ public sealed class WallpaperLibraryStore
                 if (candidate is null)
                     candidate = Existing(Path.Combine(_dataRoot, storedParent, name));
             }
-            candidate ??= Existing(Path.Combine(imagesDirectory, name));
+
+            // The bare images\<name> fallback is only safe for files Ori itself
+            // stored. An import from an arbitrary folder must not silently rebind
+            // to a different wallpaper with the same name unless its hash matches.
+            var ownedParent = string.Equals(storedParent, "images", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(storedParent, "Wallpapers", StringComparison.OrdinalIgnoreCase);
+            if (candidate is null && (ownedParent || !string.IsNullOrWhiteSpace(entry.ContentHash)))
+                candidate = Existing(Path.Combine(imagesDirectory, name));
             if (candidate is null || !MatchesHash(entry, candidate))
                 continue;
 
@@ -838,6 +899,7 @@ public sealed class WallpaperLibraryStore
         Purity = Safe(entry.Purity),
         Ratio = Safe(entry.Ratio),
         Collection = string.IsNullOrWhiteSpace(entry.Collection) ? "Unsorted" : entry.Collection,
+        SavedAtUtc = entry.SavedAtUtc == default ? DateTimeOffset.MinValue : entry.SavedAtUtc,
         Tags = Safe(entry.Tags),
         Colors = Safe(entry.Colors),
         SourceQuery = Safe(entry.SourceQuery),

@@ -45,6 +45,10 @@ public sealed class WallpaperLibraryStoreFeatureTests
         Assert.Equal(string.Empty, entry.SourceId);
         Assert.Equal(string.Empty, entry.ContentHash);
         Assert.Equal("Unsorted", entry.Collection);
+        Assert.Equal(DateTimeOffset.MinValue, entry.SavedAtUtc);
+
+        // Missing save dates must stay stable across reads instead of taking UtcNow.
+        Assert.Equal(entry, Assert.Single(await new WallpaperLibraryStore(index).GetAllAsync()));
     }
 
     [Fact]
@@ -509,6 +513,189 @@ public sealed class WallpaperLibraryStoreFeatureTests
             Assert.Equal(moved, storedPath);
         }
         Assert.False(await store.PersistRepairedPathsAsync());
+    }
+
+    [Fact]
+    public async Task NullEntryInIndexIsSkippedAndTheIndexIsBackedUp()
+    {
+        using var temp = new TemporaryDirectory();
+        var index = Path.Combine(temp.Path, "library.json");
+        await File.WriteAllTextAsync(index, JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Entries = new object?[]
+            {
+                null,
+                new { Id = "ok", Title = "Kept", LocalPath = "", Collection = "Unsorted" }
+            }
+        }));
+
+        var entries = await new WallpaperLibraryStore(index).GetAllAsync();
+
+        Assert.Equal("ok", Assert.Single(entries).Id);
+        Assert.False(File.Exists(index));
+        Assert.Single(Directory.GetFiles(temp.Path, "library.json.corrupt-*"));
+    }
+
+    [Fact]
+    public async Task OversizedIndexIsBackedUpBeforeThrowing()
+    {
+        using var temp = new TemporaryDirectory();
+        var index = Path.Combine(temp.Path, "library.json");
+        await File.WriteAllBytesAsync(index, new byte[8 * 1024 * 1024 + 1]);
+        var store = new WallpaperLibraryStore(index);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.GetAllAsync());
+
+        Assert.False(File.Exists(index));
+        var backup = Assert.Single(Directory.GetFiles(temp.Path, "library.json.corrupt-*"));
+        Assert.Equal(8 * 1024 * 1024 + 1, new FileInfo(backup).Length);
+    }
+
+    [Fact]
+    public async Task OwnedFileDeleteFailureKeepsTheEntryForRetry()
+    {
+        // Windows refuses to delete a file opened with FileShare.None; other
+        // platforms permit it, so the locked-file scenario is Windows-specific.
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var temp = new TemporaryDirectory();
+        var dataRoot = Path.Combine(temp.Path, "Ori");
+        var images = Path.Combine(dataRoot, "library", "images");
+        Directory.CreateDirectory(images);
+        var image = WriteFile(images, "locked.jpg", [0x01, 0x02]);
+        var store = new WallpaperLibraryStore(
+            Path.Combine(dataRoot, "library", "library.json"), dataRoot);
+        await store.UpsertAsync(new WallpaperLibraryEntry { Id = "locked", LocalPath = image });
+
+        using (var lockStream = new FileStream(image, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var failed = await store.DeleteEntryWithResultAsync("locked", deleteFile: true);
+
+            Assert.False(failed.Removed);
+            Assert.False(failed.FileDeleted);
+            Assert.Equal("locked", Assert.Single(await store.GetAllAsync()).Id);
+            Assert.True(File.Exists(image));
+        }
+
+        var retried = await store.DeleteEntryWithResultAsync("locked", deleteFile: true);
+
+        Assert.True(retried.Removed);
+        Assert.True(retried.FileDeleted);
+        Assert.Empty(await store.GetAllAsync());
+        Assert.False(File.Exists(image));
+    }
+
+    [Fact]
+    public async Task ReSavingWithAChangedPathRecomputesTheContentHash()
+    {
+        using var temp = new TemporaryDirectory();
+        var first = WriteFile(temp.Path, "first.jpg", [0x01]);
+        var second = WriteFile(temp.Path, "second.jpg", [0x02, 0x03]);
+        var store = new WallpaperLibraryStore(Path.Combine(temp.Path, "library.json"));
+        await store.UpsertAsync(new WallpaperLibraryEntry
+        {
+            Id = "swap", LocalPath = first, ContentHash = "OLD-HASH"
+        });
+
+        await store.UpsertAsync(new WallpaperLibraryEntry { Id = "swap", LocalPath = second });
+
+        var entry = Assert.Single(await store.GetAllAsync());
+        Assert.Equal(second, entry.LocalPath);
+        Assert.Equal(WallpaperLibraryStore.ComputeSha256(second), entry.ContentHash);
+        Assert.NotEqual("OLD-HASH", entry.ContentHash);
+    }
+
+    [Fact]
+    public async Task HashlessImportFromAnotherFolderIsNotRebasedOntoAlikeNamedFile()
+    {
+        using var temp = new TemporaryDirectory();
+        var images = Path.Combine(temp.Path, "images");
+        Directory.CreateDirectory(images);
+        WriteFile(images, "photo.jpg", [0x01, 0x02]);
+        var stale = Path.Combine(temp.Path, "Pictures", "photo.jpg");
+        var index = Path.Combine(temp.Path, "library.json");
+        await File.WriteAllTextAsync(index, JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Entries = new[]
+            {
+                new { Id = "imp", Title = "Imported", LocalPath = stale, Collection = "Unsorted" }
+            }
+        }));
+
+        var entry = Assert.Single(await new WallpaperLibraryStore(index, temp.Path).GetAllAsync());
+
+        Assert.Equal(stale, entry.LocalPath);
+    }
+
+    [Fact]
+    public async Task MatchingHashStillAllowsRebaseFromAnArbitraryParent()
+    {
+        using var temp = new TemporaryDirectory();
+        var images = Path.Combine(temp.Path, "images");
+        Directory.CreateDirectory(images);
+        var actual = WriteFile(images, "photo.jpg", [0x01, 0x02]);
+        var hash = Convert.ToHexString(SHA256.HashData([0x01, 0x02]));
+        var stale = Path.Combine(temp.Path, "Pictures", "photo.jpg");
+        var index = Path.Combine(temp.Path, "library.json");
+        await File.WriteAllTextAsync(index, JsonSerializer.Serialize(new
+        {
+            Version = 2,
+            Entries = new[]
+            {
+                new
+                {
+                    Id = "imp", Title = "Imported", LocalPath = stale, Collection = "Unsorted", ContentHash = hash
+                }
+            }
+        }));
+
+        var entry = Assert.Single(await new WallpaperLibraryStore(index, temp.Path).GetAllAsync());
+
+        Assert.Equal(actual, entry.LocalPath);
+    }
+
+    [Fact]
+    public async Task ImportFolderSkipsASubdirectoryThatDisappearsMidScan()
+    {
+        using var temp = new TemporaryDirectory();
+        var root = Path.Combine(temp.Path, "pictures");
+        var first = Path.Combine(root, "first");
+        var second = Path.Combine(root, "second");
+        Directory.CreateDirectory(first);
+        Directory.CreateDirectory(second);
+        WriteFile(first, "in-first.jpg", [0x01]);
+        WriteFile(second, "in-second.jpg", [0x02]);
+
+        var messages = new List<string>();
+        var removed = false;
+        var progress = new InlineProgress(message =>
+        {
+            messages.Add(message);
+            if (!removed && message.StartsWith("Hashing ", StringComparison.Ordinal))
+            {
+                // Both folders are already on the scan stack. Delete the one that has
+                // not been visited yet so its enumeration throws DirectoryNotFound.
+                var unvisited = message.Contains("in-first.jpg", StringComparison.Ordinal) ? second : first;
+                Directory.Delete(unvisited, recursive: true);
+                removed = true;
+            }
+        });
+        var store = new WallpaperLibraryStore(Path.Combine(temp.Path, "library.json"));
+
+        var imported = await store.ImportFolderAsync(root, progress, CancellationToken.None);
+
+        Assert.True(removed);
+        Assert.Equal(1, imported);
+        Assert.Contains(messages, message => message.StartsWith("Skipped folder", StringComparison.Ordinal));
+        Assert.Single(await store.GetAllAsync());
+    }
+
+    private sealed class InlineProgress(Action<string> report) : IProgress<string>
+    {
+        public void Report(string value) => report(value);
     }
 
     private static string WriteFile(string directory, string name, byte[] content)

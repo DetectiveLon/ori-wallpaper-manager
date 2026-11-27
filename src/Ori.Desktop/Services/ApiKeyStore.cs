@@ -57,32 +57,44 @@ public static class ApiKeyStore
         return TryLoad(out var key, out _) ? key : string.Empty;
     }
 
-    public static void Save(string key)
+    /// <summary>Stores the key, or clears it when empty. Returns false when the
+    /// write or delete failed, so callers never report a false success.</summary>
+    public static bool Save(string key)
     {
         var value = key?.Trim() ?? string.Empty;
         if (value.Length == 0)
-        {
-            Clear();
-            return;
-        }
+            return Clear();
 
-        var directory = Path.GetDirectoryName(KeyPath);
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
-
-        var protectedBytes = ProtectedData.Protect(
-            Encoding.UTF8.GetBytes(value), null, DataProtectionScope.CurrentUser);
-        var temporary = KeyPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            File.WriteAllBytes(temporary, protectedBytes);
-            File.Move(temporary, KeyPath, overwrite: true);
+            var directory = Path.GetDirectoryName(KeyPath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            var protectedBytes = ProtectedData.Protect(
+                Encoding.UTF8.GetBytes(value), null, DataProtectionScope.CurrentUser);
+            var temporary = KeyPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllBytes(temporary, protectedBytes);
+                File.Move(temporary, KeyPath, overwrite: true);
+                return true;
+            }
+            finally
+            {
+                TryDeleteTemporary(temporary);
+            }
         }
-        finally
+        catch (Exception)
         {
-            if (File.Exists(temporary))
-                File.Delete(temporary);
+            return false;
         }
+    }
+
+    private static void TryDeleteTemporary(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch (Exception) { /* A leftover temp file must not corrupt the result. */ }
     }
 
     /// <summary>Removes the stored key. Returns false when the file could not be

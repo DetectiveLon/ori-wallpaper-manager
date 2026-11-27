@@ -57,7 +57,8 @@
                     <PasswordBox x:Name="ApiKeyBox" PasswordChar="•" Width="360" MaxWidth="520"
                                  Height="36" HorizontalAlignment="Left" Padding="10,6,10,6"
                                  AutomationProperties.Name="Wallhaven API key"
-                                 ToolTip="Paste a Wallhaven API key. It is stored encrypted for this Windows user." />
+                                 ToolTip="Paste a Wallhaven API key. It is stored encrypted for this Windows user."
+                                 KeyboardNavigation.TabIndex="8" />
 
                     <Grid Margin="0,12,0,0">
                         <Grid.ColumnDefinitions>

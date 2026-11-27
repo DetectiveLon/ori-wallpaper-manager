@@ -133,6 +133,16 @@ public sealed class MainViewModel : ViewModelBase
     public AutomationView? EnsureAutomationView() =>
         _navigation.CreateView("Automation") as AutomationView;
 
+    /// <summary>
+    /// Refreshes the live Settings view model when a background check completes.
+    /// Uses the cached view, so it does not create Settings or navigate to it.
+    /// </summary>
+    public void RefreshSettingsUpdateStatus()
+    {
+        if (_navigation.TryGetView("Settings", out var view) && view is SettingsView settingsView)
+            settingsView.RefreshUpdateStatus();
+    }
+
     public ICommand NavigateCommand { get; }
 
     public string Title

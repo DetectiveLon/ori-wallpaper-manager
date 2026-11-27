@@ -22,6 +22,14 @@ public static class UpdateChecker
     }
 
     /// <summary>
+    /// Raised once when the background check finishes, whether or not it found an
+    /// update. Views that are already open can refresh from <see cref="LastStatusText"/>.
+    /// The callback runs on a worker thread, so subscribers must marshal to the UI
+    /// dispatcher before touching controls or view models.
+    /// </summary>
+    public static event Action? Completed;
+
+    /// <summary>
     /// Starts a bounded, background version check once per process. Callers must
     /// not await this: startup continues whether the check succeeds or not.
     /// </summary>
@@ -114,6 +122,13 @@ public static class UpdateChecker
         {
             // Update checking is optional: network, JSON and process failures are
             // deliberately silent. The app itself stays fully usable.
+        }
+        finally
+        {
+            // A check that finishes before Settings is opened still needs to
+            // notify a Settings page the user already has open.
+            try { Completed?.Invoke(); }
+            catch (Exception) { /* A bad subscriber cannot break the checker. */ }
         }
     }
 

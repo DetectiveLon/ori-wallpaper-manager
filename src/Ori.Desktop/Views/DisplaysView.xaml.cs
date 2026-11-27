@@ -65,7 +65,7 @@ public partial class DisplaysView : UserControl
         var dialog = new OpenFileDialog
         {
             Title = title,
-            Filter = "Wallpaper images|*.jpg;*.jpeg;*.png;*.bmp;*.dib;*.tif;*.tiff|All files|*.*",
+            Filter = "Wallpaper images|*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff|All files|*.*",
             CheckFileExists = true,
             Multiselect = false
         };

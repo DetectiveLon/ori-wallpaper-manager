@@ -51,8 +51,8 @@ try {
     if ([string]::IsNullOrWhiteSpace($Version)) {
         throw 'Could not resolve a release version. Pass -Version or -Tag.'
     }
-    if ($Version -notmatch '^\d+(\.\d+){1,3}$') {
-        throw "Release version '$Version' must be numeric (e.g. 1.0.0); tag-driven releases do not use prerelease suffixes."
+    if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+        throw "Release version '$Version' must have exactly three numeric components (e.g. 1.0.0); tag-driven releases do not use prerelease suffixes."
     }
 
     $safeVersion = ($Version -replace '[^A-Za-z0-9._-]', '-').Trim('-')
@@ -186,15 +186,18 @@ keys or secrets. Wallhaven images remain the property of their original owners.
     # Parse the file we just wrote back: a manifest that disagrees with its own
     # asset is worse than no manifest at all, so fail the publish immediately.
     $written = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $expectedUrl = "https://github.com/$Repository/releases/download/$releaseTag/$exeName"
     if ($written.version -ne $Version -or
         $written.assetName -ne $exeName -or
         $written.sha256 -ne $exeHash.ToLowerInvariant() -or
-        $written.url -ne $manifest.url) {
-        throw 'Generated update-manifest.json is not aligned with the published EXE.'
+        $written.url -ne $expectedUrl) {
+        throw 'Generated update-manifest.json is not aligned with the published EXE, its hash and the release tag.'
     }
 
-    # Keep the raw EXE for the optional Inno Setup build.
+    # Keep the raw EXE and updater for the optional Inno Setup build. Installed
+    # users need Ori.Updater.exe next to Ori.exe for the startup check to work.
     Copy-Item -LiteralPath $publishedExe -Destination (Join-Path $artifactsDir 'Ori.exe') -Force
+    Copy-Item -LiteralPath $publishedUpdater -Destination (Join-Path $artifactsDir 'Ori.Updater.exe') -Force
 
     Remove-Item -Path $stageDir -Recurse -Force
     Remove-Item -Path $manifestWork -Recurse -Force
@@ -203,7 +206,7 @@ keys or secrets. Wallhaven images remain the property of their original owners.
     Write-Host 'Release package ready.'
     Write-Host "Zip:         $zipPath"
     Write-Host "SHA-256:     $zipHash"
-    Write-Host "Updater EXE: $exePath"
+    Write-Host "Release EXE: $exePath"
     Write-Host "SHA-256:     $exeHash"
     Write-Host "Manifest:    $manifestPath"
 }

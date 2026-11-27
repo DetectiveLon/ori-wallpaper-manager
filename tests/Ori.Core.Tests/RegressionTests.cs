@@ -102,16 +102,25 @@ public sealed class RegressionTests
     }
 
     [Fact]
-    public async Task CorruptScheduleFileIsTreatedAsEmpty()
+    public async Task UnsupportedScheduleVersionIsQuarantined()
     {
         var path = Path.Combine(Path.GetTempPath(), $"ori-schedules-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, "{ not json");
+        const string original = "{\"Version\":99,\"Entries\":[]}";
+        File.WriteAllText(path, original);
         try
         {
             Assert.Empty(await new ScheduleStore(path).LoadAsync());
+
+            var directory = Path.GetDirectoryName(path)!;
+            var backup = Assert.Single(Directory.GetFiles(directory, Path.GetFileName(path) + ".corrupt-*"));
+            Assert.Equal(original, await File.ReadAllTextAsync(backup));
         }
         finally
         {
+            // CI must not accumulate quarantine copies in %TEMP%.
+            var directory = Path.GetDirectoryName(path)!;
+            foreach (var backup in Directory.GetFiles(directory, Path.GetFileName(path) + ".corrupt-*"))
+                File.Delete(backup);
             File.Delete(path);
         }
     }

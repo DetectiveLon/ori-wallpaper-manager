@@ -193,6 +193,13 @@
                                         Command="{Binding SaveAsFeedCommand}"
                                         AutomationProperties.Name="Save current filters as rotation feed"
                                         ToolTip="Save the current filters as a named feed for automatic rotation" />
+                                <!-- Feed rows cache their status text, so make re-reading
+                                     the store an explicit action instead of leaving
+                                     "Paused until..." stale for the whole visit. -->
+                                <Button Content="Refresh feeds" Style="{StaticResource TagButton}"
+                                        Command="{Binding RefreshFeedsCommand}"
+                                        AutomationProperties.Name="Refresh rotation feeds"
+                                        ToolTip="Re-read saved feeds and refresh their status" />
 
                                 <ItemsControl ItemsSource="{Binding Feeds}" Margin="0,10,0,0">
                                     <ItemsControl.Style>

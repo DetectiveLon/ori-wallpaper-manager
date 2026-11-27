@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -26,16 +27,13 @@ public sealed class LibraryEntryViewModel : ViewModelBase
         Id = entry.Id;
         Title = entry.Title;
         LocalPath = entry.LocalPath;
-        IsFavorite = entry.IsFavorite;
-        FavoriteLabel = entry.IsFavorite ? "Unfavorite" : "Favorite";
+        _isFavorite = entry.IsFavorite;
         DetailText = $"{entry.Width:N0} × {entry.Height:N0} · {entry.Category} · {entry.Collection}";
         SelectedCollection = string.IsNullOrWhiteSpace(entry.Collection) ? "Unsorted" : entry.Collection;
 
         // Tags and colours are formatted defensively: the store may model them as a
         // delimited string or as a collection, and both render the same way here.
-        TagsText = TextOf(entry.Tags);
-        TagChips = BuildTagChips(TagsText);
-        TagText = TagsText;
+        UpdateTags(entry.Tags);
         ColorsText = TextOf(entry.Colors);
         ColorSwatches = BuildSwatches(ColorsText);
     }
@@ -46,16 +44,39 @@ public sealed class LibraryEntryViewModel : ViewModelBase
 
     public string LocalPath { get; }
 
-    public bool IsFavorite { get; }
+    private bool _isFavorite;
+    public bool IsFavorite
+    {
+        get => _isFavorite;
+        set
+        {
+            if (SetProperty(ref _isFavorite, value))
+                OnPropertyChanged(nameof(FavoriteLabel));
+        }
+    }
 
-    public string FavoriteLabel { get; }
+    public string FavoriteLabel => IsFavorite ? "Unfavorite" : "Favorite";
 
     public string DetailText { get; }
 
-    public string TagsText { get; }
+    private string _tagsText = string.Empty;
+    public string TagsText
+    {
+        get => _tagsText;
+        private set => SetProperty(ref _tagsText, value);
+    }
 
+    private IReadOnlyList<string> _tagChips = Array.Empty<string>();
     /// <summary>Individual tags split from TagsText, shown as read-only chips on the card.</summary>
-    public IReadOnlyList<string> TagChips { get; }
+    public IReadOnlyList<string> TagChips
+    {
+        get => _tagChips;
+        private set
+        {
+            if (SetProperty(ref _tagChips, value))
+                OnPropertyChanged(nameof(HasTags));
+        }
+    }
 
     public bool HasTags => TagChips.Count > 0;
 
@@ -104,7 +125,16 @@ public sealed class LibraryEntryViewModel : ViewModelBase
         _ => value.ToString() ?? string.Empty
     };
 
-    private static IReadOnlyList<string> BuildTagChips(string tags) =>
+    /// <summary>Rebuilds the chips and editor text from the value just written to the store.</summary>
+    public void UpdateTags(object? tags)
+    {
+        TagsText = TextOf(tags);
+        TagChips = BuildTagChips(TagsText);
+        TagText = TagsText;
+    }
+
+    /// <summary>Shared with the tag filter so chips and filtering tokenize tags identically.</summary>
+    public static IReadOnlyList<string> BuildTagChips(string tags) =>
         tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -161,6 +191,12 @@ public sealed class LibraryViewModel : ViewModelBase
 
     private readonly WallpaperLibraryStore _store = new();
     private readonly Dispatcher _dispatcher;
+    // One gate for every read and every mutation+reload chain. Reads that arrive
+    // while another reload is running are coalesced: only the newest request may
+    // publish its snapshot, so an older slow read cannot paint stale metadata.
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
+    private int _reloadVersion;
+    private int _appliedReloadVersion;
 
     // Collections created before any wallpaper is assigned have no entry in the index;
     // keep them for this session and merge them with entry-derived names on reload.
@@ -346,6 +382,28 @@ public sealed class LibraryViewModel : ViewModelBase
         set => SetProperty(ref _emptyMessage, value);
     }
 
+    private string _emptyStateTitle = "Your library is waiting";
+    public string EmptyStateTitle
+    {
+        get => _emptyStateTitle;
+        private set => SetProperty(ref _emptyStateTitle, value);
+    }
+
+    private string _displayDetectionError = string.Empty;
+    /// <summary>Detection failures stay visible independently of the frequently
+    /// overwritten library status line.</summary>
+    public string DisplayDetectionError
+    {
+        get => _displayDetectionError;
+        private set
+        {
+            if (SetProperty(ref _displayDetectionError, value))
+                OnPropertyChanged(nameof(HasDisplayDetectionError));
+        }
+    }
+
+    public bool HasDisplayDetectionError => !string.IsNullOrWhiteSpace(DisplayDetectionError);
+
     private bool _isRefreshEnabled = true;
     public bool IsRefreshEnabled
     {
@@ -426,13 +484,16 @@ public sealed class LibraryViewModel : ViewModelBase
             SelectedDisplay = Displays.FirstOrDefault(monitor =>
                     string.Equals(monitor.Id, targetId, StringComparison.OrdinalIgnoreCase))
                 ?? primary;
-            if (!detection.Succeeded)
-                Status = $"Display detection unavailable: {detection.Error}";
+            // Keep this out of Status: RefreshCommand overwrites Status on view load,
+            // which used to erase the detection error before anyone could read it.
+            DisplayDetectionError = detection.Succeeded
+                ? string.Empty
+                : $"Display detection unavailable: {detection.Error}";
         }
         catch (Exception ex)
         {
             // A detection failure must never prevent the library commands from loading.
-            Status = $"Display detection unavailable: {ex.Message}";
+            DisplayDetectionError = $"Display detection unavailable: {ex.Message}";
         }
     }
 
@@ -479,16 +540,61 @@ public sealed class LibraryViewModel : ViewModelBase
         }
     }
 
-    private async Task ReloadAsync()
+    private async Task ReloadAsync(bool announce = true)
     {
-        IsRefreshEnabled = false;
-        Status = "Loading library…";
+        var version = Interlocked.Increment(ref _reloadVersion);
+        await _reloadGate.WaitAsync();
         try
         {
-            _entries = await _store.GetAllAsync();
+            // A newer request already published a fresher snapshot while this one
+            // waited; nothing from this read can be usefully shown.
+            if (version <= Volatile.Read(ref _appliedReloadVersion))
+                return;
+            await ApplyReloadAsync(version, announce);
+        }
+        finally
+        {
+            _reloadGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Runs a mutation together with the reload that shows it. Holding the gate for
+    /// the whole chain means no read can start before the write commits or publish
+    /// a snapshot taken in between.
+    /// </summary>
+    private async Task WithReloadAsync(Func<Task> mutation, bool announce = false)
+    {
+        await _reloadGate.WaitAsync();
+        try
+        {
+            await mutation();
+            await ApplyReloadAsync(Interlocked.Increment(ref _reloadVersion), announce);
+        }
+        finally
+        {
+            _reloadGate.Release();
+        }
+    }
+
+    private async Task ApplyReloadAsync(int version, bool announce)
+    {
+        IsRefreshEnabled = false;
+        try
+        {
+            if (announce)
+                Status = "Loading library…";
+            var entries = await _store.GetAllAsync();
+            // Only the newest request is allowed to publish. Concurrent refreshes
+            // therefore coalesce into the read started by the last request.
+            if (version < Volatile.Read(ref _reloadVersion))
+                return;
+            _entries = entries;
+            Volatile.Write(ref _appliedReloadVersion, version);
             RebuildCollections();
             RenderEntries();
-            Status = $"{_entries.Count} saved wallpaper(s).";
+            if (announce)
+                Status = $"{_entries.Count} saved wallpaper(s).";
         }
         catch (Exception ex)
         {
@@ -563,8 +669,7 @@ public sealed class LibraryViewModel : ViewModelBase
                     || entry.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
                     || entry.Collection.Contains(query, StringComparison.OrdinalIgnoreCase)
                     || entry.Tags.Contains(query, StringComparison.OrdinalIgnoreCase))
-                && (tagTerms.Length == 0
-                    || tagTerms.Any(term => entry.Tags.Contains(term, StringComparison.OrdinalIgnoreCase))));
+                && MatchesTagFilter(entry.Tags, tagTerms));
 
         // Sorting happens before paging so every page follows the selected order.
         _filtered = ApplySort(filtered).ToArray();
@@ -577,6 +682,19 @@ public sealed class LibraryViewModel : ViewModelBase
 
         RenderCurrentPage();
         RefreshPageState();
+    }
+
+    /// <summary>
+    /// Whole-term tag matching: the filter tokenizes exactly like the card chips so
+    /// "art" no longer matches "cartoon".
+    /// </summary>
+    private static bool MatchesTagFilter(string tags, string[] terms)
+    {
+        if (terms.Length == 0)
+            return true;
+        var chips = LibraryEntryViewModel.BuildTagChips(tags);
+        return terms.Any(term => chips.Any(chip =>
+            string.Equals(chip, term, StringComparison.OrdinalIgnoreCase)));
     }
 
     private IOrderedEnumerable<WallpaperLibraryEntry> ApplySort(IEnumerable<WallpaperLibraryEntry> source) =>
@@ -602,7 +720,9 @@ public sealed class LibraryViewModel : ViewModelBase
         Entries.Clear();
         if (_filtered.Count == 0)
         {
-            EmptyMessage = _entries.Count == 0
+            var libraryEmpty = _entries.Count == 0;
+            EmptyStateTitle = libraryEmpty ? "Your library is waiting" : "No matches found";
+            EmptyMessage = libraryEmpty
                 ? "Your library is empty. Save wallpapers from Discover to keep them available offline."
                 : "No saved wallpapers match this filter.";
             return;
@@ -693,11 +813,31 @@ public sealed class LibraryViewModel : ViewModelBase
             Status = "Could not update favorite: no wallpaper is selected.";
             return;
         }
+        var applied = false;
+        var next = false;
         try
         {
-            var next = !entry.IsFavorite;
-            await _store.SetFavoriteAsync(entry.Id, next);
-            await ReloadAsync();
+            await WithReloadAsync(async () =>
+            {
+                // Both clicks queue behind the reload gate. Reading the committed
+                // value here (rather than the immutable card snapshot) means a second
+                // click flips the value the first one wrote instead of repeating it.
+                var stored = (await _store.GetAllAsync()).FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, entry.Id, StringComparison.OrdinalIgnoreCase));
+                if (stored is null)
+                    return;
+                next = !stored.IsFavorite;
+                if (!await _store.SetFavoriteAsync(entry.Id, next))
+                    return;
+                applied = true;
+                // Keep the clicked card in sync while the reload rebuilds the page.
+                entry.IsFavorite = next;
+            });
+            if (!applied)
+            {
+                Status = "Could not update favorite: entry no longer exists.";
+                return;
+            }
             Status = $"{entry.Title} {(next ? "added to" : "removed from")} favourites.";
         }
         catch (Exception ex)
@@ -742,21 +882,34 @@ public sealed class LibraryViewModel : ViewModelBase
         }
 
         var deleteFile = DeleteFileOnRemove;
+        var removed = false;
+        var fileDeleted = false;
         try
         {
-            var (removed, fileDeleted) = await _store.DeleteEntryWithResultAsync(
-                entry.Id, deleteFile, CancellationToken.None);
+            await WithReloadAsync(async () =>
+            {
+                (removed, fileDeleted) = await _store.DeleteEntryWithResultAsync(
+                    entry.Id, deleteFile, CancellationToken.None);
+                if (removed)
+                    SelectedEntry = null;
+            });
             IsRemoveConfirmationOpen = false;
             PendingRemoveEntry = null;
             DeleteFileOnRemove = false;
             if (!removed)
             {
-                Status = "That library entry no longer exists.";
+                // Removed=false now covers two cases: the entry is gone, or an owned
+                // image could not be deleted and the entry was kept for retry. The
+                // index tells us which one happened, so report them differently.
+                var remaining = await _store.GetAllAsync();
+                var kept = remaining.Any(candidate =>
+                    string.Equals(candidate.Id, entry.Id, StringComparison.OrdinalIgnoreCase));
+                Status = kept
+                    ? "Could not delete the image file; entry kept"
+                    : "That library entry no longer exists.";
                 return;
             }
 
-            SelectedEntry = null;
-            await ReloadAsync();
             Status = deleteFile
                 ? fileDeleted
                     ? $"Removed \"{entry.Title}\" from the library and deleted its image from Ori's folder."
@@ -780,22 +933,25 @@ public sealed class LibraryViewModel : ViewModelBase
         var target = string.IsNullOrWhiteSpace(entry.SelectedCollection)
             ? Unsorted
             : entry.SelectedCollection.Trim();
+        var changed = false;
         try
         {
-            var changed = await _store.SetCollectionAsync(entry.Id, target);
+            await WithReloadAsync(async () =>
+            {
+                changed = await _store.SetCollectionAsync(entry.Id, target);
+                if (!changed)
+                    return;
+                // The collection is now anchored by an entry; it no longer needs the
+                // session-only placeholder that kept it visible while empty.
+                _emptyCollections.Remove(target);
+            });
+            // The reload rebuilds entries and collection lists, so a newly typed
+            // collection is immediately available to the filter and every card.
             if (!changed)
             {
                 Status = "That library entry no longer exists.";
                 return;
             }
-
-            // The collection is now anchored by an entry; it no longer needs the
-            // session-only placeholder that kept it visible while empty.
-            _emptyCollections.Remove(target);
-
-            // Reload entries and collection lists so a newly typed collection is
-            // immediately available to the filter and every card.
-            await ReloadAsync();
             Status = $"Moved {entry.Title} to {target}.";
         }
         catch (Exception ex)
@@ -821,27 +977,32 @@ public sealed class LibraryViewModel : ViewModelBase
         }
 
         var selected = SelectedEntry;
+        var changed = true;
         try
         {
-            if (selected is not null)
+            await WithReloadAsync(async () =>
             {
-                var changed = await _store.SetCollectionAsync(selected.Id, name);
-                if (!changed)
+                if (selected is not null)
                 {
-                    Status = "That library entry no longer exists.";
-                    return;
+                    changed = await _store.SetCollectionAsync(selected.Id, name);
+                    if (!changed)
+                        return;
                 }
-            }
-            else
-            {
-                // No wallpaper is needed: an empty collection is a valid destination
-                // for a later Move. It is kept for this session (the index only knows
-                // collections that have at least one entry).
-                _emptyCollections.Add(name);
-            }
+                else
+                {
+                    // No wallpaper is needed: an empty collection is a valid destination
+                    // for a later Move. It is kept for this session (the index only knows
+                    // collections that have at least one entry).
+                    _emptyCollections.Add(name);
+                }
 
-            NewCollectionName = string.Empty;
-            await ReloadAsync();
+                NewCollectionName = string.Empty;
+            });
+            if (!changed)
+            {
+                Status = "That library entry no longer exists.";
+                return;
+            }
             Status = selected is null
                 ? $"Created empty collection \"{name}\". Move a wallpaper into it to keep it after a restart."
                 : $"Created \"{name}\" and moved {selected.Title} into it.";
@@ -877,8 +1038,11 @@ public sealed class LibraryViewModel : ViewModelBase
         Status = $"Importing wallpapers from \"{folderPath}\"…";
         try
         {
-            var count = await _store.ImportFolderAsync(folderPath, progress, token);
-            await ReloadAsync();
+            var count = 0;
+            await WithReloadAsync(async () =>
+            {
+                count = await _store.ImportFolderAsync(folderPath, progress, token);
+            });
             Status = $"Imported {count} wallpaper(s).";
             ImportProgress = $"Imported {count} wallpaper(s).";
         }
@@ -930,11 +1094,14 @@ public sealed class LibraryViewModel : ViewModelBase
         try
         {
             // Explicit, metadata-only removal: a duplicate row never deletes a file.
-            var removed = await _store.DeleteEntryAsync(item.Id, false, CancellationToken.None);
-            if (removed)
-                Duplicates.Remove(item);
+            var removed = false;
+            await WithReloadAsync(async () =>
+            {
+                removed = await _store.DeleteEntryAsync(item.Id, false, CancellationToken.None);
+                if (removed)
+                    Duplicates.Remove(item);
+            });
             OnPropertyChanged(nameof(HasDuplicates));
-            await ReloadAsync();
             DuplicateStatus = Duplicates.Count == 0
                 ? "No duplicates remaining."
                 : $"{Duplicates.Count} duplicate(s) remaining. Originals are kept; removal is metadata-only.";
@@ -955,16 +1122,35 @@ public sealed class LibraryViewModel : ViewModelBase
             Status = "Could not update tags: no wallpaper is selected.";
             return;
         }
+        var changed = false;
         try
         {
-            var changed = await _store.SetTagsAsync(card.Id, card.TagText ?? string.Empty, CancellationToken.None);
+            await WithReloadAsync(async () =>
+            {
+                changed = await _store.SetTagsAsync(card.Id, card.TagText ?? string.Empty, CancellationToken.None);
+            });
             if (!changed)
             {
                 card.TagStatus = "Entry no longer exists.";
                 Status = "Could not update tags: entry no longer exists.";
                 return;
             }
+
+            // The reload rebuilt the cards from fresh store data, so update both the
+            // clicked card and its replacement: the chips and an active tag filter
+            // must reflect the tags that were just written.
+            var stored = _entries.FirstOrDefault(entry =>
+                string.Equals(entry.Id, card.Id, StringComparison.OrdinalIgnoreCase));
+            if (stored is not null)
+            {
+                card.UpdateTags(stored.Tags);
+                foreach (var replacement in Entries.Where(item =>
+                             string.Equals(item.Id, card.Id, StringComparison.OrdinalIgnoreCase)
+                             && !ReferenceEquals(item, card)))
+                    replacement.UpdateTags(stored.Tags);
+            }
             card.TagStatus = "Tags saved.";
+            // Set after the reload: ReloadAsync owns Status while it runs.
             Status = $"Tags saved for {card.Title}.";
         }
         catch (Exception ex)

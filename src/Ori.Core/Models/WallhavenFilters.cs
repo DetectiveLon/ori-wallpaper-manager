@@ -71,6 +71,15 @@ public sealed record WallhavenFilters
         if (Purity == WallhavenPurity.None || (Purity & ~WallhavenPurity.All) != 0)
             throw new ArgumentException("Choose at least one content level.", nameof(Purity));
 
+        // An unknown enum value would survive a save but make the saved feed unusable
+        // (and be silently dropped on the next read), so reject it at the boundary.
+        if (!Enum.IsDefined(Sorting))
+            throw new ArgumentOutOfRangeException(nameof(Sorting), "Choose a supported sorting mode.");
+        if (!Enum.IsDefined(Order))
+            throw new ArgumentOutOfRangeException(nameof(Order), "Choose a supported sort order.");
+        if (!Enum.IsDefined(TopRange))
+            throw new ArgumentOutOfRangeException(nameof(TopRange), "Choose a supported top range.");
+
         if (Page < 1)
             throw new ArgumentOutOfRangeException(nameof(Page), "Page must be 1 or greater.");
 

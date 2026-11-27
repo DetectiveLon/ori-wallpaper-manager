@@ -66,6 +66,11 @@ public sealed class AutomationViewModel : ViewModelBase
     private readonly Dictionary<string, DisplayScheduleViewModel> _sessions =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // Displays in the middle of being unplugged. A snapshot taken by another session
+    // must not resurrect their saved schedule: StopSessionAsync(keepSavedSchedule) or
+    // the preceding explicit Stop decides what stays on disk.
+    private readonly HashSet<string> _sessionsBeingRemoved = new(StringComparer.OrdinalIgnoreCase);
+
     // Last set of states written successfully. A transient LoadAsync failure must
     // never turn into an empty save that deletes schedules for unplugged monitors.
     private IReadOnlyDictionary<string, DisplayScheduleState> _lastKnownStates =
@@ -75,11 +80,15 @@ public sealed class AutomationViewModel : ViewModelBase
     // the master mirror, a shutdown/enable cancellation source and the overlap guard.
     private CancellationTokenSource _feedCts = new();
     private int _feedFetchInFlight;
+    // Set when a due-feed sweep was requested while a cancelled fetch still held the
+    // guard, so the sweep is retried once that fetch unwinds.
+    private int _feedSweepPending;
     private bool _pauseWhenFullscreen = true;
     private bool _autoFetchFromWallhaven;
     private bool _shutdownRequested;
     private bool _libraryHasImages;
     private bool _deferredSchedulesExist;
+    private int _deferredStartInFlight;
     private bool _initialized;
     private string _globalStatus = "Preparing…";
     private string _libraryStatus = string.Empty;
@@ -151,6 +160,49 @@ public sealed class AutomationViewModel : ViewModelBase
             return _sessions.Values.ToArray();
     }
 
+    /// <summary>
+    /// Best-effort marshal to the UI thread. The dispatcher can disappear while the
+    /// app is closing, so a background callback must not leave a faulted, unobserved
+    /// task behind. Both overloads always return a successfully completed task.
+    /// </summary>
+    private async Task TryInvokeOnDispatcherAsync(Action action)
+    {
+        if (_shutdownRequested || _dispatcher.HasShutdownStarted)
+            return;
+        try
+        {
+            if (_dispatcher.CheckAccess())
+                action();
+            else
+                await _dispatcher.InvokeAsync(action).Task.ConfigureAwait(false);
+        }
+        catch
+        {
+            // Shutdown can kill the dispatcher between the check and the marshal.
+        }
+    }
+
+    /// <summary>Awaited variant for UI work that is itself asynchronous.</summary>
+    private async Task TryInvokeOnDispatcherAsync(Func<Task> action)
+    {
+        if (_shutdownRequested || _dispatcher.HasShutdownStarted)
+            return;
+        try
+        {
+            if (_dispatcher.CheckAccess())
+                await action().ConfigureAwait(false);
+            else
+            {
+                var operation = _dispatcher.InvokeAsync(action);
+                await (await operation.Task.ConfigureAwait(false)).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            // Same best-effort rule as the Action overload.
+        }
+    }
+
     private void SetLibraryStatus(string message)
     {
         void apply()
@@ -161,12 +213,7 @@ public sealed class AutomationViewModel : ViewModelBase
 
         // Feed fetches report library changes from a background thread. During
         // shutdown there is no dispatcher left to report to, so drop the message.
-        if (_dispatcher.HasShutdownStarted)
-            return;
-        if (_dispatcher.CheckAccess())
-            apply();
-        else
-            _ = _dispatcher.InvokeAsync(apply);
+        _ = TryInvokeOnDispatcherAsync(apply);
     }
 
     /// <summary>
@@ -192,12 +239,7 @@ public sealed class AutomationViewModel : ViewModelBase
 
         // Dispatcher-safe: a feed timer firing during shutdown must not escape an
         // async void handler because InvokeAsync ran against a dead dispatcher.
-        if (_dispatcher.HasShutdownStarted)
-            return;
-        if (_dispatcher.CheckAccess())
-            apply();
-        else
-            _ = _dispatcher.InvokeAsync(apply);
+        _ = TryInvokeOnDispatcherAsync(apply);
     }
 
     private void UpdateGlobalStatus()
@@ -265,6 +307,10 @@ public sealed class AutomationViewModel : ViewModelBase
                 EnsureFeedCts();
                 RefreshFeeds();
                 SetFeedStatus("Auto-fetch is on. Enabled feeds fetch on their own cadence.");
+                // An enabled feed is an image source, so schedules deferred while the
+                // library was empty can start now (TryStartDeferredSchedulesAsync
+                // checks the flag and the source before doing anything).
+                _ = TryStartDeferredSchedulesAsync();
                 _ = FetchDueFeedSafelyAsync();
             }
             else
@@ -311,9 +357,14 @@ public sealed class AutomationViewModel : ViewModelBase
         // feed state must be re-read on both paths. Restore/timers stay one-shot.
         RefreshFeeds();
         await RefreshLibraryStatusAsync();
+        if (_shutdownRequested)
+            return;
+
         // InitializeAsync owns the one-time full restore below, so suppress the
         // per-refresh restore here (every display is "new" on the first pass).
         await RefreshDisplaysAsync(restoreNewDisplays: false);
+        if (_shutdownRequested)
+            return;
 
         if (!firstLoad)
         {
@@ -321,8 +372,7 @@ public sealed class AutomationViewModel : ViewModelBase
             // soon as wallpapers become available, otherwise the "waiting for
             // wallpapers" message is a promise the app never keeps. An enabled feed
             // counts as available because the sweep can fill the library itself.
-            if (_deferredSchedulesExist && (_libraryHasImages || HasEnabledFeed()))
-                await RestoreSchedulesAsync();
+            await TryStartDeferredSchedulesAsync();
             return;
         }
 
@@ -330,11 +380,42 @@ public sealed class AutomationViewModel : ViewModelBase
         // or either timer throws, the next visit takes this path again; state that
         // was already restored is idempotent (loops refuse to start twice).
         await RestoreSchedulesAsync();
-        if (!_uiTimer.IsEnabled)
+        if (_shutdownRequested)
+            return;
+        // Shutdown can be requested while the awaits above were in flight; never
+        // restart a timer once MainWindow has begun closing.
+        if (!_shutdownRequested && !_uiTimer.IsEnabled)
             _uiTimer.Start();
-        if (!_feedTimer.IsEnabled)
+        if (!_shutdownRequested && !_feedTimer.IsEnabled)
             _feedTimer.Start();
         _initialized = true;
+    }
+
+    /// <summary>
+    /// Starts schedules that were deferred while no image source was available. The
+    /// library refresh, the master toggle and navigation can all see the same
+    /// transition, so the guard keeps them from restoring the same sessions twice.
+    /// </summary>
+    private async Task TryStartDeferredSchedulesAsync()
+    {
+        if (_shutdownRequested || Interlocked.Exchange(ref _deferredStartInFlight, 1) != 0)
+            return;
+
+        try
+        {
+            if (!_deferredSchedulesExist || (!_libraryHasImages && !HasEnabledFeed()))
+                return;
+
+            await RestoreSchedulesAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            SetLibraryStatus($"Could not start the waiting schedules: {ex.Message}");
+        }
+        finally
+        {
+            Volatile.Write(ref _deferredStartInFlight, 0);
+        }
     }
 
     /// <summary>
@@ -377,77 +458,39 @@ public sealed class AutomationViewModel : ViewModelBase
         if (_shutdownRequested)
             return;
 
-        // Snapshot under the sessions lock: the nextRunChanged callback can run on a
-        // threadpool thread while the UI adds/removes displays. Also persist the
-        // one-deep history so Previous survives a restart.
-        var states = SnapshotSessions().Select(current => new DisplayScheduleState(
-            current.Monitor.Id,
-            current.SelectedInterval,
-            ReferenceEquals(current, session) && shouldRun.HasValue
-                ? shouldRun.Value
-                : current.ActiveSchedule,
-            current.UserPaused,
-            current.NextRunUtc,
-            current.LastAppliedId,
-            current.PauseWhenFullscreen,
-            current.Fingerprint)
-        {
-            PreviousAppliedPath = current.PreviousAppliedPath
-        }).ToArray();
-
-        await SaveMergedStatesAsync(states);
-    }
-
-    /// <summary>
-    /// Writes only the supplied states over the saved file, keeping every saved entry
-    /// that has no live session. A display that was unplugged is deliberately absent
-    /// from <see cref="_sessions"/>: its schedule must stay on disk so a later
-    /// fingerprint match can adopt it. This also stops one session's save from
-    /// replacing another session's saved interval/pause/deadline with defaults.
-    /// A failed (or silently empty) read skips the write entirely: overwriting with
-    /// no entries would delete the schedules for every unplugged monitor.
-    /// </summary>
-    private async Task SaveMergedStatesAsync(
-        IEnumerable<DisplayScheduleState> overrides,
-        IEnumerable<string>? removeIds = null)
-    {
         try
         {
-            await _persistGate.WaitAsync();
+            // Take the gate BEFORE snapshotting. A snapshot taken on the outside can
+            // wait on the gate while an explicit Stop writes ShouldRun=false and then
+            // overwrite it with the older, still-running state. Sessions on their way
+            // out are skipped unless this persist explicitly carries their new intent.
+            await _persistGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                IReadOnlyDictionary<string, DisplayScheduleState> saved;
-                try
+                DisplayScheduleState[] states;
+                lock (_sessionsGate)
                 {
-                    saved = await _schedules.LoadAsync();
-                    // ScheduleStore swallows transient IO errors and returns an empty
-                    // dictionary. Treat that as a failed read when we know we have
-                    // saved states, rather than erasing them.
-                    if (saved.Count == 0 && _lastKnownStates.Count > 0)
-                        return;
-                }
-                catch
-                {
-                    // Transient read failure: leave schedules.json exactly as it is.
-                    return;
-                }
-
-                var merged = new Dictionary<string, DisplayScheduleState>(StringComparer.OrdinalIgnoreCase);
-                foreach (var pair in saved)
-                    merged[pair.Key] = pair.Value;
-
-                if (removeIds is not null)
-                {
-                    foreach (var id in removeIds)
-                        merged.Remove(id);
+                    states = _sessions.Values
+                        .Where(current => !_sessionsBeingRemoved.Contains(current.Monitor.Id)
+                                          || (ReferenceEquals(current, session) && shouldRun.HasValue))
+                        // Also persist the one-deep history so Previous survives a restart.
+                        .Select(current => new DisplayScheduleState(
+                            current.Monitor.Id,
+                            current.SelectedInterval,
+                            ReferenceEquals(current, session) && shouldRun.HasValue
+                                ? shouldRun.Value
+                                : current.ActiveSchedule,
+                            current.UserPaused,
+                            current.NextRunUtc,
+                            current.LastAppliedId,
+                            current.PauseWhenFullscreen,
+                            current.Fingerprint)
+                        {
+                            PreviousAppliedPath = current.PreviousAppliedPath
+                        }).ToArray();
                 }
 
-                foreach (var state in overrides)
-                    merged[state.MonitorId] = state;
-
-                await _schedules.SaveAsync(merged.Values);
-                _lastKnownStates = new Dictionary<string, DisplayScheduleState>(
-                    merged, StringComparer.OrdinalIgnoreCase);
+                await SaveMergedStatesCoreAsync(states).ConfigureAwait(false);
             }
             finally
             {
@@ -458,6 +501,74 @@ public sealed class AutomationViewModel : ViewModelBase
         {
             // A failed persistence write must never stop the active schedule.
         }
+    }
+
+    /// <summary>
+    /// Gate-taking wrapper for callers that are not already inside the persistence
+    /// gate (schedule restore). Writes only the supplied states over the saved file,
+    /// keeping every saved entry that has no live session. A display that was
+    /// unplugged is deliberately absent from <see cref="_sessions"/>: its schedule
+    /// must stay on disk so a later fingerprint match can adopt it.
+    /// </summary>
+    private async Task SaveMergedStatesAsync(
+        IEnumerable<DisplayScheduleState> overrides,
+        IEnumerable<string>? removeIds = null)
+    {
+        try
+        {
+            await _persistGate.WaitAsync();
+            try
+            {
+                await SaveMergedStatesCoreAsync(overrides, removeIds).ConfigureAwait(false);
+            }
+            finally
+            {
+                _persistGate.Release();
+            }
+        }
+        catch
+        {
+            // A failed persistence write must never stop the active schedule.
+        }
+    }
+
+    /// <summary>Merge and save. The caller holds <see cref="_persistGate"/>.</summary>
+    private async Task SaveMergedStatesCoreAsync(
+        IEnumerable<DisplayScheduleState> overrides,
+        IEnumerable<string>? removeIds = null)
+    {
+        // ScheduleStore.LoadAsync returns an empty dictionary for a missing,
+        // oversize, corrupt or transiently unreadable file. One such load must not
+        // disable persistence for the rest of the process: use the last states we
+        // successfully wrote as the merge base instead.
+        IReadOnlyDictionary<string, DisplayScheduleState> saved;
+        try
+        {
+            saved = await _schedules.LoadAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            saved = _lastKnownStates;
+        }
+        if (saved.Count == 0)
+            saved = _lastKnownStates;
+
+        var merged = new Dictionary<string, DisplayScheduleState>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in saved)
+            merged[pair.Key] = pair.Value;
+
+        if (removeIds is not null)
+        {
+            foreach (var id in removeIds)
+                merged.Remove(id);
+        }
+
+        foreach (var state in overrides)
+            merged[state.MonitorId] = state;
+
+        await _schedules.SaveAsync(merged.Values).ConfigureAwait(false);
+        _lastKnownStates = new Dictionary<string, DisplayScheduleState>(
+            merged, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -502,15 +613,32 @@ public sealed class AutomationViewModel : ViewModelBase
 
         // Pass one: a saved entry whose id matches a live display belongs to that
         // display. Claim every such entry before any adoption so a newer session
-        // cannot steal it just because it is enumerated first.
+        // cannot steal it just because it is enumerated first. A *different*
+        // fingerprint is only rewritten when it still names this panel and no other
+        // live panel carries it; a reused COM id must not silently take over a
+        // different physical display's schedule.
         foreach (var session in sessions)
         {
             var fingerprint = session.Fingerprint;
             if (!byId.TryGetValue(session.Monitor.Id, out var direct))
                 continue;
 
+            var savedFingerprint = direct.MonitorFingerprint;
+            if (!string.IsNullOrWhiteSpace(savedFingerprint)
+                && !string.Equals(savedFingerprint, fingerprint, StringComparison.OrdinalIgnoreCase))
+            {
+                var sameDevice = string.Equals(
+                    FingerprintDeviceName(savedFingerprint),
+                    session.Monitor.DeviceName,
+                    StringComparison.OrdinalIgnoreCase);
+                var anotherPanelOwnsIt = sessions.Any(other => !ReferenceEquals(other, session)
+                    && string.Equals(other.Fingerprint, savedFingerprint, StringComparison.OrdinalIgnoreCase));
+                if (!sameDevice || anotherPanelOwnsIt)
+                    continue; // Leave it unclaimed for fingerprint/device adoption.
+            }
+
             claimed.Add(session.Monitor.Id);
-            if (!string.Equals(direct.MonitorFingerprint, fingerprint, StringComparison.Ordinal))
+            if (!string.Equals(savedFingerprint, fingerprint, StringComparison.Ordinal))
             {
                 // Same COM path but moved/resized: the identity must be written back
                 // or a later path change will no longer match by fingerprint.
@@ -685,16 +813,27 @@ public sealed class AutomationViewModel : ViewModelBase
         }
 
         // Feed fetches call this off the UI thread; publish the availability flag
-        // that gates Start/Rotate only on the dispatcher.
-        await _dispatcher.InvokeAsync(() =>
+        // that gates Start/Rotate only on the dispatcher. The marshal is best-effort:
+        // a dispatcher failure here must not be reported as a feed fetch failure.
+        var startDeferred = false;
+        await TryInvokeOnDispatcherAsync(() =>
         {
             if (_shutdownRequested)
                 return;
+            startDeferred = !_libraryHasImages && count > 0;
             _libraryHasImages = count > 0;
             _libraryStatus = message;
             UpdateGlobalStatus();
             UpdateAllSessions();
-        });
+        }).ConfigureAwait(false);
+
+        // The library just filled: keep the promise made to deferred schedules
+        // instead of waiting for the user to navigate back to this page.
+        if (startDeferred)
+        {
+            Func<Task> restoreWaiting = () => TryStartDeferredSchedulesAsync();
+            await TryInvokeOnDispatcherAsync(restoreWaiting).ConfigureAwait(false);
+        }
     }
 
     internal async Task RefreshDisplaysAsync(bool restoreNewDisplays = true)
@@ -719,13 +858,26 @@ public sealed class AutomationViewModel : ViewModelBase
             foreach (var removed in SnapshotSessions()
                          .Where(session => !connectedIds.Contains(session.Monitor.Id)))
             {
-                // Suspend, do not stop: the loop is cancelled in memory but the saved
-                // ShouldRun/interval/pause/deadline stay on disk. Writing false here
-                // would make fingerprint adoption impossible when the panel returns.
-                await StopSessionAsync(removed, keepSavedSchedule: true);
-                Schedules.Remove(removed);
+                // Mark first: any snapshot another session takes while this loop is
+                // unwinding must skip the removed panel, or it could resurrect the
+                // ShouldRun=false intent of a Stop that preceded the unplug.
                 lock (_sessionsGate)
-                    _sessions.Remove(removed.Monitor.Id);
+                    _sessionsBeingRemoved.Add(removed.Monitor.Id);
+                try
+                {
+                    // Suspend, do not stop: the loop is cancelled in memory but the saved
+                    // ShouldRun/interval/pause/deadline stay on disk. Writing false here
+                    // would make fingerprint adoption impossible when the panel returns.
+                    await StopSessionAsync(removed, keepSavedSchedule: true);
+                    Schedules.Remove(removed);
+                    lock (_sessionsGate)
+                        _sessions.Remove(removed.Monitor.Id);
+                }
+                finally
+                {
+                    lock (_sessionsGate)
+                        _sessionsBeingRemoved.Remove(removed.Monitor.Id);
+                }
             }
 
             var added = new List<DisplayScheduleViewModel>();
@@ -841,26 +993,28 @@ public sealed class AutomationViewModel : ViewModelBase
                     expectedManualRotationGeneration: Volatile.Read(ref session.ManualRotationGeneration)),
                 nextRunChanged: async nextRun =>
                 {
-                    await _dispatcher.InvokeAsync(() =>
+                    await TryInvokeOnDispatcherAsync(() =>
                     {
                         session.NextRunUtc = nextRun;
                         UpdateSessionUi(session);
-                    });
+                    }).ConfigureAwait(false);
                     await PersistSessionAsync(session);
                 },
                 failed: async exception =>
                 {
-                    await _dispatcher.InvokeAsync(() =>
+                    await TryInvokeOnDispatcherAsync(() =>
                     {
                         session.StatusMessage = $"Rotation failed: {exception.Message}";
                         UpdateSessionUi(session);
-                    });
+                    }).ConfigureAwait(false);
                 },
                 cancellationToken: token,
                 lastCompletedAt: resumeAt.HasValue ? resumeAt.Value - interval : null);
 
             session.LoopTask = task;
-            _ = ObserveLoopAsync(session, task);
+            // Keep the observer task: StopSessionAsync awaits it so a shutdown cannot
+            // leave a fire-and-forget task faulting against a dispatcher that is gone.
+            session.LoopObserverTask = ObserveLoopAsync(session, task);
             await PersistSessionAsync(session, shouldRun: true);
         }
         catch (Exception ex)
@@ -894,13 +1048,13 @@ public sealed class AutomationViewModel : ViewModelBase
         }
         finally
         {
-            if (!_dispatcher.HasShutdownStarted && Application.Current is not null)
+            if (Application.Current is not null)
             {
-                await _dispatcher.InvokeAsync(() =>
+                await TryInvokeOnDispatcherAsync(() =>
                 {
                     if (ReferenceEquals(session.LoopTask, task))
                         FinishLoop(session, task);
-                });
+                }).ConfigureAwait(false);
             }
         }
     }
@@ -1066,58 +1220,71 @@ public sealed class AutomationViewModel : ViewModelBase
         bool respectPause,
         int? expectedManualRotationGeneration = null)
     {
+        // The gate protects only the desktop mutation. Library reads, selection and
+        // persistence stay outside it so Previous/Fetch now are not blocked by every
+        // display's scheduled change.
+        if (expectedManualRotationGeneration is int expectedBeforeLoad
+            && expectedBeforeLoad != Volatile.Read(ref session.ManualRotationGeneration))
+        {
+            return;
+        }
+
+        // Feeds are fetched by the independent sweep (or an explicit Fetch now),
+        // never from inside a rotation: a hung network call must not stall a loop.
+        var entries = await _library.GetAllAsync(cancellationToken);
+        var available = entries.Where(entry => File.Exists(entry.LocalPath)).ToArray();
+        if (available.Length == 0)
+            throw new InvalidOperationException("No available images are saved in the local library.");
+
+        var monitorAtSelection = session.Monitor;
+        var lastId = session.LastAppliedId;
+        if (lastId is null && !string.IsNullOrWhiteSpace(monitorAtSelection.CurrentWallpaper))
+        {
+            lastId = available.FirstOrDefault(entry =>
+                PathsEqual(entry.LocalPath, monitorAtSelection.CurrentWallpaper))?.Id;
+        }
+
+        // A freshly fetched image wins once, whether the sweep queued it for the
+        // next scheduled change or Fetch now applied it immediately. It is only
+        // used while the file is actually on disk.
+        var pending = session.PendingFeedEntryId is { } pendingId
+            ? available.FirstOrDefault(entry => string.Equals(
+                entry.Id, pendingId, StringComparison.OrdinalIgnoreCase))
+            : null;
+
+        WallpaperLibraryEntry selected;
+        if (pending is not null)
+        {
+            selected = pending;
+        }
+        else
+        {
+            var candidates = available.Length > 1
+                ? available.Where(entry => !string.Equals(
+                    entry.Id, lastId, StringComparison.OrdinalIgnoreCase)).ToArray()
+                : available;
+            selected = candidates[Random.Shared.Next(candidates.Length)];
+        }
+
+        var applied = false;
         await _rotationGate.WaitAsync(cancellationToken);
         try
         {
-            if (expectedManualRotationGeneration is int expectedBeforeLoad
-                && expectedBeforeLoad != Volatile.Read(ref session.ManualRotationGeneration))
+            cancellationToken.ThrowIfCancellationRequested();
+            // The library read happened outside the gate, so re-check the generation
+            // before replacing another rotation's wallpaper.
+            if (expectedManualRotationGeneration is int expectedBeforeApply
+                && expectedBeforeApply != Volatile.Read(ref session.ManualRotationGeneration))
             {
                 return;
-            }
-
-            // Feeds are fetched by the independent sweep (or an explicit Fetch now),
-            // never from inside a rotation: a hung network call must not stall a loop.
-            var entries = await _library.GetAllAsync(cancellationToken);
-            var available = entries.Where(entry => File.Exists(entry.LocalPath)).ToArray();
-            if (available.Length == 0)
-                throw new InvalidOperationException("No available images are saved in the local library.");
-
-            var monitorAtSelection = session.Monitor;
-            var lastId = session.LastAppliedId;
-            if (lastId is null && !string.IsNullOrWhiteSpace(monitorAtSelection.CurrentWallpaper))
-            {
-                lastId = available.FirstOrDefault(entry =>
-                    PathsEqual(entry.LocalPath, monitorAtSelection.CurrentWallpaper))?.Id;
-            }
-
-            // A freshly fetched image wins once, whether the sweep queued it for the
-            // next scheduled change or Fetch now applied it immediately. It is only
-            // used while the file is actually on disk.
-            var pending = session.PendingFeedEntryId is { } pendingId
-                ? available.FirstOrDefault(entry => string.Equals(
-                    entry.Id, pendingId, StringComparison.OrdinalIgnoreCase))
-                : null;
-
-            WallpaperLibraryEntry selected;
-            if (pending is not null)
-            {
-                selected = pending;
-            }
-            else
-            {
-                var candidates = available.Length > 1
-                    ? available.Where(entry => !string.Equals(
-                        entry.Id, lastId, StringComparison.OrdinalIgnoreCase)).ToArray()
-                    : available;
-                selected = candidates[Random.Shared.Next(candidates.Length)];
             }
 
             await _dispatcher.InvokeAsync(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (expectedManualRotationGeneration is int expectedBeforeApply
-                    && expectedBeforeApply != Volatile.Read(ref session.ManualRotationGeneration))
+                if (expectedManualRotationGeneration is int expectedBeforeDispatch
+                    && expectedBeforeDispatch != Volatile.Read(ref session.ManualRotationGeneration))
                 {
                     session.StatusMessage = "Scheduled change skipped because a manual rotation just completed.";
                     UpdateSessionUi(session);
@@ -1166,13 +1333,17 @@ public sealed class AutomationViewModel : ViewModelBase
                 session.Monitor = monitor with { CurrentWallpaper = selected.LocalPath };
                 session.StatusMessage = $"Applied {selected.Title} to {monitor.DeviceName}.";
                 UpdateSessionUi(session);
+                applied = true;
             });
-            await PersistSessionAsync(session);
         }
         finally
         {
             _rotationGate.Release();
         }
+
+        // Disk I/O is not part of the critical region.
+        if (applied)
+            await PersistSessionAsync(session);
     }
 
     /// <summary>
@@ -1201,7 +1372,13 @@ public sealed class AutomationViewModel : ViewModelBase
         try
         {
             if (!_feedCts.IsCancellationRequested)
+            {
                 _feedCts.Cancel();
+                // The cancelled fetch keeps _feedFetchInFlight until its HTTP call
+                // unwinds. Remember that a sweep was interrupted so turning the master
+                // back on still gets its immediate due-feed check.
+                Volatile.Write(ref _feedSweepPending, 1);
+            }
         }
         catch
         {
@@ -1239,6 +1416,10 @@ public sealed class AutomationViewModel : ViewModelBase
         }
         catch (OperationCanceledException)
         {
+            // Release the guard as soon as cancellation is observed; otherwise an
+            // immediate sweep after the master toggles back on would be skipped while
+            // the cancelled call is still unwinding.
+            Volatile.Write(ref _feedFetchInFlight, 0);
         }
         catch (Exception ex)
         {
@@ -1248,15 +1429,28 @@ public sealed class AutomationViewModel : ViewModelBase
 
     /// <summary>
     /// Due-feed sweep. The guard is set before the store is queried and cleared in a
-    /// finally block, so startup, the timer and Fetch now can never overlap.
+    /// finally block, so startup, the timer and Fetch now can never overlap. A sweep
+    /// requested while the guard is held is queued and retried once it is free.
     /// </summary>
     internal async Task FetchDueFeedAsync(CancellationToken cancellationToken)
     {
-        if (_shutdownRequested || Interlocked.Exchange(ref _feedFetchInFlight, 1) != 0)
+        var acquired = Interlocked.Exchange(ref _feedFetchInFlight, 1) == 0;
+        if (_shutdownRequested)
+        {
+            if (acquired)
+                Volatile.Write(ref _feedFetchInFlight, 0);
             return;
+        }
+        if (!acquired)
+        {
+            Volatile.Write(ref _feedSweepPending, 1);
+            return;
+        }
 
         try
         {
+            // This call is the pending sweep, if one was queued.
+            Interlocked.Exchange(ref _feedSweepPending, 0);
             if (!AutoFetchFromWallhaven)
                 return;
 
@@ -1282,6 +1476,13 @@ public sealed class AutomationViewModel : ViewModelBase
         finally
         {
             Volatile.Write(ref _feedFetchInFlight, 0);
+            // A master-off/on toggle during this fetch queued a sweep. FetchDueFeedSafelyAsync
+            // swallows its own failures, so this retry is safe as fire-and-forget.
+            if (Interlocked.Exchange(ref _feedSweepPending, 0) == 1
+                && !_shutdownRequested && AutoFetchFromWallhaven)
+            {
+                _ = FetchDueFeedSafelyAsync();
+            }
         }
     }
 
@@ -1310,6 +1511,8 @@ public sealed class AutomationViewModel : ViewModelBase
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
+            // Let an immediate sweep after re-enabling acquire the guard right away.
+            Volatile.Write(ref _feedFetchInFlight, 0);
             SetFeedStatus("Wallhaven fetch cancelled.");
         }
         catch (Exception ex)
@@ -1333,7 +1536,6 @@ public sealed class AutomationViewModel : ViewModelBase
         CancellationToken cancellationToken,
         bool applyImmediately = false)
     {
-        var now = DateTimeOffset.UtcNow;
         var feed = FindFeed(feedId);
         if (feed is null)
         {
@@ -1360,91 +1562,105 @@ public sealed class AutomationViewModel : ViewModelBase
                 apiKey = string.Empty;
             }
 
+            // Only the HTTP search result feeds Core's failure/backoff state.
             var page = await FeedClient.SearchAsync(
                 feed.Filters, apiKey: apiKey, cancellationToken: cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
 
-            var entries = await _library.GetAllAsync(cancellationToken).ConfigureAwait(false);
-            var knownIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var knownUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var entry in entries)
+            try
             {
-                if (!string.IsNullOrWhiteSpace(entry.SourceId))
-                    knownIds.Add(entry.SourceId);
-                if (!string.IsNullOrWhiteSpace(entry.ImageUrl))
-                    knownUrls.Add(entry.ImageUrl);
-                if (!string.IsNullOrWhiteSpace(entry.PageUrl))
-                    knownUrls.Add(entry.PageUrl);
-                knownIds.Add(entry.Id);
-            }
-
-            var addedIds = new List<string>();
-            foreach (var wallpaper in page.Items.Take(MaximumFeedItemsPerTick))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var imageUrl = wallpaper.ImageUrl.ToString();
-                var pageUrl = wallpaper.PageUrl.ToString();
-                if (knownIds.Contains(wallpaper.Id)
-                    || knownUrls.Contains(imageUrl)
-                    || knownUrls.Contains(pageUrl))
+                var entries = await _library.GetAllAsync(cancellationToken).ConfigureAwait(false);
+                var knownIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var knownUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var entry in entries)
                 {
-                    continue;
+                    if (!string.IsNullOrWhiteSpace(entry.SourceId))
+                        knownIds.Add(entry.SourceId);
+                    if (!string.IsNullOrWhiteSpace(entry.ImageUrl))
+                        knownUrls.Add(entry.ImageUrl);
+                    if (!string.IsNullOrWhiteSpace(entry.PageUrl))
+                        knownUrls.Add(entry.PageUrl);
+                    knownIds.Add(entry.Id);
                 }
 
-                var path = await FeedImages.SaveToLibraryAsync(wallpaper, cancellationToken).ConfigureAwait(false);
-                var entry = new WallpaperLibraryEntry
+                var addedIds = new List<string>();
+                foreach (var wallpaper in page.Items.Take(MaximumFeedItemsPerTick))
                 {
-                    Id = wallpaper.Id,
-                    Title = $"Wallhaven #{wallpaper.Id}",
-                    PageUrl = pageUrl,
-                    ImageUrl = imageUrl,
-                    LocalPath = path,
-                    Category = wallpaper.Category,
-                    Purity = wallpaper.Purity,
-                    Width = wallpaper.Width,
-                    Height = wallpaper.Height,
-                    Ratio = wallpaper.Ratio,
-                    SavedAtUtc = DateTimeOffset.UtcNow,
-                    Collection = "Unsorted",
-                    SourceId = wallpaper.Id,
-                    SourceQuery = feed.Filters.Query,
-                    Colors = string.Join(", ", wallpaper.Colors)
-                };
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var imageUrl = wallpaper.ImageUrl.ToString();
+                    var pageUrl = wallpaper.PageUrl.ToString();
+                    if (knownIds.Contains(wallpaper.Id)
+                        || knownUrls.Contains(imageUrl)
+                        || knownUrls.Contains(pageUrl))
+                    {
+                        continue;
+                    }
 
-                await _library.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
-                knownIds.Add(wallpaper.Id);
-                knownUrls.Add(imageUrl);
-                knownUrls.Add(pageUrl);
-                addedIds.Add(entry.Id);
-            }
+                    var path = await FeedImages.SaveToLibraryAsync(wallpaper, cancellationToken).ConfigureAwait(false);
+                    var entry = new WallpaperLibraryEntry
+                    {
+                        Id = wallpaper.Id,
+                        Title = $"Wallhaven #{wallpaper.Id}",
+                        PageUrl = pageUrl,
+                        ImageUrl = imageUrl,
+                        LocalPath = path,
+                        Category = wallpaper.Category,
+                        Purity = wallpaper.Purity,
+                        Width = wallpaper.Width,
+                        Height = wallpaper.Height,
+                        Ratio = wallpaper.Ratio,
+                        SavedAtUtc = DateTimeOffset.UtcNow,
+                        Collection = "Unsorted",
+                        SourceId = wallpaper.Id,
+                        SourceQuery = feed.Filters.Query,
+                        Colors = string.Join(", ", wallpaper.Colors)
+                    };
 
-            string message;
-            if (addedIds.Count == 0)
-            {
-                message = $"'{feedName}' found no new wallpapers.";
-            }
-            else if (applyImmediately)
-            {
-                appliedId = await ApplyFetchedWallpapersAsync(
-                    addedIds[0], feedName, cancellationToken).ConfigureAwait(false);
-                message = appliedId is not null
-                    ? $"Added {addedIds.Count} new wallpaper(s) from '{feedName}' and applied one."
-                    : $"Added {addedIds.Count} new wallpaper(s) from '{feedName}'. The first one is pending for the next rotation.";
-            }
-            else
-            {
-                // Scheduled fetch: no RotateNowAsync, no countdown reset. Eligible
-                // schedules pick the image up on their own next tick.
-                await QueueFetchedWallpapersAsync(addedIds[0], feedName).ConfigureAwait(false);
-                message = $"Added {addedIds.Count} new wallpaper(s) from '{feedName}'. "
-                          + "The first one will be applied on the next scheduled change.";
-            }
+                    await _library.UpsertAsync(entry, cancellationToken).ConfigureAwait(false);
+                    knownIds.Add(wallpaper.Id);
+                    knownUrls.Add(imageUrl);
+                    knownUrls.Add(pageUrl);
+                    addedIds.Add(entry.Id);
+                }
 
-            TryRecordFetch(() => WallhavenFeedStore.RecordFetchResult(feedId, true, now, appliedId));
-            await RefreshLibraryStatusAsync().ConfigureAwait(false);
-            RefreshFeeds();
-            SetFeedStatus(message);
-            NotifyTray("Ori · rotation feeds", message);
+                string message;
+                if (addedIds.Count == 0)
+                {
+                    message = $"'{feedName}' found no new wallpapers.";
+                }
+                else if (applyImmediately)
+                {
+                    appliedId = await ApplyFetchedWallpapersAsync(
+                        addedIds[0], feedName, cancellationToken).ConfigureAwait(false);
+                    message = appliedId is not null
+                        ? $"Added {addedIds.Count} new wallpaper(s) from '{feedName}' and applied one."
+                        : $"Added {addedIds.Count} new wallpaper(s) from '{feedName}'. The first one is pending for the next rotation.";
+                }
+                else
+                {
+                    // Scheduled fetch: no RotateNowAsync, no countdown reset. Eligible
+                    // schedules pick the image up on their own next tick.
+                    await QueueFetchedWallpapersAsync(addedIds[0], feedName).ConfigureAwait(false);
+                    message = $"Added {addedIds.Count} new wallpaper(s) from '{feedName}'. "
+                              + "The first one will be applied on the next scheduled change.";
+                }
+
+                // Stamp completion time, not the time the (possibly slow) fetch began.
+                TryRecordFetch(() => WallhavenFeedStore.RecordFetchResult(
+                    feedId, true, DateTimeOffset.UtcNow, appliedId));
+                await RefreshLibraryStatusAsync().ConfigureAwait(false);
+                RefreshFeeds();
+                SetFeedStatus(message);
+                NotifyTray("Ori · rotation feeds", message);
+            }
+            catch (Exception ex) when (IsLocalIoFailure(ex))
+            {
+                // A full disk, a locked library index or a failed UI marshal is not a
+                // Wallhaven failure: do not increment ConsecutiveFailures or back off.
+                var localMessage = $"Could not save wallpapers from '{feedName}': {ex.Message}";
+                SetFeedStatus(localMessage);
+                NotifyTray("Ori · rotation feeds", localMessage, error: true);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -1453,7 +1669,8 @@ public sealed class AutomationViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            TryRecordFetch(() => WallhavenFeedStore.RecordFetchResult(feedId, false, now));
+            TryRecordFetch(() => WallhavenFeedStore.RecordFetchResult(
+                feedId, false, DateTimeOffset.UtcNow));
             var updated = FindFeed(feedId);
             var failures = updated?.ConsecutiveFailures ?? 1;
             var backoff = updated?.BackoffUntilUtc;
@@ -1466,6 +1683,10 @@ public sealed class AutomationViewModel : ViewModelBase
             RefreshFeeds();
         }
     }
+
+    /// <summary>Library/file failures are local, not Wallhaven HTTP failures.</summary>
+    private static bool IsLocalIoFailure(Exception ex) =>
+        ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException;
 
     /// <summary>
     /// Queues a freshly downloaded image for the next scheduled rotation. Used only
@@ -1673,10 +1894,9 @@ public sealed class AutomationViewModel : ViewModelBase
             UpdateAllSessions();
         }
 
-        if (_dispatcher.CheckAccess())
-            apply();
-        else
-            _ = _dispatcher.InvokeAsync(apply);
+        // Feed fetches call this from the thread pool; never leave an unobserved
+        // InvokeAsync task behind if the dispatcher is shutting down.
+        _ = TryInvokeOnDispatcherAsync(apply);
     }
 
     internal void SetFeedEnabled(string id, bool enabled) =>
@@ -1881,6 +2101,23 @@ public sealed class AutomationViewModel : ViewModelBase
             {
                 session.StatusMessage = $"Rotation stopped: {ex.Message}";
             }
+        }
+
+        // Observe the loop's watcher explicitly instead of leaving a fire-and-forget
+        // task to fault on a dispatcher that may be gone during shutdown.
+        var observer = session.LoopObserverTask;
+        if (observer is not null)
+        {
+            try
+            {
+                await observer;
+            }
+            catch
+            {
+                // Observer already reports loop failures in the session status.
+            }
+            if (ReferenceEquals(session.LoopObserverTask, observer))
+                session.LoopObserverTask = null;
         }
 
         if (ReferenceEquals(session.LoopTask, loopTask) && loopTask is not null)
@@ -2268,6 +2505,8 @@ public sealed class DisplayScheduleViewModel : ViewModelBase
     internal RotationLoop Loop = new();
     internal CancellationTokenSource? LoopCancellation;
     internal Task? LoopTask;
+    // The loop observer is kept so shutdown can observe it instead of abandoning it.
+    internal Task? LoopObserverTask;
     internal CancellationTokenSource? ManualCancellation;
     internal Task? ManualTask;
     internal DateTimeOffset? NextRunUtc;

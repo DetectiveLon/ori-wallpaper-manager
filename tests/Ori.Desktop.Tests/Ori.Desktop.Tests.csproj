@@ -20,4 +20,12 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ori.Desktop\Ori.Desktop.csproj" />
   </ItemGroup>
+  <!-- Link the updater's parser/redirect guard source so these tests exercise
+       the exact files the executable compiles, without adding a reference to a
+       self-contained single-file EXE project. -->
+  <ItemGroup>
+    <Compile Include="..\..\tools\Ori.Updater\UpdateException.cs" Link="Ori.Updater\UpdateException.cs" />
+    <Compile Include="..\..\tools\Ori.Updater\UpdateManifest.cs" Link="Ori.Updater\UpdateManifest.cs" />
+    <Compile Include="..\..\tools\Ori.Updater\SecureHttp.cs" Link="Ori.Updater\SecureHttp.cs" />
+  </ItemGroup>
 </Project>

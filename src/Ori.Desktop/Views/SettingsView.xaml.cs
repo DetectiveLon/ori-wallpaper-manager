@@ -31,10 +31,16 @@ public partial class SettingsView : UserControl
         _viewModel.ApiKeyCleared += OnApiKeyCleared;
 
         _viewModel.RefreshApiKey();
+        // Views are cached: the cache folder changes while other pages are open,
+        // so re-read it on every visit instead of trusting the constructor value.
+        _viewModel.RefreshCache();
         // The optional update check may finish after this view was constructed.
         _viewModel.RefreshUpdateStatus();
         ApiKeyBox.Password = _viewModel.ApiKey;
     }
+
+    /// <summary>Used by the shell when the background update check completes.</summary>
+    internal void RefreshUpdateStatus() => _viewModel.RefreshUpdateStatus();
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {

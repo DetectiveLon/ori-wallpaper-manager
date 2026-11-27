@@ -3,11 +3,18 @@
     Static theme-regression audit for the Ori WPF shell.
 
 .DESCRIPTION
-    Scans every *.xaml under src/Ori.Desktop and flags controls that:
-      * set Background / Foreground / BorderBrush to a literal white or a
-        SystemColors brush, or
-      * are IsEnabled="False" without an explicit Style (the WPF default
-        disabled template is what originally turned controls white).
+    Scans every *.xaml under src/Ori.Desktop and flags:
+      * any element whose brush-like attribute (Background, Foreground,
+        BorderBrush, Fill, Stroke, Color, *Brush) is a literal white or a
+        SystemColors brush — including SolidColorBrush Color in App.xaml and
+        brushes on Border / Popup / Window / Expander, and
+      * controls that are IsEnabled="False" without an explicit Style (the WPF
+        default disabled template is what originally turned controls white).
+
+    Intentional resources are exempt only through the explicit $brushAllowlist
+    below, keyed by relative XAML path, element, attribute and value. No
+    intentional white brush ships today, so the list is empty; every entry must
+    be reviewed alongside docs/QA-SMOKE.md before it is added.
 
     Prints a compact file:line:element report and exits 1 when anything is
     found, 0 when clean. Uses only PowerShell built-ins and System.Xml; no
@@ -26,9 +33,15 @@ $ErrorActionPreference = 'Stop'
 if (-not $Root) { $Root = (Get-Location).Path }
 
 $xamlRoot        = Join-Path $Root 'src' 'Ori.Desktop'
-$targetElements  = @('CheckBox', 'TextBox', 'PasswordBox', 'ListBox', 'ComboBox', 'Button', 'ScrollBar')
-$brushProperties = @('Background', 'Foreground', 'BorderBrush')
+$brushProperties = @('Background', 'Foreground', 'BorderBrush', 'Fill', 'Stroke', 'Color')
+$disabledTargets = @('CheckBox', 'TextBox', 'PasswordBox', 'ListBox', 'ComboBox', 'Button', 'ScrollBar')
 $presentationNs  = 'http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+
+# Format: '<relative xaml path>|<element local name>|<attribute name>|<value>'.
+# Empty by design: no intentional white/SystemColors brush exists in the shell.
+$brushAllowlist = @()
+$allowlist = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($entry in $brushAllowlist) { [void]$allowlist.Add($entry) }
 
 $findings      = New-Object System.Collections.Generic.List[string]
 $filesScanned  = 0
@@ -53,7 +66,6 @@ foreach ($file in $files) {
             if ($reader.NodeType -ne [System.Xml.XmlNodeType]::Element) { continue }
 
             $elementName = $reader.LocalName
-            if ($targetElements -notcontains $elementName) { continue }
             # Ignore look-alike elements from non-presentation namespaces.
             if ($reader.NamespaceURI -and $reader.NamespaceURI -ne $presentationNs) { continue }
 
@@ -71,23 +83,34 @@ foreach ($file in $files) {
             }
 
             $relPath = $file.FullName.Substring($Root.Length).TrimStart('\', '/')
+            $relKey  = $relPath.Replace('\', '/')
 
-            foreach ($prop in $brushProperties) {
-                if (-not $attr.ContainsKey($prop)) { continue }
-                $value = $attr[$prop].Trim()
+            foreach ($key in $attr.Keys) {
+                $value = [string]$attr[$key]
+                $isBrushAttribute = ($brushProperties -contains $key) -or
+                                    ($key -match '(?i)(?:Brush|Background|Foreground|Fill|Stroke|Color)$') -or
+                                    ($key -eq 'Value' -and $attr.ContainsKey('Property') -and
+                                     ([string]$attr['Property']) -match '(?i)(?:Brush|Background|Foreground|Fill|Stroke)$')
+                if (-not $isBrushAttribute) { continue }
 
-                $isWhite = (($value -match '(?i)^#(?:FFF|FFFFFF|FFFFFFFF)$') -or
-                            ($value -match '(?i)\bWhite\b'))
-                $isSystemColors = ($value -match '(?i)SystemColors')
+                $trimmed = $value.Trim()
+                $isWhite = (($trimmed -match '(?i)^#(?:FFFF|FFFFFF|FFFFFFFF)$') -or
+                            ($trimmed -match '(?i)\bWhite\b'))
+                $isSystemColors = ($trimmed -match '(?i)SystemColors')
 
-                if ($isWhite -or $isSystemColors) {
-                    $kind = if ($isSystemColors) { 'SystemColors' } else { 'literal-white' }
-                    [void]$findings.Add(('{0}:{1}  {2}.{3}="{4}"  [{5}]' -f
-                        $relPath, $line, $elementName, $prop, $value, $kind))
+                if (-not ($isWhite -or $isSystemColors)) { continue }
+
+                if ($allowlist.Contains(('{0}|{1}|{2}|{3}' -f $relKey, $elementName, $key, $trimmed))) {
+                    continue
                 }
+
+                $kind = if ($isSystemColors) { 'SystemColors' } else { 'literal-white' }
+                [void]$findings.Add(('{0}:{1}  {2}.{3}="{4}"  [{5}]' -f
+                    $relPath, $line, $elementName, $key, $trimmed, $kind))
             }
 
-            if ($attr.ContainsKey('IsEnabled') -and
+            if ($disabledTargets -contains $elementName -and
+                $attr.ContainsKey('IsEnabled') -and
                 ($attr['IsEnabled'] -match '^(?i:false)$') -and
                 (-not $attr.ContainsKey('Style'))) {
                 [void]$findings.Add(('{0}:{1}  {2} IsEnabled=False without explicit Style  [disabled-no-style]' -f

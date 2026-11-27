@@ -10,7 +10,7 @@ Run this after the integrator produces a build: launch Ori from the build output
 - [ ] Text is legible: primary/muted/accent brushes, no white-on-white or dark-on-dark text.
 - [ ] Failures appear as inline status text with a refresh/retry action, never as a blocking modal dialog.
 - [ ] **Error log:** `%LOCALAPPDATA%\Ori\logs\errors.log`. The same path is printed under **Settings → DATA & ABOUT → Error log**. The log rotates (bounded size/history) and is redacted so API keys and other sensitive values are not written in plaintext. If anything looks wrong, note the last timestamped entry there.
-- [ ] Optional static guard (not CI-wired): `pwsh -NoProfile -File scripts/check-theme.ps1` — exit 0 = clean, exit 1 = findings to review. It flags literal white/SystemColors brushes and disabled controls with no explicit Style.
+- [ ] Static guard (CI-wired in both workflows): `pwsh -NoProfile -File scripts/check-theme.ps1` — exit 0 = clean, exit 1 = findings to review. It scans every XAML element for literal white/SystemColors brushes (including `SolidColorBrush Color` in `App.xaml`) and flags disabled controls with no explicit Style.
 
 ## Landing / navigation (Discover is the landing page)
 
@@ -37,7 +37,7 @@ Run this after the integrator produces a build: launch Ori from the build output
 - [ ] Disabled Refresh (when nothing to refresh) is visibly dimmed, not a white button.
 - [ ] Card grid: dark card surfaces, dark thumbnail placeholders, legible title/detail text. No white tile while images decode.
 - [ ] Per-card buttons (Set, Favorite, Open, Remove, Move) and the per-card collection ComboBox are dark in normal, hover and disabled states.
-- [ ] Scroll the virtualized list to the end and back: recycled rows do not flash white or show white gaps.
+- [ ] Scroll the card grid to the bottom of the page and back: cards throughout the page stay dark with no white gaps (the library is paged, not virtualized).
 - [ ] Empty-library message panel is dark; "Apply target" still lists both monitors.
 - [ ] Inline status text is readable; check `errors.log` after any failed open/apply.
 
@@ -77,4 +77,4 @@ Run this after the integrator produces a build: launch Ori from the build output
 - [ ] Library folder import adds images and duplicate detection skips already-saved files; collections and the editable collection ComboBox work.
 - [ ] Discover's "ROTATION FEEDS" section saves current filters as a named feed with a chosen cadence. After a restart, feed order, enable state, cadence, last-fetched time and backoff all persist, and fetching cycles to the next due feed rather than reusing the same one.
 - [ ] Portable release: download the self-contained zip, extract and run `Ori.exe` on a PC **without** the .NET Desktop Runtime — it must start.
-- [ ] (Optional, if Inno Setup available) the per-user installer installs to `%LOCALAPPDATA%\Ori`, adds Start menu/uninstall entries, and uninstall preserves library/logs.
+- [ ] (Optional, if Inno Setup available) the per-user installer installs binaries to `%LOCALAPPDATA%\Programs\Ori` (including `Ori.Updater.exe`), adds Start menu/uninstall entries, and uninstall preserves library/logs under `%LOCALAPPDATA%\Ori`.

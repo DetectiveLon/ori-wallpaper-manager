@@ -32,7 +32,6 @@ public sealed class ValidateWallpaperPathTests : IDisposable
     [InlineData(".jpeg")]
     [InlineData(".png")]
     [InlineData(".bmp")]
-    [InlineData(".dib")]
     [InlineData(".tif")]
     [InlineData(".tiff")]
     public void Accepts_supported_image_extensions(string extension)
@@ -45,6 +44,7 @@ public sealed class ValidateWallpaperPathTests : IDisposable
     [Theory]
     [InlineData(".gif")]
     [InlineData(".webp")]
+    [InlineData(".dib")]
     [InlineData(".txt")]
     [InlineData("")]
     public void Rejects_unsupported_or_missing_extensions(string extension)

@@ -32,8 +32,8 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
         if (interval < TimeSpan.FromMinutes(1) || interval > TimeSpan.FromDays(7))
             throw new ArgumentOutOfRangeException(nameof(interval));
 
-        if (lastCompletedAt is null)
-            return now + interval;
+        if (lastCompletedAt is null || lastCompletedAt.Value > now)
+            return now + interval; // A completion timestamp from the future is stale clock state.
 
         var candidate = lastCompletedAt.Value + interval;
         // Missed intervals are skipped, never replayed in a burst after sleep or shutdown.
@@ -118,7 +118,20 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
                 continue;
             }
 
-            var remaining = nextRun - _timeProvider.GetUtcNow();
+            var now = _timeProvider.GetUtcNow();
+            var remaining = nextRun - now;
+            if (remaining > interval)
+            {
+                // The clock jumped backwards: a deadline computed before the jump
+                // must not stretch this interval.
+                nextRun = now + interval;
+                remaining = interval;
+                if (nextRunChanged is not null)
+                    await nextRunChanged(nextRun).ConfigureAwait(false);
+            }
+            if (remaining < TimeSpan.Zero)
+                remaining = TimeSpan.Zero; // A forward jump must not produce a negative wait.
+
             if (remaining > TimeSpan.Zero)
             {
                 var waitDuration = remaining < PausePollInterval

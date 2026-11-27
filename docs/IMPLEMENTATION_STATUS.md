@@ -49,9 +49,12 @@ This is a progress record, not a release-readiness claim.
   in Settings plus a tray balloon. Applying an update is still a deliberate
   manual download/install, not an automatic in-app swap.
 - Static regression guards: `scripts/check-theme.ps1`, `check-buttons.ps1`,
-  `check-tray.ps1`, `check-invariants.ps1`. `check-buttons.ps1` now allowlists the
-  documented binding-only controls and runs with `-Strict` in CI/release;
-  `check-invariants.ps1` also checks handler bodies and hardcoded app versions.
+  `check-tray.ps1`, `check-invariants.ps1`. `check-buttons.ps1` scans toggles,
+  hyperlinks, radio buttons and `.InputBindings`, keys its 27 reviewed
+  binding-only entries by attribute name and binding path, and runs with
+  `-Strict` in CI/release; `check-invariants.ps1` resolves each tray handler's
+  target and checks that body plus hardcoded app versions. `check-theme.ps1`
+  scans all XAML elements for white/SystemColors brushes.
 - **Packaging (this pass):** self-contained single-file win-x64 release via
   `scripts/publish.ps1`; optional per-user Inno Setup installer under
   `tools/installer/`; separate `tools/Ori.Updater` process; exact SDK pin in
@@ -98,6 +101,6 @@ The new desktop test project, the publish/updater packaging change and the
 guard updates were authored but **not built or run locally** in this agent pass
 (the repository's agent rules reserve builds for the integrator). CI is the
 first place they execute as a whole. Static checks that were run:
-`check-buttons.ps1` (21 documented binding-only controls allowlisted, 0
+`check-buttons.ps1` (27 documented binding-only entries, 28 controls, 0
 remaining findings, also 0 under `-Strict`) and `check-invariants.ps1` (including the new handler-body and version guards;
 both scripts now pass on the current tree).

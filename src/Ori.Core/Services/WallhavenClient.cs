@@ -63,7 +63,7 @@ public sealed class WallhavenClient
     private static bool HasAutoRedirectEnabled(HttpClient client)
     {
         // Best-effort invariant check: the redirect guard below only sees 3xx responses
-        // when the handler does not follow them internally.
+        // when no handler in the chain follows them internally.
         object? handler = null;
         for (var clientType = typeof(HttpClient); clientType is not null && handler is null; clientType = clientType.BaseType)
         {
@@ -71,13 +71,36 @@ public sealed class WallhavenClient
             handler = field?.GetValue(client);
         }
 
-        for (var type = handler?.GetType(); type is not null; type = type.BaseType)
+        var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        while (handler is not null && visited.Add(handler))
         {
-            var property = type.GetProperty("AllowAutoRedirect", BindingFlags.Instance | BindingFlags.Public);
-            if (property?.GetValue(handler) is bool enabled)
-                return enabled;
+            for (var type = handler.GetType(); type is not null; type = type.BaseType)
+            {
+                var property = type.GetProperty("AllowAutoRedirect", BindingFlags.Instance | BindingFlags.Public);
+                if (property?.GetValue(handler) is bool enabled && enabled)
+                    return true;
+            }
+
+            handler = GetInnerHandler(handler);
         }
         return false;
+    }
+
+    private static object? GetInnerHandler(object handler)
+    {
+        if (handler is DelegatingHandler delegating)
+            return delegating.InnerHandler;
+
+        for (var type = handler.GetType(); type is not null; type = type.BaseType)
+        {
+            var field = type.GetField("_innerHandler", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field is not null)
+                return field.GetValue(handler);
+            var property = type.GetProperty("InnerHandler", BindingFlags.Instance | BindingFlags.Public);
+            if (property is not null)
+                return property.GetValue(handler);
+        }
+        return null;
     }
 
     public async Task<WallhavenSearchPage> SearchAsync(

@@ -28,9 +28,12 @@ For tag `v1.0.0`, `artifacts/` contains:
 - `update-manifest.json` — JSON manifest consumed by `Ori.Updater`.
 - `Ori.exe` — the raw single-file EXE used by the optional Inno Setup build.
 
-All are attached to the GitHub Release and uploaded as a workflow artifact;
-their SHA-256 hashes are printed by the script and written into the manifest and
-release notes.
+The zip, the versioned standalone EXE and `update-manifest.json` are attached to
+the GitHub Release and uploaded as a workflow artifact; the raw `Ori.exe` and
+`Ori.Updater.exe` are local staging inputs for the optional installer and are
+**not** Release assets. The zip and standalone EXE hashes are printed by the
+script, written into the manifest/release notes, and re-validated against the
+published asset after the Release is created.
 
 ## Prerequisites
 
@@ -92,8 +95,9 @@ Built and shipped:
   `update-manifest.json`, compares `version` against the running app's
   `AssemblyInformationalVersion` and verifies SHA-256. Its `apply` mode can wait
   for the app to exit, back up the old EXE, swap in the new one and relaunch.
-  It is added to `Ori.sln`, built by CI, **and staged into the portable zip** by
-  `scripts/publish.ps1`.
+  It is added to `Ori.sln`, built by CI, **staged into the portable zip** by
+  `scripts/publish.ps1`, and installed next to `Ori.exe` by the optional
+  Inno Setup installer.
 - The release pipeline publishes the manifest and standalone EXE as assets and
   parses the generated manifest back to confirm version/asset alignment.
 

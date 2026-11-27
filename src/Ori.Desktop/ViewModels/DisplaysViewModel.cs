@@ -28,6 +28,7 @@ public sealed class DisplaysViewModel : ViewModelBase
     private double _originTop;
     private bool _originVisible;
     private bool _noMonitors;
+    private bool _positionKnown = true;
 
     public DisplaysViewModel()
     {
@@ -124,6 +125,12 @@ public sealed class DisplaysViewModel : ViewModelBase
     public DisplayCardViewModel? SelectedMonitor => _selectedMonitor;
 
     public bool IsSpanActive => CurrentPosition == DesktopWallpaperPosition.Span;
+
+    /// <summary>False when Windows could not report the fit mode and Fill is only an assumption.</summary>
+    public bool PositionKnown => _positionKnown;
+
+    /// <summary>Used by the view to show an explicit "assumed Fill" warning.</summary>
+    public bool PositionFallbackVisible => !_positionKnown;
 
     // Per-mode flags drive the fit illustration's visual states in XAML without a
     // converter or a second page-level style library.
@@ -226,16 +233,18 @@ public sealed class DisplaysViewModel : ViewModelBase
         }
     }
 
-    public string PositionDescription => CurrentPosition switch
-    {
-        DesktopWallpaperPosition.Fill => "Fill: the image covers each screen; edges may be cropped.",
-        DesktopWallpaperPosition.Fit => "Fit: the whole image is visible; bars may appear.",
-        DesktopWallpaperPosition.Stretch => "Stretch: the image is stretched to the screen and may look distorted.",
-        DesktopWallpaperPosition.Center => "Center: the image is shown at its original size.",
-        DesktopWallpaperPosition.Tile => "Tile: the image repeats across the screen.",
-        DesktopWallpaperPosition.Span => "Span: one image stretches across every display.",
-        _ => "Windows did not report a recognised fit mode; Fill is assumed."
-    };
+    public string PositionDescription => !PositionKnown
+        ? "Fit mode could not be read from Windows; Fill is assumed, not confirmed."
+        : (CurrentPosition switch
+        {
+            DesktopWallpaperPosition.Fill => "Fill: the image covers each screen; edges may be cropped.",
+            DesktopWallpaperPosition.Fit => "Fit: the whole image is visible; bars may appear.",
+            DesktopWallpaperPosition.Stretch => "Stretch: the image is stretched to the screen and may look distorted.",
+            DesktopWallpaperPosition.Center => "Center: the image is shown at its original size.",
+            DesktopWallpaperPosition.Tile => "Tile: the image repeats across the screen.",
+            DesktopWallpaperPosition.Span => "Span: one image stretches across every display.",
+            _ => "Windows did not report a recognised fit mode; Fill is assumed."
+        });
 
     /// <summary>Applies the picked image to one display and reports the result inline.</summary>
     public void ApplyWallpaper(DisplayCardViewModel monitor, string imagePath)
@@ -253,9 +262,10 @@ public sealed class DisplaysViewModel : ViewModelBase
             // Applying a per-monitor image resets a leaked global Span to Fill.
             // Re-read the OS fit mode so the picker, illustration and Span
             // warning update in the same frame as the new wallpaper.
-            RefreshPosition();
+            var positionKnown = RefreshPosition();
             RefreshDisplays();
-            Status = $"Wallpaper applied to {monitor.DisplayName}. Fit mode: {PositionDescription}";
+            ReportStatus(positionKnown && PositionKnown,
+                $"Wallpaper applied to {monitor.DisplayName}. Fit mode: {PositionDescription}");
         }
         catch (Exception ex)
         {
@@ -284,7 +294,10 @@ public sealed class DisplaysViewModel : ViewModelBase
         try
         {
             WindowsDesktopWallpaper.SetPosition(position);
+            _positionKnown = true;
             CurrentPosition = position;
+            OnPropertyChanged(nameof(PositionKnown));
+            OnPropertyChanged(nameof(PositionFallbackVisible));
             Status = $"Fit mode set. {PositionDescription} This applies to every display.";
         }
         catch (Exception ex)
@@ -346,8 +359,9 @@ public sealed class DisplaysViewModel : ViewModelBase
             var target = Monitors.FirstOrDefault(monitor => monitor.Id == rememberedId) ?? primary;
             SetSelectedMonitor(target, persist: false);
 
-            RefreshPosition();
-            Status = $"{Monitors.Count} display(s) detected. Images can differ per display; Windows uses one shared fit mode.";
+            var positionKnown = RefreshPosition();
+            ReportStatus(positionKnown,
+                $"{Monitors.Count} display(s) detected. Images can differ per display; Windows uses one shared fit mode.");
         }
         catch (Exception ex)
         {
@@ -410,24 +424,58 @@ public sealed class DisplaysViewModel : ViewModelBase
         OriginVisible = left <= 0 && right >= 0 && top <= 0 && bottom >= 0;
     }
 
-    private void RefreshPosition()
+    /// <summary>
+    /// Re-reads the OS fit mode. Returns false (and keeps a clearly flagged Fill
+    /// fallback) when Windows cannot report one, so callers never overwrite the
+    /// warning with a success message and never rely on a stale Span state.
+    /// </summary>
+    private bool RefreshPosition()
     {
         try
         {
             // A programmatic refresh must never be mistaken for a user choosing
             // a fit mode and pushed back to Windows as a change.
             _suppressPositionApplication = true;
-            CurrentPosition = WindowsDesktopWallpaper.GetPosition();
+            var position = WindowsDesktopWallpaper.GetPosition();
+            _positionKnown = true;
+            CurrentPosition = position;
+            OnPropertyChanged(nameof(PositionKnown));
+            OnPropertyChanged(nameof(PositionFallbackVisible));
+            return true;
         }
         catch (Exception ex)
         {
-            Status = $"Could not read the current fit mode: {ex.Message}";
+            // Fill is the Windows default and the option already shown in the
+            // picker; keep it as a fallback, but say plainly it is only assumed.
+            _positionKnown = false;
+            _suppressPositionApplication = true;
+            CurrentPosition = DesktopWallpaperPosition.Fill;
+            OnPropertyChanged(nameof(PositionKnown));
+            OnPropertyChanged(nameof(PositionFallbackVisible));
+            OnPropertyChanged(nameof(PositionDescription));
+            AppendStatus($"Could not read the current fit mode: {ex.Message} Fill is assumed, not confirmed.");
+            return false;
         }
         finally
         {
             _suppressPositionApplication = false;
         }
     }
+
+    /// <summary>
+    /// Writes a success message only when the position was actually read.
+    /// Otherwise the position warning stays in view and the message is appended.
+    /// </summary>
+    private void ReportStatus(bool positionKnown, string successMessage)
+    {
+        if (positionKnown || string.IsNullOrWhiteSpace(Status))
+            Status = successMessage;
+        else
+            AppendStatus(successMessage);
+    }
+
+    private void AppendStatus(string message) =>
+        Status = string.IsNullOrWhiteSpace(Status) ? message : $"{Status} {message}";
 }
 
 /// <summary>One selectable fit mode in the global fit picker.</summary>

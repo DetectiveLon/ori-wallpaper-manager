@@ -7,8 +7,9 @@ produces a small, per-user installer. Inno Setup is free/open source and is
 
 ## What it does
 
-- Installs the self-contained, single-file `Ori.exe` into the binaries folder
-  `%LOCALAPPDATA%\Programs\Ori` (no administrator rights needed).
+- Installs the self-contained, single-file `Ori.exe` and `Ori.Updater.exe` into
+  the binaries folder `%LOCALAPPDATA%\Programs\Ori` (no administrator rights
+  needed). The updater must sit next to `Ori.exe` for the startup check.
 - Adds a Start menu folder and an Add/Remove Programs (uninstall) entry.
 - Adds an optional desktop shortcut.
 - **Reuses the app's own launch-at-sign-in setting**: the installer deliberately
@@ -28,8 +29,8 @@ produces a small, per-user installer. Inno Setup is free/open source and is
    pwsh ./scripts/publish.ps1 -Tag v1.0.0
    ```
 
-   This writes `artifacts/Ori.exe`, `artifacts/update-manifest.json` and the
-   versioned zip/EXE.
+   This writes `artifacts/Ori.exe`, `artifacts/Ori.Updater.exe`,
+   `artifacts/update-manifest.json` and the versioned zip/EXE.
 
 2. Install Inno Setup 6 from <https://jrsoftware.org/isinfo.php> if you want an
    installer. It is not required for the portable release.
@@ -46,7 +47,8 @@ produces a small, per-user installer. Inno Setup is free/open source and is
    `-Version 1.0.0`). The result is `artifacts/ori-<version>-setup.exe`.
 
 You can also compile directly with `iscc /DAppVersion=1.0.0
-/DSourceExe=<abs path to Ori.exe> Ori.iss`.
+/DSourceExe=<abs path to Ori.exe> /DSourceUpdater=<abs path to Ori.Updater.exe>
+Ori.iss`.
 
 ## Signing / SmartScreen
 

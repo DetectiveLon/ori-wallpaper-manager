@@ -24,14 +24,17 @@ Status meanings:
   or the screen is unreachable.
 
 A machine-checkable companion lives at `scripts/check-buttons.ps1` (attribute-level
-guard: flags `Button`/`ComboBox`/`CheckBox`/`ListBox` with no `Command` and no
-`Click`/`SelectionChanged`/`Checked` handler, plus literal `IsEnabled="False"`).
-It intentionally cannot detect the semantic failures marked **broken** below —
-those need this document. Before allowlisting it reported 21 findings, all of them
-binding-only `SelectedItem` / `IsChecked` / `ItemsSource` / `Text` controls that this
-inventory confirms are genuinely wired. Those 21 are now an explicit allowlist in
-the script (see "Binding-only allowlist" below), leaving zero findings; CI and
-Release call the script with `-Strict` so any new dead control fails the build.
+guard: flags `Button`/`ComboBox`/`CheckBox`/`ListBox`/`ToggleButton`/`Hyperlink`/
+`RadioButton` with no `Command` and no `Click`/`SelectionChanged`/`Checked`/
+`Unchecked`/`RequestNavigate` handler, `.InputBindings` blocks with no `Command`,
+plus literal `IsEnabled="False"`). It intentionally cannot detect the semantic
+failures marked **broken** below — those need this document. The original audit
+reported 21 findings, all of them binding-only `SelectedItem` / `IsChecked` /
+`ItemsSource` / `Text` controls that this inventory confirms are genuinely wired.
+After extending the guard to toggles and input bindings, the reviewed allowlist
+has 27 entries covering 28 controls (see "Binding-only allowlist" below), leaving
+zero findings; CI and Release call the script with `-Strict` so any new dead
+control fails the build.
 `scripts/check-invariants.ps1` also guards the packaging/SDK/version invariants
 added in `v2-shell`, now including tray handler bodies and hardcoded versions.
 
@@ -39,16 +42,19 @@ added in `v2-shell`, now including tray handler bodies and hardcoded versions.
 
 These controls intentionally have no `Command`/`Click` handler: they act through
 a two-way `SelectedItem`, `IsChecked`, `ItemsSource` or `Text` binding. The script
-keys entries by relative XAML path, element name and one binding path, so moving
-a control to another line does not change the result. Adding a new binding-only
-control requires a reviewed entry here **and** in the script.
+keys entries by relative XAML path, element name, **attribute name** and binding
+path, so moving a control to another line — or reusing a familiar path in a
+different attribute — cannot silently allowlist it. Bindings to a
+`TemplatedParent` are control-template plumbing and are treated as wired without
+an entry. Adding a new binding-only control requires a reviewed entry here **and**
+in the script.
 
-| View | Controls (binding path) |
+| View | Controls (`Element.Attribute` → binding path) |
 |---|---|
-| AutomationView | Master pause check (`PauseWhenFullscreen`); auto-fetch check (`AutoFetchFromWallhaven`); feed enabled check (`IsEnabled`); feed cadence combo (`CadenceMinutes`); interval combo (`SelectedInterval`) |
-| DiscoverView | Feed cadence (`SelectedFeedCadence`); sorting (`SelectedSorting`); toplist period (`SelectedTopRange`); order (`SelectedOrder`); aspect ratio (`SelectedRatio`); target display (`SelectedMonitor`); results list (`SelectedCard`) |
-| DisplaysView | Fit-mode combo (`SelectedPositionOption`) |
-| LibraryView | Collection filter (`SelectedCollectionFilter`); sort (`SelectedSort`); favourites check (`FavoritesOnly`); apply-to combo (`SelectedDisplay`); entries list (`SelectedEntry`); move-to-collection editable combo (`SelectedCollection`); delete-file check (`DeleteFileOnRemove`) |
+| AutomationView | `CheckBox.IsChecked` (`PauseWhenFullscreen`, `AutoFetchFromWallhaven`, `IsEnabled`); `ComboBox.SelectedItem` (`CadenceMinutes`, `SelectedInterval`) |
+| DiscoverView | `ComboBox.SelectedItem` (`SelectedFeedCadence`, `SelectedSorting`, `SelectedTopRange`, `SelectedOrder`, `SelectedRatio`, `SelectedMonitor`); `ListBox.SelectedItem` (`SelectedCard`); `ToggleButton.IsChecked` (`General`, `Anime`, `People`, `Safe`, `Sketchy`, `Explicit`, `IsSelected`) |
+| DisplaysView | `ComboBox.SelectedItem` (`SelectedPositionOption`) |
+| LibraryView | `ComboBox.SelectedItem` (`SelectedCollectionFilter`, `SelectedSort`, `SelectedDisplay`); `ComboBox.Text` (`SelectedCollection`); `CheckBox.IsChecked` (`FavoritesOnly`, `DeleteFileOnRemove`); `ListBox.SelectedItem` (`SelectedEntry`) |
 
 ## Inventory
 
@@ -155,9 +161,10 @@ for "working".
 - Items marked **suspect** need a live smoke test by the integrator before being
   closed; items marked **broken** are statically provable and need a source change
   owned by the integrator (this pass owns only this document and the checker).
-- The checker was re-run with PowerShell 7 after the allowlist landed: 21
-  documented binding-only controls skipped, 0 findings, exit 0 both by default
-  and with `-Strict`. Before the allowlist it reported those same 21 findings
-  (warning-only). The companion `scripts/check-invariants.ps1` was also run; it
+- The checker was re-run with PowerShell 7 after the allowlist landed: 27
+  documented entries (28 controls, because `PauseWhenFullscreen` appears twice)
+  skipped, 0 findings, exit 0 both by default and with `-Strict`. Before the
+  original allowlist it reported 21 findings (warning-only). The companion
+  `scripts/check-invariants.ps1` was also run; it
   passes with the new handler-body and version guards. No build, test,
   launch, commit or push of the application was performed by this pass.

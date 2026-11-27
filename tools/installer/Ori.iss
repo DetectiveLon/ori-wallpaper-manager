@@ -8,7 +8,8 @@
 ; No administrator rights are required and no secrets are embedded.
 ;
 ; Build (Inno Setup is OPTIONAL; see tools/installer/README.md):
-;   iscc /DAppVersion=1.0.0 /DSourceExe="..\..\artifacts\Ori.exe" Ori.iss
+;   iscc /DAppVersion=1.0.0 /DSourceExe="..\..\artifacts\Ori.exe" `
+;        /DSourceUpdater="..\..\artifacts\Ori.Updater.exe" Ori.iss
 ; Or let scripts/build-installer.ps1 discover the published version.
 
 #ifndef AppVersion
@@ -17,6 +18,10 @@
 
 #ifndef SourceExe
   #define SourceExe "..\..\artifacts\Ori.exe"
+#endif
+
+#ifndef SourceUpdater
+  #define SourceUpdater "..\..\artifacts\Ori.Updater.exe"
 #endif
 
 #ifndef SourceIcon
@@ -65,6 +70,8 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 ; The published single-file EXE (self-contained, no .NET runtime needed).
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "{#AppExeName}"; Flags: ignoreversion
+; The separate updater must sit next to Ori.exe for the startup check to run.
+Source: "{#SourceUpdater}"; DestDir: "{app}"; DestName: "Ori.Updater.exe"; Flags: ignoreversion
 Source: "{#SourceIcon}"; DestDir: "{app}"; DestName: "{#AppIconName}"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 #if FileExists("..\..\artifacts\RELEASE-NOTES.txt")
@@ -90,3 +97,5 @@ Filename: "{app}\{#AppExeName}"; Description: "Launch Ori"; Flags: postinstall n
 ; lives in the SEPARATE %LOCALAPPDATA%\Ori folder. No entry here targets that
 ; folder, so uninstall NEVER deletes user data.
 Type: files; Name: "{app}\RELEASE-NOTES.txt"
+; The updater swaps Ori.exe via a temporary .bak; remove any leftover copy.
+Type: files; Name: "{app}\Ori.exe.bak"

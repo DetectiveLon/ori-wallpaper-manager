@@ -37,6 +37,32 @@ public sealed class WallhavenClientResilienceTests
     }
 
     [Fact]
+    public async Task SearchCapsAnAbusiveRetryAfterAtThirtySeconds()
+    {
+        var calls = 0;
+        var delays = new List<TimeSpan>();
+        var handler = new CountingHandler(request =>
+        {
+            calls++;
+            return calls == 1
+                ? RateLimited(TimeSpan.FromHours(24))
+                : JsonResponse("""{"data":[],"meta":{"current_page":1,"last_page":1}}""");
+        });
+        using var http = new HttpClient(handler);
+        var client = new WallhavenClient(http, (delay, _) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        });
+
+        await client.SearchAsync(new WallhavenFilters());
+
+        Assert.Equal(2, calls);
+        var delay = Assert.Single(delays);
+        Assert.Equal(TimeSpan.FromSeconds(30), delay);
+    }
+
+    [Fact]
     public async Task SearchWithoutRetryAfterUsesBoundedExponentialBackoff()
     {
         var calls = 0;

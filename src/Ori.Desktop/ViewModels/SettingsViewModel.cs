@@ -197,7 +197,12 @@ public sealed class SettingsViewModel : ViewModelBase
     {
         try
         {
-            ApiKeyStore.Save(ApiKey);
+            if (!ApiKeyStore.Save(ApiKey))
+            {
+                RefreshKeyStatus();
+                Status = "Could not save the API key. The key file may be locked by another program; try again.";
+                return;
+            }
             RefreshKeyStatus();
             Status = "API key saved.";
         }
@@ -435,7 +440,8 @@ public sealed class SettingsViewModel : ViewModelBase
             : "No key stored. SFW search works without one.";
     }
 
-    private void RefreshCache()
+    /// <summary>Re-reads the cache size when the cached view is revisited.</summary>
+    internal void RefreshCache()
     {
         try
         {

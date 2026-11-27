@@ -74,6 +74,26 @@ public sealed class WallhavenClientTests
     }
 
     [Fact]
+    public void DelegatingHandlerWrappingAutoRedirectIsRejected()
+    {
+        using var inner = new HttpClientHandler { AllowAutoRedirect = true };
+        using var outer = new PassThroughHandler { InnerHandler = inner };
+        using var http = new HttpClient(outer);
+
+        Assert.Throws<ArgumentException>(() => new WallhavenClient(http));
+    }
+
+    [Fact]
+    public void DelegatingHandlerWrappingSafeHandlerIsAccepted()
+    {
+        using var inner = new HttpClientHandler { AllowAutoRedirect = false };
+        using var outer = new PassThroughHandler { InnerHandler = inner };
+        using var http = new HttpClient(outer);
+
+        Assert.NotNull(new WallhavenClient(http));
+    }
+
+    [Fact]
     public async Task SearchSendsTheSharedVersionedUserAgent()
     {
         string? userAgent = null;
@@ -137,6 +157,13 @@ public sealed class WallhavenClientTests
     {
         Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
     };
+
+    private sealed class PassThroughHandler : DelegatingHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            base.SendAsync(request, cancellationToken);
+    }
 
     private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
     {

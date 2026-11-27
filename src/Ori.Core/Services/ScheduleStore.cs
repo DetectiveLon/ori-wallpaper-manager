@@ -63,7 +63,12 @@ public sealed class ScheduleStore
                 return Empty();
 
             if (new FileInfo(_path).Length > MaximumIndexBytes)
+            {
+                // Without a backup the next save would silently replace the file and
+                // destroy every schedule it contained.
+                Quarantine();
                 return Empty();
+            }
 
             ScheduleDocument? document;
             try
@@ -88,8 +93,14 @@ public sealed class ScheduleStore
                 return Empty();
             }
 
-            return document.Entries
-                .Where(entry => !string.IsNullOrWhiteSpace(entry.MonitorId))
+            var stored = document.Entries ?? [];
+            var entries = stored
+                .Where(entry => entry is not null && !string.IsNullOrWhiteSpace(entry.MonitorId))
+                .ToArray();
+            if (entries.Length != stored.Length)
+                Quarantine();
+
+            return entries
                 .GroupBy(entry => entry.MonitorId, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.First().MonitorId, group => group.Last(),
                     StringComparer.OrdinalIgnoreCase);

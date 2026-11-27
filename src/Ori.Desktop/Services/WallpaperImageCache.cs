@@ -28,7 +28,7 @@ public sealed class WallpaperImageCache
         WindowsDesktopWallpaper.SupportedImageExtensions;
 
     public const string UnsupportedFormatMessage =
-        "Skipped: unsupported image format. Ori can only wallpaper with JPG, PNG, BMP, DIB or TIFF images; GIF and WebP are not supported.";
+        "Skipped: unsupported image format. Ori can only wallpaper with JPG, PNG, BMP or TIFF images; GIF and WebP are not supported.";
 
     public static bool IsSupportedImageExtension(string extension) =>
         WindowsDesktopWallpaper.IsSupportedImageExtension(extension);
@@ -161,9 +161,22 @@ public sealed class WallpaperImageCache
         if (Interlocked.Increment(ref _downloadCount) % 25 == 0)
             PruneCache();
 
-        var existing = Directory.EnumerateFiles(_cacheDirectory, prefix + ".*")
-            .FirstOrDefault(path => !path.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
-                && new FileInfo(path).Length > 0);
+        // A file name alone is not a cache hit. Older builds cached GIF/WebP and
+        // other formats under this prefix; returning one copies an unusable image
+        // into the library that fails on every rotation. Only an allowlisted
+        // extension with decodable, bounded image bytes counts as a hit, and a
+        // bad file is removed so the download below replaces it.
+        string? existing = null;
+        foreach (var candidate in Directory.EnumerateFiles(_cacheDirectory, prefix + ".*"))
+        {
+            if (candidate.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (TryUseCachedFile(candidate))
+            {
+                existing = candidate;
+                break;
+            }
+        }
         if (existing is not null)
             return existing;
 
@@ -234,6 +247,45 @@ public sealed class WallpaperImageCache
     }
 
     /// <summary>
+    /// A cached file is a hit only when its extension is allowlisted and its bytes
+    /// decode as a bounded image of a supported format. Anything else is deleted and
+    /// fetched again; a bad cache entry must never reach the library.
+    /// </summary>
+    private static bool TryUseCachedFile(string path)
+    {
+        if (!IsSupportedImageExtension(Path.GetExtension(path)))
+        {
+            TryDeleteCacheFile(path);
+            return false;
+        }
+
+        try
+        {
+            if (new FileInfo(path).Length <= 0)
+            {
+                TryDeleteCacheFile(path);
+                return false;
+            }
+
+            _ = ValidateImageFile(path);
+            return true;
+        }
+        catch (Exception)
+        {
+            // Corrupt/truncated images, decoder failures and locked files are all
+            // treated as misses; a locked file simply survives until the next prune.
+            TryDeleteCacheFile(path);
+            return false;
+        }
+    }
+
+    private static void TryDeleteCacheFile(string path)
+    {
+        try { File.Delete(path); }
+        catch (Exception) { /* A locked file stays until the next prune. */ }
+    }
+
+    /// <summary>
     /// Keeps cache\images bounded: the oldest files go until the folder is back under
     /// 80% of the cap. Files written in the last 24 hours are never touched, so a
     /// parallel preview download cannot lose a file it just resolved. Library images
@@ -247,13 +299,21 @@ public sealed class WallpaperImageCache
             var allFiles = new DirectoryInfo(_cacheDirectory)
                 .EnumerateFiles("*", SearchOption.TopDirectoryOnly)
                 .ToArray();
-            var files = allFiles
+
+            // Legacy cache entries (.gif/.webp/.dib and other non-images) are
+            // never usable. Purge them regardless of age or folder size so a
+            // stale file cannot be mistaken for a hit on a later download.
+            foreach (var file in allFiles.Where(file => !IsSupportedImageExtension(file.Extension)))
+                TryDeleteCacheFile(file.FullName);
+
+            var usableFiles = allFiles.Where(file => IsSupportedImageExtension(file.Extension)).ToArray();
+            var files = usableFiles
                 .Where(file => file.LastWriteTimeUtc < cutoff)
                 .OrderBy(file => file.LastWriteTimeUtc)
                 .ToArray();
             if (files.Length == 0)
                 return;
-            var total = allFiles.Sum(file => file.Length);
+            var total = usableFiles.Sum(file => file.Length);
             var target = MaximumCacheBytes * 8 / 10;
 
             foreach (var file in files)
@@ -300,7 +360,7 @@ public sealed class WallpaperImageCache
     {
         ".jpg" or ".jpeg" => "image/jpeg",
         ".png" => "image/png",
-        ".bmp" or ".dib" => "image/bmp",
+        ".bmp" => "image/bmp",
         ".tif" or ".tiff" => "image/tiff",
         _ => "application/octet-stream"
     };

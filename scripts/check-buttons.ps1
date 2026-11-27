@@ -4,8 +4,11 @@
 
 .DESCRIPTION
     Scans every *.xaml under src/Ori.Desktop and flags:
-      * Button / ComboBox / CheckBox / ListBox elements that have neither a
-        Command attribute nor a Click / SelectionChanged / Checked handler, and
+      * interactive elements (Button, ComboBox, CheckBox, ListBox, ToggleButton,
+        Hyperlink, RadioButton) that have neither a Command attribute nor a
+        Click / SelectionChanged / Checked / Unchecked / RequestNavigate handler,
+      * elements with an *.InputBindings property (for example
+        Border.InputBindings) whose MouseBinding/KeyBinding has no Command, and
       * any element with a literal IsEnabled="False" (a control the user cannot
         click at all, as opposed to a binding such as IsEnabled="{Binding ...}").
 
@@ -14,10 +17,15 @@
     but are not wired in XAML. Binding-only controls (SelectedItem / IsChecked /
     ItemsSource / Text) are legitimate: they are driven by a two-way binding
     instead of a command. The known-good ones are listed in $bindingOnlyAllowlist
-    below and documented in docs/BUG-INVENTORY.md ("Binding-only allowlist");
-    they are not reported. Anything left is a real dead control. Line numbers are
-    deliberately not part of the allowlist keys, so harmless XAML reflow does not
-    create false findings.
+    below and documented in docs/BUG-INVENTORY.md ("Binding-only allowlist").
+    Bindings to a TemplatedParent are control-template plumbing, not app state,
+    and are not allowlisted.
+
+    Allowlist keys include the attribute name as well as the binding path, so a
+    control that reuses a familiar property path in a different attribute is
+    reported instead of being silently allowlisted. Line numbers are
+    deliberately not part of the keys, so harmless XAML reflow does not create
+    false findings.
 
     Prints a compact file:line:element report. Exits 1 only when -Strict is
     supplied and unallowlisted findings exist; otherwise exits 0 and prints a
@@ -42,35 +50,42 @@ if (-not $Root) {
 }
 
 $xamlRoot       = Join-Path (Join-Path $Root 'src') 'Ori.Desktop'
-$targetElements = @('Button', 'ComboBox', 'CheckBox', 'ListBox')
-$handlerAttrs   = @('Click', 'SelectionChanged', 'Checked')
+$targetElements = @('Button', 'ComboBox', 'CheckBox', 'ListBox', 'ToggleButton', 'Hyperlink', 'RadioButton')
+$handlerAttrs   = @('Click', 'SelectionChanged', 'Checked', 'Unchecked', 'RequestNavigate')
 $presentationNs = 'http://schemas.microsoft.com/winfx/2006/xaml/presentation'
 
 # Binding-only controls confirmed wired in docs/BUG-INVENTORY.md. Key format:
-#   '<relative xaml path>|<element local name>|<one {Binding Path} on that element>'
+#   '<relative xaml path>|<element local name>|<attribute name>|<Binding Path>'
 # Paths use '/' so the same list works on Windows and Linux. Several entries may
 # share a key (e.g. two "PauseWhenFullscreen" check boxes on different screens).
 $bindingOnlyAllowlist = @(
-    'src/Ori.Desktop/Views/AutomationView.xaml|CheckBox|PauseWhenFullscreen',
-    'src/Ori.Desktop/Views/AutomationView.xaml|CheckBox|AutoFetchFromWallhaven',
-    'src/Ori.Desktop/Views/AutomationView.xaml|CheckBox|IsEnabled',
-    'src/Ori.Desktop/Views/AutomationView.xaml|ComboBox|CadenceMinutes',
-    'src/Ori.Desktop/Views/AutomationView.xaml|ComboBox|SelectedInterval',
-    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedFeedCadence',
-    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedSorting',
-    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedTopRange',
-    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedOrder',
-    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedRatio',
-    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedMonitor',
-    'src/Ori.Desktop/Views/DiscoverView.xaml|ListBox|SelectedCard',
-    'src/Ori.Desktop/Views/DisplaysView.xaml|ComboBox|SelectedPositionOption',
-    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedCollectionFilter',
-    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedSort',
-    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedDisplay',
-    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedCollection',
-    'src/Ori.Desktop/Views/LibraryView.xaml|CheckBox|FavoritesOnly',
-    'src/Ori.Desktop/Views/LibraryView.xaml|CheckBox|DeleteFileOnRemove',
-    'src/Ori.Desktop/Views/LibraryView.xaml|ListBox|SelectedEntry'
+    'src/Ori.Desktop/Views/AutomationView.xaml|CheckBox|IsChecked|PauseWhenFullscreen',
+    'src/Ori.Desktop/Views/AutomationView.xaml|CheckBox|IsChecked|AutoFetchFromWallhaven',
+    'src/Ori.Desktop/Views/AutomationView.xaml|CheckBox|IsChecked|IsEnabled',
+    'src/Ori.Desktop/Views/AutomationView.xaml|ComboBox|SelectedItem|CadenceMinutes',
+    'src/Ori.Desktop/Views/AutomationView.xaml|ComboBox|SelectedItem|SelectedInterval',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedItem|SelectedFeedCadence',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedItem|SelectedSorting',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedItem|SelectedTopRange',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedItem|SelectedOrder',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedItem|SelectedRatio',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ComboBox|SelectedItem|SelectedMonitor',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ToggleButton|IsChecked|General',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ToggleButton|IsChecked|Anime',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ToggleButton|IsChecked|People',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ToggleButton|IsChecked|Safe',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ToggleButton|IsChecked|Sketchy',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ToggleButton|IsChecked|Explicit',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ListBox|SelectedItem|SelectedCard',
+    'src/Ori.Desktop/Views/DiscoverView.xaml|ToggleButton|IsChecked|IsSelected',
+    'src/Ori.Desktop/Views/DisplaysView.xaml|ComboBox|SelectedItem|SelectedPositionOption',
+    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedItem|SelectedCollectionFilter',
+    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedItem|SelectedSort',
+    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|SelectedItem|SelectedDisplay',
+    'src/Ori.Desktop/Views/LibraryView.xaml|ComboBox|Text|SelectedCollection',
+    'src/Ori.Desktop/Views/LibraryView.xaml|CheckBox|IsChecked|FavoritesOnly',
+    'src/Ori.Desktop/Views/LibraryView.xaml|CheckBox|IsChecked|DeleteFileOnRemove',
+    'src/Ori.Desktop/Views/LibraryView.xaml|ListBox|SelectedItem|SelectedEntry'
 )
 $allowlist = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 foreach ($entry in $bindingOnlyAllowlist) { [void]$allowlist.Add($entry) }
@@ -78,8 +93,10 @@ foreach ($entry in $bindingOnlyAllowlist) { [void]$allowlist.Add($entry) }
 function Test-BindingOnly([string]$relativePath, [string]$elementName, [System.Collections.IDictionary]$attributes) {
     foreach ($key in $attributes.Keys) {
         $value = [string]$attributes[$key]
+        # TemplatedParent bindings wire control-template parts, not view state.
+        if ($value -match 'TemplatedParent') { continue }
         foreach ($match in [regex]::Matches($value, '\{\s*Binding\s+([A-Za-z_][A-Za-z0-9_.]*)')) {
-            $candidate = '{0}|{1}|{2}' -f $relativePath, $elementName, $match.Groups[1].Value
+            $candidate = '{0}|{1}|{2}|{3}' -f $relativePath, $elementName, $key, $match.Groups[1].Value
             if ($allowlist.Contains($candidate)) { return $true }
         }
     }
@@ -105,52 +122,108 @@ foreach ($file in $files) {
 
     try {
         $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($raw))
+        $inInputBindings = $false
+        $inputBindingsDepth = -1
+        $inputBindingsLine = 0
+        $inputBindingsAttributes = @{}
 
         while ($reader.Read()) {
-            if ($reader.NodeType -ne [System.Xml.XmlNodeType]::Element) { continue }
-
-            $elementName = $reader.LocalName
-            # Ignore look-alike elements from non-presentation namespaces.
-            if ($reader.NamespaceURI -and $reader.NamespaceURI -ne $presentationNs) { continue }
-
-            $line = 0
-            $lineInfo = [System.Xml.IXmlLineInfo]$reader
-            if ($null -ne $lineInfo) { $line = $lineInfo.LineNumber }
-
-            $attr = @{}
-            if ($reader.HasAttributes) {
-                for ($i = 0; $i -lt $reader.AttributeCount; $i++) {
-                    [void]$reader.MoveToAttribute($i)
-                    $attr[$reader.LocalName] = $reader.Value
-                }
-                [void]$reader.MoveToElement()
-            }
-
-            $relPath = $file.FullName.Substring($Root.Length).TrimStart('\', '/')
-            $relKey  = $relPath.Replace('\', '/')
-
-            if ($targetElements -contains $elementName) {
-                $hasCommand = $attr.ContainsKey('Command')
-                $hasHandler = $false
-                foreach ($name in $handlerAttrs) {
-                    if ($attr.ContainsKey($name)) { $hasHandler = $true; break }
+            if ($reader.NodeType -eq [System.Xml.XmlNodeType]::Element) {
+                # An *.InputBindings property element is a click/key target even
+                # though the owner element itself has no Click attribute.
+                if ($reader.Name -match '^(?:[A-Za-z_][A-Za-z0-9_]*\.)?InputBindings$' -or
+                    $reader.LocalName -eq 'InputBindings') {
+                    $inInputBindings = $true
+                    $inputBindingsDepth = $reader.Depth
+                    $lineInfo = [System.Xml.IXmlLineInfo]$reader
+                    $inputBindingsLine = if ($null -ne $lineInfo) { $lineInfo.LineNumber } else { 0 }
+                    $inputBindingsAttributes = @{}
+                    continue
                 }
 
-                if (-not $hasCommand -and -not $hasHandler) {
-                    if (Test-BindingOnly $relKey $elementName $attr) {
-                        $allowedControls++
+                $elementName = $reader.LocalName
+                if ($inInputBindings) {
+                    if ($reader.HasAttributes) {
+                        for ($i = 0; $i -lt $reader.AttributeCount; $i++) {
+                            [void]$reader.MoveToAttribute($i)
+                            if ($reader.LocalName -eq 'Command') {
+                                $inputBindingsAttributes['Command'] = $reader.Value
+                            }
+                            elseif ($reader.LocalName -eq 'CommandParameter') {
+                                $inputBindingsAttributes['CommandParameter'] = $reader.Value
+                            }
+                        }
+                        [void]$reader.MoveToElement()
                     }
-                    else {
-                        [void]$findings.Add(('{0}:{1}  {2}  [no-command-no-handler]' -f
-                            $relPath, $line, $elementName))
+                    continue
+                }
+
+                # Ignore look-alike elements from non-presentation namespaces.
+                if ($reader.NamespaceURI -and $reader.NamespaceURI -ne $presentationNs) { continue }
+
+                $line = 0
+                $lineInfo = [System.Xml.IXmlLineInfo]$reader
+                if ($null -ne $lineInfo) { $line = $lineInfo.LineNumber }
+
+                $attr = @{}
+                if ($reader.HasAttributes) {
+                    for ($i = 0; $i -lt $reader.AttributeCount; $i++) {
+                        [void]$reader.MoveToAttribute($i)
+                        $attr[$reader.LocalName] = $reader.Value
+                    }
+                    [void]$reader.MoveToElement()
+                }
+
+                $relPath = $file.FullName.Substring($Root.Length).TrimStart('\', '/')
+                $relKey  = $relPath.Replace('\', '/')
+
+                if ($targetElements -contains $elementName) {
+                    $hasCommand = $attr.ContainsKey('Command')
+                    $hasHandler = $false
+                    foreach ($name in $handlerAttrs) {
+                        if ($attr.ContainsKey($name)) { $hasHandler = $true; break }
+                    }
+                    # Template parts (PART_DropDownToggle, expander Header) are
+                    # wired by the control template contract, not by view state.
+                    $hasTemplateBinding = $false
+                    foreach ($key in $attr.Keys) {
+                        if ([string]$attr[$key] -match '(?:TemplateBinding|TemplatedParent)') {
+                            $hasTemplateBinding = $true
+                            break
+                        }
+                    }
+
+                    if (-not $hasCommand -and -not $hasHandler -and -not $hasTemplateBinding) {
+                        if (Test-BindingOnly $relKey $elementName $attr) {
+                            $allowedControls++
+                        }
+                        else {
+                            [void]$findings.Add(('{0}:{1}  {2}  [no-command-no-handler]' -f
+                                $relPath, $line, $elementName))
+                        }
                     }
                 }
-            }
 
-            if ($attr.ContainsKey('IsEnabled') -and
-                ($attr['IsEnabled'] -match '^(?i:false)$')) {
-                [void]$findings.Add(('{0}:{1}  {2} IsEnabled=False  [literal-disabled]' -f
-                    $relPath, $line, $elementName))
+                if ($attr.ContainsKey('IsEnabled') -and
+                    ($attr['IsEnabled'] -match '^(?i:false)$')) {
+                    [void]$findings.Add(('{0}:{1}  {2} IsEnabled=False  [literal-disabled]' -f
+                        $relPath, $line, $elementName))
+                }
+            }
+            elseif ($reader.NodeType -eq [System.Xml.XmlNodeType]::EndElement -and
+                    $inInputBindings -and $reader.Depth -le $inputBindingsDepth) {
+                $relPath = $file.FullName.Substring($Root.Length).TrimStart('\', '/')
+                $relKey  = $relPath.Replace('\', '/')
+                if (-not $inputBindingsAttributes.ContainsKey('Command')) {
+                    [void]$findings.Add(('{0}:{1}  InputBindings  [no-command]' -f
+                        $relPath, $inputBindingsLine))
+                }
+                elseif (Test-BindingOnly $relKey 'InputBindings' $inputBindingsAttributes) {
+                    $allowedControls++
+                }
+                $inInputBindings = $false
+                $inputBindingsDepth = -1
+                $inputBindingsAttributes = @{}
             }
         }
     }
