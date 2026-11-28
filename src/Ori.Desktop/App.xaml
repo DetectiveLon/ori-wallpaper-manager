@@ -110,6 +110,8 @@
         <sys:Double x:Key="WindowGlyphSize">12</sys:Double>
         <sys:Double x:Key="HeadlineSize">15</sys:Double>
         <sys:Double x:Key="TitleBarHeight">48</sys:Double>
+        <!-- RowDefinition.Height needs a GridLength; the Double above is for button heights. -->
+        <GridLength x:Key="TitleBarRowHeight">48</GridLength>
         <sys:Double x:Key="SpaceXS">4</sys:Double>
         <sys:Double x:Key="SpaceS">8</sys:Double>
         <sys:Double x:Key="SpaceM">16</sys:Double>
