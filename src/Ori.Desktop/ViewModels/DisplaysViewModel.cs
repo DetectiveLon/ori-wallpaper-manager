@@ -1,37 +1,71 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
+using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Ori.Core.Models;
+using Ori.Core.Services;
 using Ori.Desktop.Mvvm;
 using Ori.Desktop.Services;
 
 namespace Ori.Desktop.ViewModels;
 
-/// <summary>View model for the Displays page: enumerates monitors and applies per-display wallpapers.</summary>
-public sealed class DisplaysViewModel : ViewModelBase
+/// <summary>
+/// View model for the Displays page: enumerates monitors, remembers each panel's
+/// fit/source choices and applies wallpapers explicitly.
+/// </summary>
+public sealed class DisplaysViewModel : ViewModelBase, IDisposable
 {
     // Diagram geometry. The canvas fits the virtual desktop into a readable
-    // surface, but never shrinks a monitor card below the size its content needs.
+    // surface; cards keep a logical minimum size and the whole diagram is
+    // scaled down as one unit, so nothing can overflow the host.
     private const double DiagramMaxWidth = 720;
     private const double DiagramMaxHeight = 380;
     private const double DiagramPadding = 16;
     private const double MinimumCardWidth = 260;
-    private const double MinimumCardHeight = 190;
+    private const double MinimumCardHeight = 260;
 
-    private string _status = string.Empty;
-    private DesktopWallpaperPosition _currentPosition = DesktopWallpaperPosition.Fill;
+    private readonly DisplayPreferencesStore _preferences;
+    private readonly List<SourceCandidate> _librarySources = new();
+    private readonly List<SourceCandidate> _feedSources = new();
+    private bool _disposed;
+
+    private string _status = "Ready.";
     private WallpaperPositionOption? _selectedPositionOption;
-    private bool _suppressPositionApplication;
+    private bool _suppressFitSync;
     private DisplayCardViewModel? _selectedMonitor;
+    private string _selectedSourceKindName = "File";
+    private SourceCandidate? _selectedSource;
+    private string _draftFilePath = string.Empty;
+    private bool _isSpanActive;
     private double _layoutWidth = DiagramMaxWidth;
     private double _layoutHeight = 220;
+    private double _diagramScale = 1;
     private double _originLeft;
     private double _originTop;
     private bool _originVisible;
     private bool _noMonitors;
-    private bool _positionKnown = true;
 
     public DisplaysViewModel()
     {
+        _preferences = DisplayPreferencesStore.Load();
+        // The OS owns the actual Span state; a saved flag from a previous session
+        // must not show a toggle that disagrees with Windows.
+        try
+        {
+            _isSpanActive = WindowsDesktopWallpaper.GetPosition() == DesktopWallpaperPosition.Span;
+            if (_isSpanActive != _preferences.SpanActive)
+                _preferences.SetSpan(_isSpanActive, _preferences.SpanPreviousFit,
+                    _preferences.SpanPreviousFingerprint, _preferences.SpanImagePath);
+        }
+        catch
+        {
+            _isSpanActive = _preferences.SpanActive;
+        }
+
         RefreshCommand = new RelayCommand(_ => RefreshDisplays());
         SelectMonitorCommand = new RelayCommand(parameter =>
         {
@@ -42,65 +76,58 @@ public sealed class DisplaysViewModel : ViewModelBase
             Status = $"{monitor.DisplayName} is now the target display for Apply actions.";
         });
         ChooseImageCommand = new RelayCommand(
-            parameter =>
+            _ =>
             {
-                if (parameter is not DisplayCardViewModel monitor)
+                if (ChooseImageRequested is null)
                 {
-                    Status = "Could not identify the selected display. Use Refresh and try again.";
+                    Status = "The file picker is unavailable. Re-open Displays and try again.";
                     return;
                 }
 
                 if (IsSpanActive)
                 {
-                    Status = "Span mode is active: Windows ignores per-monitor images. Choose a fit mode other than Span first.";
+                    Status = "Span is active. Switch it off before choosing a per-display image.";
                     return;
                 }
 
-                // Remember the target so a page visit cannot silently reset it to primary.
-                SetSelectedMonitor(monitor, persist: true);
-
-                // Never fail silently: if the view is not attached, say so inline.
-                if (ChooseImageRequested is null)
-                {
-                    Status = $"The wallpaper picker is unavailable for {monitor.DisplayName}. Re-open Displays and try again.";
-                    return;
-                }
-
-                ChooseImageRequested.Invoke(monitor);
+                SetSelectedMonitor(SelectedMonitor, persist: false);
+                ChooseImageRequested.Invoke(SelectedMonitor!);
             },
-            _ => !IsSpanActive);
-
-        SetPositionCommand = new RelayCommand(parameter =>
-        {
-            if (parameter is DesktopWallpaperPosition position)
-                ApplyPosition(position);
-        });
-
+            _ => !IsSpanActive && SelectedMonitor is not null);
+        ApplyCommand = new RelayCommand(_ => Apply(), _ => CanApply);
         SetSpanWallpaperCommand = new RelayCommand(_ =>
         {
             if (ChooseSpanImageRequested is null)
             {
-                Status = "The spanning-image picker is unavailable. Re-open Displays and try again.";
+                Status = "The file picker is unavailable. Re-open Displays and try again.";
                 return;
             }
 
             ChooseSpanImageRequested.Invoke();
         });
 
+        DisplayDetection.DisplaysChanged += OnDisplaysChanged;
+        SyncPositionSelection();
         RefreshDisplays();
     }
 
     public ObservableCollection<DisplayCardViewModel> Monitors { get; } = new();
 
-    /// <summary>The six fit modes Windows supports, in the order shown in the picker.</summary>
+    /// <summary>Fit choices only. Span is a separate explicit toggle.</summary>
     public IReadOnlyList<WallpaperPositionOption> PositionOptions { get; } = new[]
     {
-        new WallpaperPositionOption(DesktopWallpaperPosition.Fill, "Fill"),
-        new WallpaperPositionOption(DesktopWallpaperPosition.Fit, "Fit"),
-        new WallpaperPositionOption(DesktopWallpaperPosition.Stretch, "Stretch"),
-        new WallpaperPositionOption(DesktopWallpaperPosition.Center, "Center"),
-        new WallpaperPositionOption(DesktopWallpaperPosition.Tile, "Tile"),
-        new WallpaperPositionOption(DesktopWallpaperPosition.Span, "Span")
+        new WallpaperPositionOption(DisplayFit.Fill, "Fill"),
+        new WallpaperPositionOption(DisplayFit.Fit, "Fit"),
+        new WallpaperPositionOption(DisplayFit.Stretch, "Stretch"),
+        new WallpaperPositionOption(DisplayFit.Center, "Center"),
+        new WallpaperPositionOption(DisplayFit.Tile, "Tile")
+    };
+
+    public IReadOnlyList<SourceKindOption> SourceKindOptions { get; } = new[]
+    {
+        new SourceKindOption("File", "Image file"),
+        new SourceKindOption("Library", "Library item"),
+        new SourceKindOption("Feed", "Saved feed")
     };
 
     public string Status
@@ -112,40 +139,130 @@ public sealed class DisplaysViewModel : ViewModelBase
     public ICommand RefreshCommand { get; }
     public ICommand SelectMonitorCommand { get; }
     public ICommand ChooseImageCommand { get; }
-    public ICommand SetPositionCommand { get; }
+    public ICommand ApplyCommand { get; }
     public ICommand SetSpanWallpaperCommand { get; }
 
-    /// <summary>View service hook: the view opens the file picker for this monitor.</summary>
+    /// <summary>View hook: opens the file picker and sets a draft path (never applies).</summary>
     public event Action<DisplayCardViewModel>? ChooseImageRequested;
 
-    /// <summary>View service hook: the view opens the file picker for the Span image.</summary>
+    /// <summary>View hook: opens the file picker for the single Span image.</summary>
     public event Action? ChooseSpanImageRequested;
 
     /// <summary>The remembered target display, falling back to primary after a refresh.</summary>
     public DisplayCardViewModel? SelectedMonitor => _selectedMonitor;
 
-    public bool IsSpanActive => CurrentPosition == DesktopWallpaperPosition.Span;
+    /// <summary>The single page-level Apply is enabled only with a target and a draft source.</summary>
+    public bool CanApply => !IsSpanActive && SelectedMonitor is not null && HasDraftSource;
 
-    /// <summary>False when Windows could not report the fit mode and Fill is only an assumption.</summary>
-    public bool PositionKnown => _positionKnown;
+    public bool CanChooseFit => !IsSpanActive && SelectedMonitor is not null;
 
-    /// <summary>Used by the view to show an explicit "assumed Fill" warning.</summary>
-    public bool PositionFallbackVisible => !_positionKnown;
+    /// <summary>True while Windows is using one image across the whole virtual desktop.</summary>
+    public bool IsSpanActive
+    {
+        get => _isSpanActive;
+        set => SetSpan(value);
+    }
 
-    // Per-mode flags drive the fit illustration's visual states in XAML without a
-    // converter or a second page-level style library.
-    public bool IsFill => CurrentPosition == DesktopWallpaperPosition.Fill;
-    public bool IsFit => CurrentPosition == DesktopWallpaperPosition.Fit;
-    public bool IsStretch => CurrentPosition == DesktopWallpaperPosition.Stretch;
-    public bool IsCenter => CurrentPosition == DesktopWallpaperPosition.Center;
-    public bool IsTile => CurrentPosition == DesktopWallpaperPosition.Tile;
-    public bool IsSpan => CurrentPosition == DesktopWallpaperPosition.Span;
+    public bool PositionKnown { get; private set; } = true;
 
-    /// <summary>Binding source for disabling per-monitor image actions while Span is active.</summary>
-    public bool CanChoosePerMonitorImage => !IsSpanActive;
+    public bool PositionFallbackVisible => !PositionKnown;
 
-    // Geometry for the monitor diagram. Values are DIPs inside the Canvas, derived
-    // from DisplayMonitor.Left/Top/Width/Height at every refresh.
+    public string PositionDescription => !PositionKnown
+        ? "Fit mode could not be read from Windows; Fill is assumed, not confirmed."
+        : "Each display remembers its own fit. Windows uses one global fit mode, which is set when you press Apply.";
+
+    /// <summary>Binding source for the fit picker; changing it only edits the draft.</summary>
+    public WallpaperPositionOption? SelectedPositionOption
+    {
+        get => _selectedPositionOption;
+        set
+        {
+            if (ReferenceEquals(_selectedPositionOption, value))
+                return;
+
+            _selectedPositionOption = value;
+            OnPropertyChanged(nameof(SelectedPositionOption));
+            if (_suppressFitSync || value is null)
+                return;
+
+            SetFitForSelected(value.Fit);
+        }
+    }
+
+    public string SelectedSourceKindName
+    {
+        get => _selectedSourceKindName;
+        set
+        {
+            if (string.Equals(_selectedSourceKindName, value, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _selectedSourceKindName = value ?? "File";
+            OnPropertyChanged(nameof(SelectedSourceKindName));
+            OnPropertyChanged(nameof(AvailableSources));
+            OnPropertyChanged(nameof(IsFileSource));
+            OnPropertyChanged(nameof(UsesListSource));
+            SelectedSource = null;
+            OnPropertyChanged(nameof(HasDraftSource));
+            OnPropertyChanged(nameof(CanApply));
+            ((RelayCommand)ApplyCommand).RaiseCanExecuteChanged();
+            Status = $"Source: {_selectedSourceKindName}. Choose a source, then press Apply.";
+        }
+    }
+
+    public string DraftFilePath
+    {
+        get => _draftFilePath;
+        set
+        {
+            if (!SetProperty(ref _draftFilePath, value ?? string.Empty, nameof(DraftFilePath)))
+                return;
+
+            OnPropertyChanged(nameof(HasDraftSource));
+            OnPropertyChanged(nameof(CanApply));
+            ((RelayCommand)ApplyCommand).RaiseCanExecuteChanged();
+        }
+    }
+
+    public SourceCandidate? SelectedSource
+    {
+        get => _selectedSource;
+        set
+        {
+            if (ReferenceEquals(_selectedSource, value))
+                return;
+
+            _selectedSource = value;
+            OnPropertyChanged(nameof(SelectedSource));
+            OnPropertyChanged(nameof(HasDraftSource));
+            OnPropertyChanged(nameof(CanApply));
+            ((RelayCommand)ApplyCommand).RaiseCanExecuteChanged();
+        }
+    }
+
+    public IReadOnlyList<SourceCandidate> AvailableSources =>
+        string.Equals(_selectedSourceKindName, "Feed", StringComparison.OrdinalIgnoreCase)
+            ? _feedSources
+            : _librarySources;
+
+    public bool HasDraftSource =>
+        string.Equals(_selectedSourceKindName, "File", StringComparison.OrdinalIgnoreCase)
+            ? !string.IsNullOrWhiteSpace(DraftFilePath)
+            : SelectedSource?.HasImage == true;
+
+    public bool IsFileSource =>
+        string.Equals(_selectedSourceKindName, "File", StringComparison.OrdinalIgnoreCase);
+
+    public bool UsesListSource => !IsFileSource;
+
+    public string SpanImageName => string.IsNullOrWhiteSpace(_preferences.SpanImagePath)
+        ? "No Span image chosen yet"
+        : Path.GetFileName(_preferences.SpanImagePath);
+
+    public string SpanPreviousFitLabel => $"{_preferences.SpanPreviousFit} fit";
+
+    // Geometry for the monitor diagram. Values are DIPs inside the Canvas,
+    // derived from DisplayMonitor.Left/Top/Width/Height at every refresh.
     public double LayoutWidth
     {
         get => _layoutWidth;
@@ -156,6 +273,12 @@ public sealed class DisplaysViewModel : ViewModelBase
     {
         get => _layoutHeight;
         private set => SetProperty(ref _layoutHeight, value, nameof(LayoutHeight));
+    }
+
+    public double DiagramScale
+    {
+        get => _diagramScale;
+        private set => SetProperty(ref _diagramScale, value, nameof(DiagramScale));
     }
 
     public double OriginLeft
@@ -182,136 +305,352 @@ public sealed class DisplaysViewModel : ViewModelBase
         private set => SetProperty(ref _noMonitors, value, nameof(NoMonitors));
     }
 
-    public DesktopWallpaperPosition CurrentPosition
+    /// <summary>Loads library/feed candidates after the page is attached.</summary>
+    public async Task InitializeAsync()
     {
-        get => _currentPosition;
-        private set
-        {
-            if (!SetProperty(ref _currentPosition, value, nameof(CurrentPosition)))
-                return;
-
-            // Update the ComboBox selection without re-entering its setter, which
-            // would apply the mode a second time.
-            _selectedPositionOption = PositionOptions.FirstOrDefault(option => option.Position == value);
-            OnPropertyChanged(nameof(SelectedPositionOption));
-            OnPropertyChanged(nameof(PositionDescription));
-            OnPropertyChanged(nameof(IsSpanActive));
-            OnPropertyChanged(nameof(IsFill));
-            OnPropertyChanged(nameof(IsFit));
-            OnPropertyChanged(nameof(IsStretch));
-            OnPropertyChanged(nameof(IsCenter));
-            OnPropertyChanged(nameof(IsTile));
-            OnPropertyChanged(nameof(IsSpan));
-            OnPropertyChanged(nameof(CanChoosePerMonitorImage));
-            ((RelayCommand)ChooseImageCommand).RaiseCanExecuteChanged();
-        }
-    }
-
-    public WallpaperPositionOption? SelectedPositionOption
-    {
-        get => _selectedPositionOption;
-        set
-        {
-            if (ReferenceEquals(_selectedPositionOption, value))
-                return;
-
-            _selectedPositionOption = value;
-            OnPropertyChanged(nameof(SelectedPositionOption));
-            if (_suppressPositionApplication || value is null || value.Position == CurrentPosition)
-                return;
-
-            if (value.Position == DesktopWallpaperPosition.Span)
-            {
-                // The view asks for one image and calls ApplySpanWallpaper. If the
-                // dialog is cancelled or fails, restore the real OS mode.
-                SetSpanWallpaperCommand.Execute(null);
-                SyncPositionSelection();
-                return;
-            }
-
-            SetPositionCommand.Execute(value.Position);
-        }
-    }
-
-    public string PositionDescription => !PositionKnown
-        ? "Fit mode could not be read from Windows; Fill is assumed, not confirmed."
-        : (CurrentPosition switch
-        {
-            DesktopWallpaperPosition.Fill => "Fill: the image covers each screen; edges may be cropped.",
-            DesktopWallpaperPosition.Fit => "Fit: the whole image is visible; bars may appear.",
-            DesktopWallpaperPosition.Stretch => "Stretch: the image is stretched to the screen and may look distorted.",
-            DesktopWallpaperPosition.Center => "Center: the image is shown at its original size.",
-            DesktopWallpaperPosition.Tile => "Tile: the image repeats across the screen.",
-            DesktopWallpaperPosition.Span => "Span: one image stretches across every display.",
-            _ => "Windows did not report a recognised fit mode; Fill is assumed."
-        });
-
-    /// <summary>Applies the picked image to one display and reports the result inline.</summary>
-    public void ApplyWallpaper(DisplayCardViewModel monitor, string imagePath)
-    {
-        if (IsSpanActive)
-        {
-            Status = "Span mode is active: Windows ignores per-monitor images. Choose another fit mode first.";
-            return;
-        }
-
+        var messages = new List<string>();
+        IReadOnlyList<WallpaperLibraryEntry> entries;
         try
         {
-            SetSelectedMonitor(monitor, persist: true);
-            WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, imagePath);
-            // Applying a per-monitor image resets a leaked global Span to Fill.
-            // Re-read the OS fit mode so the picker, illustration and Span
-            // warning update in the same frame as the new wallpaper.
-            var positionKnown = RefreshPosition();
-            RefreshDisplays();
-            ReportStatus(positionKnown && PositionKnown,
-                $"Wallpaper applied to {monitor.DisplayName}. Fit mode: {PositionDescription}");
+            entries = await new WallpaperLibraryStore().GetAllAsync().ConfigureAwait(true);
         }
         catch (Exception ex)
         {
-            Status = $"Could not apply wallpaper to {monitor.DisplayName}: {ex.Message}";
+            entries = Array.Empty<WallpaperLibraryEntry>();
+            messages.Add($"Library sources unavailable: {ex.Message}");
         }
+
+        _librarySources.Clear();
+        _librarySources.AddRange(entries
+            .Where(entry => IsUsablePath(entry.LocalPath))
+            .Select(entry => new SourceCandidate(
+                "Library",
+                entry.Id,
+                string.IsNullOrWhiteSpace(entry.Title) ? Path.GetFileName(entry.LocalPath) : entry.Title,
+                entry.LocalPath,
+                $"{entry.Width} x {entry.Height}",
+                "Saved library image")));
+        _librarySources.Sort((left, right) => string.CompareOrdinal(left.Label, right.Label));
+
+        IReadOnlyList<RotationFeed> feeds;
+        try
+        {
+            feeds = WallhavenFeedStore.ListFeeds();
+        }
+        catch (Exception ex)
+        {
+            feeds = Array.Empty<RotationFeed>();
+            messages.Add($"Feed sources unavailable: {ex.Message}");
+        }
+
+        _feedSources.Clear();
+        foreach (var feed in feeds)
+        {
+            var tag = $"feed:{feed.Id}";
+            var newest = entries
+                .Where(entry => IsUsablePath(entry.LocalPath)
+                    && entry.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Any(candidate => string.Equals(candidate, tag, StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(entry => entry.SavedAtUtc)
+                .FirstOrDefault();
+
+            _feedSources.Add(new SourceCandidate(
+                "Feed",
+                feed.Id,
+                feed.Name,
+                newest?.LocalPath,
+                newest is null ? null : $"{newest.Width} x {newest.Height}",
+                newest is null
+                    ? "No images fetched from this feed yet"
+                    : $"Newest image from {feed.Name}"));
+        }
+
+        OnPropertyChanged(nameof(AvailableSources));
+        OnPropertyChanged(nameof(HasDraftSource));
+        OnPropertyChanged(nameof(CanApply));
+        ((RelayCommand)ApplyCommand).RaiseCanExecuteChanged();
+        if (messages.Count > 0)
+            Status = string.Join(" ", messages);
+    }
+
+    /// <summary>Code-behind calls this from the source-kind ComboBox.</summary>
+    public void SetSourceKind(string? kind) => SelectedSourceKindName = kind ?? "File";
+
+    /// <summary>Code-behind calls this from the candidate ComboBox/ListBox.</summary>
+    public void SelectSource(SourceCandidate? candidate)
+    {
+        SelectedSource = candidate;
+        if (candidate is null)
+            return;
+
+        Status = candidate.HasImage
+            ? $"{candidate.Label} selected. Press Apply to put it on {SelectedMonitor?.DisplayName ?? "the target display"}."
+            : $"{candidate.Label} has no fetched image yet. Fetch from Auto rotation first.";
+    }
+
+    /// <summary>Code-behind calls this after the file dialog returns a path.</summary>
+    public void SetDraftFilePath(string? path)
+    {
+        DraftFilePath = path ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(DraftFilePath))
+            Status = $"{Path.GetFileName(DraftFilePath)} selected. Press Apply to put it on {SelectedMonitor?.DisplayName ?? "the target display"}.";
+    }
+
+    /// <summary>Applies the staged source and fit to the target display.</summary>
+    public void Apply()
+    {
+        var monitor = SelectedMonitor;
+        if (monitor is null)
+        {
+            Status = "Select a display card first.";
+            return;
+        }
+
+        if (IsSpanActive)
+        {
+            Status = "Span is active. Switch it off before applying a per-display image.";
+            return;
+        }
+
+        string path;
+        string label;
+        string kind;
+        string? sourceId;
+        if (string.Equals(_selectedSourceKindName, "File", StringComparison.OrdinalIgnoreCase))
+        {
+            path = DraftFilePath;
+            label = Path.GetFileName(path);
+            kind = "File";
+            sourceId = null;
+        }
+        else if (SelectedSource is { HasImage: true } candidate)
+        {
+            path = candidate.Path!;
+            label = candidate.Label;
+            kind = candidate.Kind;
+            sourceId = candidate.Id;
+        }
+        else
+        {
+            Status = "Choose a file, library item or feed image first.";
+            return;
+        }
+
+        PerformApply(monitor, path, label, kind, sourceId);
+    }
+
+    /// <summary>Applies a picked image to one display (kept for existing callers).</summary>
+    public void ApplyWallpaper(DisplayCardViewModel monitor, string imagePath)
+    {
+        SetSelectedMonitor(monitor, persist: true);
+        DraftFilePath = imagePath;
+        SelectedSourceKindName = "File";
+        PerformApply(monitor, imagePath, Path.GetFileName(imagePath), "File", null);
     }
 
     /// <summary>Applies one image across all displays in Span mode.</summary>
     public void ApplySpanWallpaper(string imagePath)
     {
+        var previousFit = SelectedMonitor?.Fit ?? _preferences.SpanPreviousFit;
+        var previousFingerprint = SelectedMonitor?.Fingerprint;
+        string fullPath;
         try
         {
-            WindowsDesktopWallpaper.ApplySpanWallpaper(imagePath);
-            RefreshDisplays();
-            Status = "Span wallpaper applied to every display. Per-monitor images are ignored while Span is active.";
+            fullPath = WindowsDesktopWallpaper.ValidateWallpaperPath(imagePath);
         }
         catch (Exception ex)
         {
-            Status = $"Could not apply the spanning wallpaper: {ex.Message}";
-            SyncPositionSelection();
+            Status = $"Nothing changed: {ex.Message}";
+            return;
         }
-    }
 
-    private void ApplyPosition(DesktopWallpaperPosition position)
-    {
         try
         {
-            WindowsDesktopWallpaper.SetPosition(position);
-            _positionKnown = true;
-            CurrentPosition = position;
-            OnPropertyChanged(nameof(PositionKnown));
-            OnPropertyChanged(nameof(PositionFallbackVisible));
-            Status = $"Fit mode set. {PositionDescription} This applies to every display.";
+            WindowsDesktopWallpaper.ApplySpanWallpaper(fullPath);
+            _preferences.SetSpan(true, previousFit, previousFingerprint, fullPath);
+            _preferences.Save();
+            _isSpanActive = true;
+            OnPropertyChanged(nameof(IsSpanActive));
+            OnPropertyChanged(nameof(SpanImageName));
+            OnPropertyChanged(nameof(SpanPreviousFitLabel));
+            OnPropertyChanged(nameof(CanApply));
+            OnPropertyChanged(nameof(CanChooseFit));
+            ((RelayCommand)ApplyCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ChooseImageCommand).RaiseCanExecuteChanged();
+            ApplySpanPreviewToCards();
+            Status = $"Span applied with {Path.GetFileName(fullPath)}. Switching Span off restores {previousFit} fit.";
         }
         catch (Exception ex)
         {
-            Status = $"Could not change the fit mode: {ex.Message}";
-            SyncPositionSelection();
+            TryRestorePosition(previousFit);
+            Status = $"Nothing changed: the spanning wallpaper could not be applied. {ex.Message}";
         }
     }
 
-    private void SyncPositionSelection()
+    public void Dispose()
     {
-        _selectedPositionOption = PositionOptions.FirstOrDefault(option => option.Position == CurrentPosition);
-        OnPropertyChanged(nameof(SelectedPositionOption));
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        DisplayDetection.DisplaysChanged -= OnDisplaysChanged;
+        ChooseImageRequested = null;
+        ChooseSpanImageRequested = null;
     }
+
+    private void PerformApply(
+        DisplayCardViewModel monitor,
+        string imagePath,
+        string sourceLabel,
+        string sourceKind,
+        string? sourceId)
+    {
+        var fingerprint = monitor.Fingerprint;
+        var previousFit = _preferences.GetFit(fingerprint);
+        string fullPath;
+        try
+        {
+            fullPath = WindowsDesktopWallpaper.ValidateWallpaperPath(imagePath);
+        }
+        catch (Exception ex)
+        {
+            Status = $"Nothing changed for {monitor.DisplayName}: {ex.Message}";
+            return;
+        }
+
+        try
+        {
+            // The OS fit mode is global. Applying this display's remembered fit
+            // here keeps the visible result identical to the saved choice.
+            WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, fullPath, monitor.Fit.ToWallpaperPosition());
+            _preferences.SetFit(fingerprint, monitor.Fit);
+            _preferences.SetImage(fingerprint, fullPath, sourceKind, sourceId);
+            _preferences.SetSelection(fingerprint);
+            _preferences.Save();
+
+            monitor.SetImage(fullPath);
+            PositionKnown = true;
+            Status = $"Applied {sourceLabel} to {monitor.DisplayName} using {monitor.Fit} fit. Windows keeps one global fit mode; {monitor.DisplayName}'s choice is saved.";
+        }
+        catch (Exception ex)
+        {
+            TryRestorePosition(previousFit);
+            Status = $"Nothing changed for {monitor.DisplayName}: {ex.Message}";
+        }
+    }
+
+    private void TryRestorePosition(DisplayFit fit)
+    {
+        try
+        {
+            WindowsDesktopWallpaper.SetPosition(fit.ToWallpaperPosition());
+        }
+        catch (Exception)
+        {
+            // Best effort only: the original failure is the useful status.
+        }
+    }
+
+    private void SetFitForSelected(DisplayFit fit)
+    {
+        var monitor = SelectedMonitor;
+        if (monitor is null)
+        {
+            Status = "Select a display card before changing its fit.";
+            SyncPositionSelection();
+            return;
+        }
+
+        monitor.Fit = fit;
+        _preferences.SetFit(monitor.Fingerprint, fit);
+        _preferences.SetSelection(monitor.Fingerprint);
+        _preferences.Save();
+        Status = $"{monitor.DisplayName} fit set to {fit}. Press Apply to use it.";
+    }
+
+    private void SetSpan(bool active)
+    {
+        if (active == _isSpanActive)
+            return;
+
+        var fingerprint = SelectedMonitor?.Fingerprint;
+        if (active)
+        {
+            var previousFit = SelectedMonitor?.Fit ?? _preferences.GetFit(fingerprint);
+            try
+            {
+                WindowsDesktopWallpaper.SetPosition(DesktopWallpaperPosition.Span);
+            }
+            catch (Exception ex)
+            {
+                Status = $"Could not turn on Span: {ex.Message}";
+                SyncSpanToggle();
+                return;
+            }
+
+            _isSpanActive = true;
+            _preferences.SetSpan(true, previousFit, fingerprint, _preferences.SpanImagePath);
+            _preferences.Save();
+            ApplySpanPreviewToCards();
+            Status = $"Span is on. Windows uses one image across all displays. Switching it off restores {previousFit} fit.";
+        }
+        else
+        {
+            var restoreFit = _preferences.SpanPreviousFit;
+            try
+            {
+                WindowsDesktopWallpaper.SetPosition(restoreFit.ToWallpaperPosition());
+            }
+            catch (Exception ex)
+            {
+                Status = $"Span could not be switched off: {ex.Message}";
+                SyncSpanToggle();
+                return;
+            }
+
+            _isSpanActive = false;
+            _preferences.SetSpan(false, restoreFit, fingerprint, _preferences.SpanImagePath);
+            _preferences.Save();
+            // Re-read the per-monitor images the OS restores when Span exits.
+            RefreshDisplays(preserveStatus: false);
+            Status = $"Span is off. Restored {restoreFit} fit.";
+        }
+
+        OnPropertyChanged(nameof(IsSpanActive));
+        OnPropertyChanged(nameof(SpanImageName));
+        OnPropertyChanged(nameof(SpanPreviousFitLabel));
+        OnPropertyChanged(nameof(CanApply));
+        OnPropertyChanged(nameof(CanChooseFit));
+        ((RelayCommand)ApplyCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)ChooseImageCommand).RaiseCanExecuteChanged();
+    }
+
+    private void SyncSpanToggle() => OnPropertyChanged(nameof(IsSpanActive));
+
+    private void ApplySpanPreviewToCards()
+    {
+        var bounds = CurrentVirtualBounds();
+        var imagePath = _preferences.SpanImagePath ?? SelectedMonitor?.ImagePath;
+        foreach (var monitor in Monitors)
+        {
+            monitor.SetImage(imagePath);
+            monitor.SetSpanPreview(_isSpanActive, bounds);
+        }
+    }
+
+    private (int Left, int Top, int Width, int Height)? CurrentVirtualBounds()
+    {
+        if (Monitors.Count == 0)
+            return null;
+
+        var left = Monitors.Min(monitor => monitor.Left);
+        var top = Monitors.Min(monitor => monitor.Top);
+        var right = Monitors.Max(monitor => monitor.Left + monitor.Width);
+        var bottom = Monitors.Max(monitor => monitor.Top + monitor.Height);
+        return (left, top, Math.Max(1, right - left), Math.Max(1, bottom - top));
+    }
+
+    private void OnDisplaysChanged(object? sender, EventArgs e) => RefreshDisplays(preserveStatus: true);
 
     private void SetSelectedMonitor(DisplayCardViewModel? monitor, bool persist)
     {
@@ -323,19 +662,53 @@ public sealed class DisplaysViewModel : ViewModelBase
             monitor.IsSelected = true;
 
         OnPropertyChanged(nameof(SelectedMonitor));
-        if (monitor is not null && persist)
+        OnPropertyChanged(nameof(CanApply));
+        OnPropertyChanged(nameof(CanChooseFit));
+        ((RelayCommand)ApplyCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)ChooseImageCommand).RaiseCanExecuteChanged();
+        SyncPositionSelection();
+
+        if (monitor is null)
+            return;
+
+        _preferences.SetSelection(monitor.Fingerprint);
+        _preferences.Save();
+        if (persist)
             MonitorSelectionService.Instance.Select(monitor.Id);
     }
 
-    private void RefreshDisplays()
+    private void SyncPositionSelection()
     {
+        var fit = SelectedMonitor?.Fit ?? _preferences.GetFit(null);
+        var option = PositionOptions.FirstOrDefault(candidate => candidate.Fit == fit)
+            ?? PositionOptions[0];
+
+        _suppressFitSync = true;
+        try
+        {
+            _selectedPositionOption = option;
+            OnPropertyChanged(nameof(SelectedPositionOption));
+        }
+        finally
+        {
+            _suppressFitSync = false;
+        }
+    }
+
+    private void RefreshDisplays() => RefreshDisplays(preserveStatus: false);
+
+    private void RefreshDisplays(bool preserveStatus)
+    {
+        var previousFingerprint = SelectedMonitor?.Fingerprint ?? _preferences.SelectedFingerprint;
         Monitors.Clear();
+
         try
         {
             var detection = DisplayDetection.Read();
             if (!detection.Succeeded)
             {
                 Status = $"Could not read display information: {detection.Error}";
+                SetSelectedMonitor(null, persist: false);
                 RefreshPosition();
                 return;
             }
@@ -344,24 +717,41 @@ public sealed class DisplaysViewModel : ViewModelBase
             if (monitors.Count == 0)
             {
                 Status = "Windows did not report any connected displays.";
+                SetSelectedMonitor(null, persist: false);
                 RefreshPosition();
                 return;
             }
 
-            for (var index = 0; index < monitors.Count; index++)
-                Monitors.Add(new DisplayCardViewModel(monitors[index], index));
+            foreach (var detected in monitors)
+            {
+                var fingerprint = DisplayDetection.Fingerprint(detected);
+                var card = new DisplayCardViewModel(detected)
+                {
+                    Fit = _preferences.GetFit(fingerprint)
+                };
+                var imagePath = _preferences.GetImagePath(fingerprint) ?? detected.CurrentWallpaper;
+                card.SetImage(imagePath);
+                Monitors.Add(card);
+            }
 
-            // Resolve the remembered target against the live ids before falling
-            // back to primary; this is what stops Apply jumping to the wrong screen.
+            // Resolve by stable panel fingerprint first: a hotplug changes the
+            // COM path but not the physical monitor or its saved choices.
             MonitorSelectionService.Instance.Load(Monitors.Select(monitor => monitor.Id));
             var primary = Monitors.FirstOrDefault(monitor => monitor.IsPrimary) ?? Monitors[0];
             var rememberedId = MonitorSelectionService.Instance.Resolve(primary.Id);
-            var target = Monitors.FirstOrDefault(monitor => monitor.Id == rememberedId) ?? primary;
+            var target = Monitors.FirstOrDefault(monitor => monitor.Fingerprint == previousFingerprint)
+                ?? Monitors.FirstOrDefault(monitor => monitor.Id == rememberedId)
+                ?? primary;
             SetSelectedMonitor(target, persist: false);
 
             var positionKnown = RefreshPosition();
-            ReportStatus(positionKnown,
-                $"{Monitors.Count} display(s) detected. Images can differ per display; Windows uses one shared fit mode.");
+            if (_isSpanActive)
+                ApplySpanPreviewToCards();
+
+            var message = $"{Monitors.Count} display(s) detected. Selection and fit survive monitor changes; use one Apply for the chosen display.";
+            Status = preserveStatus && !string.IsNullOrWhiteSpace(Status) ? $"{Status} {message}" : message;
+            if (!positionKnown)
+                Status += " Fit mode could not be read from Windows; Fill is assumed.";
         }
         catch (Exception ex)
         {
@@ -369,15 +759,32 @@ public sealed class DisplaysViewModel : ViewModelBase
         }
         finally
         {
-            // Detection can fail at any point; the diagram must still reflect the
-            // monitors that were actually read, even if that list is empty.
             UpdateLayout();
         }
     }
 
+    private bool RefreshPosition()
+    {
+        try
+        {
+            PositionKnown = true;
+            OnPropertyChanged(nameof(PositionKnown));
+            OnPropertyChanged(nameof(PositionFallbackVisible));
+            return true;
+        }
+        catch (Exception)
+        {
+            PositionKnown = false;
+            OnPropertyChanged(nameof(PositionKnown));
+            OnPropertyChanged(nameof(PositionFallbackVisible));
+            return false;
+        }
+    }
+
     /// <summary>
-    /// Maps the virtual desktop reported by Windows onto the diagram canvas.
-    /// Cards keep their relative positions, and never become too small to use.
+    /// Maps the virtual desktop onto the diagram. Cards keep a logical minimum
+    /// size, then the whole diagram is scaled by LayoutTransform so it can never
+    /// overflow its host; the outer ScrollViewer handles extreme layouts.
     /// </summary>
     private void UpdateLayout()
     {
@@ -385,6 +792,7 @@ public sealed class DisplaysViewModel : ViewModelBase
         {
             LayoutWidth = DiagramMaxWidth;
             LayoutHeight = 220;
+            DiagramScale = 1;
             OriginVisible = false;
             NoMonitors = true;
             return;
@@ -402,11 +810,12 @@ public sealed class DisplaysViewModel : ViewModelBase
         var fitScale = Math.Min(
             (DiagramMaxWidth - 2 * DiagramPadding) / virtualWidth,
             (DiagramMaxHeight - 2 * DiagramPadding) / virtualHeight);
-        var minimumScale = Monitors.Max(monitor =>
+        var logicalScale = Monitors.Max(monitor =>
             Math.Max(
                 MinimumCardWidth / Math.Max(1d, monitor.Width),
                 MinimumCardHeight / Math.Max(1d, monitor.Height)));
-        var scale = Math.Max(fitScale, minimumScale);
+        var scale = Math.Max(logicalScale, 0.01d);
+        var visualScale = Math.Clamp(fitScale / scale, 0.25d, 1d);
 
         foreach (var monitor in Monitors)
         {
@@ -419,87 +828,193 @@ public sealed class DisplaysViewModel : ViewModelBase
 
         LayoutWidth = virtualWidth * scale + 2 * DiagramPadding;
         LayoutHeight = virtualHeight * scale + 2 * DiagramPadding;
+        DiagramScale = visualScale;
         OriginLeft = DiagramPadding - left * scale;
         OriginTop = DiagramPadding - top * scale;
         OriginVisible = left <= 0 && right >= 0 && top <= 0 && bottom >= 0;
     }
 
-    /// <summary>
-    /// Re-reads the OS fit mode. Returns false (and keeps a clearly flagged Fill
-    /// fallback) when Windows cannot report one, so callers never overwrite the
-    /// warning with a success message and never rely on a stale Span state.
-    /// </summary>
-    private bool RefreshPosition()
-    {
-        try
-        {
-            // A programmatic refresh must never be mistaken for a user choosing
-            // a fit mode and pushed back to Windows as a change.
-            _suppressPositionApplication = true;
-            var position = WindowsDesktopWallpaper.GetPosition();
-            _positionKnown = true;
-            CurrentPosition = position;
-            OnPropertyChanged(nameof(PositionKnown));
-            OnPropertyChanged(nameof(PositionFallbackVisible));
-            return true;
-        }
-        catch (Exception ex)
-        {
-            // Fill is the Windows default and the option already shown in the
-            // picker; keep it as a fallback, but say plainly it is only assumed.
-            _positionKnown = false;
-            _suppressPositionApplication = true;
-            CurrentPosition = DesktopWallpaperPosition.Fill;
-            OnPropertyChanged(nameof(PositionKnown));
-            OnPropertyChanged(nameof(PositionFallbackVisible));
-            OnPropertyChanged(nameof(PositionDescription));
-            AppendStatus($"Could not read the current fit mode: {ex.Message} Fill is assumed, not confirmed.");
-            return false;
-        }
-        finally
-        {
-            _suppressPositionApplication = false;
-        }
-    }
-
-    /// <summary>
-    /// Writes a success message only when the position was actually read.
-    /// Otherwise the position warning stays in view and the message is appended.
-    /// </summary>
-    private void ReportStatus(bool positionKnown, string successMessage)
-    {
-        if (positionKnown || string.IsNullOrWhiteSpace(Status))
-            Status = successMessage;
-        else
-            AppendStatus(successMessage);
-    }
-
-    private void AppendStatus(string message) =>
-        Status = string.IsNullOrWhiteSpace(Status) ? message : $"{Status} {message}";
+    private static bool IsUsablePath(string? path) =>
+        !string.IsNullOrWhiteSpace(path)
+        && File.Exists(path)
+        && WindowsDesktopWallpaper.IsSupportedImageExtension(Path.GetExtension(path));
 }
 
-/// <summary>One selectable fit mode in the global fit picker.</summary>
+/// <summary>The five real fit modes; Span is handled by its own toggle.</summary>
+public static class DisplayFitMapper
+{
+    public static DesktopWallpaperPosition ToWallpaperPosition(this DisplayFit fit) => fit switch
+    {
+        DisplayFit.Fit => DesktopWallpaperPosition.Fit,
+        DisplayFit.Stretch => DesktopWallpaperPosition.Stretch,
+        DisplayFit.Center => DesktopWallpaperPosition.Center,
+        DisplayFit.Tile => DesktopWallpaperPosition.Tile,
+        _ => DesktopWallpaperPosition.Fill
+    };
+
+    public static DisplayFit ToDisplayFit(this DesktopWallpaperPosition position) => position switch
+    {
+        DesktopWallpaperPosition.Fit => DisplayFit.Fit,
+        DesktopWallpaperPosition.Stretch => DisplayFit.Stretch,
+        DesktopWallpaperPosition.Center => DisplayFit.Center,
+        DesktopWallpaperPosition.Tile => DisplayFit.Tile,
+        _ => DisplayFit.Fill
+    };
+}
+
+/// <summary>One fit choice in the per-display fit picker.</summary>
 public sealed class WallpaperPositionOption
 {
+    public WallpaperPositionOption(DisplayFit fit, string name)
+    {
+        Fit = fit;
+        Name = name;
+        Position = fit.ToWallpaperPosition();
+    }
+
+    /// <summary>Legacy constructor kept for callers that still pass a COM position.</summary>
     public WallpaperPositionOption(DesktopWallpaperPosition position, string name)
     {
         Position = position;
         Name = name;
+        Fit = position.ToDisplayFit();
     }
 
+    public DisplayFit Fit { get; }
     public DesktopWallpaperPosition Position { get; }
     public string Name { get; }
-
-    public string Label => Position == DesktopWallpaperPosition.Span
-        ? "Span - one image across all displays"
-        : Name;
+    public string Label => Name;
 
     public override string ToString() => Label;
 }
 
-/// <summary>Read-only card state for one connected monitor, plus its selection flag.</summary>
+/// <summary>One staged image source for the per-display picker.</summary>
+public sealed class SourceKindOption
+{
+    public SourceKindOption(string name, string label)
+    {
+        Name = name;
+        Label = label;
+    }
+
+    public string Name { get; }
+    public string Label { get; }
+
+    public override string ToString() => Label;
+}
+
+public sealed class SourceCandidate
+{
+    public SourceCandidate(
+        string kind,
+        string id,
+        string label,
+        string? path,
+        string? resolutionText,
+        string? detail)
+    {
+        Kind = kind;
+        Id = id;
+        Label = label;
+        Path = path;
+        ResolutionText = resolutionText;
+        Detail = detail;
+    }
+
+    public string Kind { get; }
+    public string Id { get; }
+    public string Label { get; }
+    public string? Path { get; }
+    public string? ResolutionText { get; }
+    public string? Detail { get; }
+    public bool HasImage => !string.IsNullOrWhiteSpace(Path);
+
+    public string Summary => HasImage
+        ? string.IsNullOrWhiteSpace(ResolutionText) ? Label : $"{Label} - {ResolutionText}"
+        : $"{Label} (no image yet)";
+
+    public override string ToString() => Summary;
+}
+
+/// <summary>
+/// Replaces the old six fit booleans. One converter maps the fit enum (plus the
+/// Span flag) onto the ImageBrush properties that produce the real crop/fill.
+/// </summary>
+public sealed class DisplayFitPreviewConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        var fit = values.Length > 0 && values[0] is DisplayFit parsed ? parsed : DisplayFit.Fill;
+        var span = values.Length > 1 && values[1] is bool flag && flag;
+        return ConvertCore(fit, span, parameter as string, targetType);
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) =>
+        new object[] { Binding.DoNothing };
+
+    private static object ConvertCore(DisplayFit fit, bool span, string? parameter, Type targetType)
+    {
+        if (span)
+        {
+            return parameter switch
+            {
+                "Stretch" when targetType == typeof(Stretch) => Stretch.Fill,
+                "TileMode" when targetType == typeof(TileMode) => TileMode.None,
+                "ViewportUnits" when targetType == typeof(BrushMappingMode) => BrushMappingMode.RelativeToBoundingBox,
+                "AlignmentX" when targetType == typeof(AlignmentX) => AlignmentX.Left,
+                "AlignmentY" when targetType == typeof(AlignmentY) => AlignmentY.Top,
+                _ => Fallback(parameter, targetType)
+            };
+        }
+
+        return parameter switch
+        {
+            "Stretch" when targetType == typeof(Stretch) => fit switch
+            {
+                DisplayFit.Fill => Stretch.UniformToFill,
+                DisplayFit.Fit => Stretch.Uniform,
+                DisplayFit.Stretch => Stretch.Fill,
+                _ => Stretch.None
+            },
+            "TileMode" when targetType == typeof(TileMode) =>
+                fit == DisplayFit.Tile ? TileMode.Tile : TileMode.None,
+            "ViewportUnits" when targetType == typeof(BrushMappingMode) =>
+                fit == DisplayFit.Tile ? BrushMappingMode.Absolute : BrushMappingMode.RelativeToBoundingBox,
+            "AlignmentX" when targetType == typeof(AlignmentX) => AlignmentX.Center,
+            "AlignmentY" when targetType == typeof(AlignmentY) => AlignmentY.Center,
+            _ => Fallback(parameter, targetType)
+        };
+    }
+
+    private static object Fallback(string? parameter, Type targetType)
+    {
+        if (targetType == typeof(Stretch))
+            return Stretch.UniformToFill;
+        if (targetType == typeof(TileMode))
+            return TileMode.None;
+        if (targetType == typeof(BrushMappingMode))
+            return BrushMappingMode.RelativeToBoundingBox;
+        if (targetType == typeof(AlignmentX))
+            return AlignmentX.Center;
+        if (targetType == typeof(AlignmentY))
+            return AlignmentY.Center;
+        return Binding.DoNothing;
+    }
+}
+
+/// <summary>State for one connected monitor, including its real image preview.</summary>
 public sealed class DisplayCardViewModel : ViewModelBase
 {
+    private DisplayFit _fit = DisplayFit.Fill;
+    private ImageSource? _previewSource;
+    private string _imagePath = string.Empty;
+    private string _imageResolutionText = "Resolution unavailable";
+    private string _imageStatusText = "No image reported by Windows";
+    private bool _isSpanPreview;
+    private Rect _previewViewport = new(0, 0, 1, 1);
+    private Rect _previewViewbox = new(0, 0, 1, 1);
+    private (int Left, int Top, int Width, int Height)? _spanBounds;
+    private Size? _imagePixelSize;
     private bool _isSelected;
     private double _diagramLeft;
     private double _diagramTop;
@@ -510,17 +1025,20 @@ public sealed class DisplayCardViewModel : ViewModelBase
     {
         Id = monitor.Id;
         DeviceName = monitor.DeviceName;
-        DisplayName = $"Display {index + 1}";
+        DisplayName = monitor.DisplayNumberText;
         IsPrimary = monitor.IsPrimary;
         Left = monitor.Left;
         Top = monitor.Top;
         Width = monitor.Width;
         Height = monitor.Height;
         CurrentWallpaper = monitor.CurrentWallpaper;
+        Fingerprint = DisplayDetection.Fingerprint(monitor);
+        _imagePath = monitor.CurrentWallpaper ?? string.Empty;
     }
 
     public string Id { get; }
     public string DeviceName { get; }
+    public string Fingerprint { get; }
     public string DisplayName { get; }
     public bool IsPrimary { get; }
     public int Left { get; }
@@ -528,8 +1046,61 @@ public sealed class DisplayCardViewModel : ViewModelBase
     public int Width { get; }
     public int Height { get; }
     public string? CurrentWallpaper { get; }
+    public string ImagePath => _imagePath;
 
-    /// <summary>Canvas bounds for the scaled layout diagram, set by the page view model.</summary>
+    public DisplayFit Fit
+    {
+        get => _fit;
+        internal set
+        {
+            if (!SetProperty(ref _fit, value, nameof(Fit)))
+                return;
+
+            OnPropertyChanged(nameof(FitLabel));
+            UpdatePreviewGeometry();
+        }
+    }
+
+    public string FitLabel => Fit.ToString();
+
+    /// <summary>True when the preview must show this monitor's slice of a spanned image.</summary>
+    public bool IsSpanPreview
+    {
+        get => _isSpanPreview;
+        private set => SetProperty(ref _isSpanPreview, value, nameof(IsSpanPreview));
+    }
+
+    public ImageSource? PreviewSource
+    {
+        get => _previewSource;
+        private set => SetProperty(ref _previewSource, value, nameof(PreviewSource));
+    }
+
+    public string ImageResolutionText
+    {
+        get => _imageResolutionText;
+        private set => SetProperty(ref _imageResolutionText, value, nameof(ImageResolutionText));
+    }
+
+    public string ImageStatusText
+    {
+        get => _imageStatusText;
+        private set => SetProperty(ref _imageStatusText, value, nameof(ImageStatusText));
+    }
+
+    public Rect PreviewViewport
+    {
+        get => _previewViewport;
+        private set => SetProperty(ref _previewViewport, value, nameof(PreviewViewport));
+    }
+
+    public Rect PreviewViewbox
+    {
+        get => _previewViewbox;
+        private set => SetProperty(ref _previewViewbox, value, nameof(PreviewViewbox));
+    }
+
+    /// <summary>Canvas bounds for the scaled layout diagram.</summary>
     public double DiagramLeft => _diagramLeft;
     public double DiagramTop => _diagramTop;
     public double DiagramWidth => _diagramWidth;
@@ -551,12 +1122,115 @@ public sealed class DisplayCardViewModel : ViewModelBase
 
     public string ResolutionText => $"{Width:N0} x {Height:N0}  |  Position {Left}, {Top}";
 
-    /// <summary>The file name only: raw COM paths are long and not useful on a card.</summary>
+    /// <summary>The file name of the image actually shown in the preview.</summary>
+    public string ImageName => string.IsNullOrWhiteSpace(_imagePath)
+        ? "No image available"
+        : Path.GetFileName(_imagePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
     public string WallpaperName => string.IsNullOrWhiteSpace(CurrentWallpaper)
         ? "No wallpaper reported by Windows"
         : Path.GetFileName(CurrentWallpaper.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
-    public string WallpaperPathToolTip => CurrentWallpaper ?? "Windows did not report a wallpaper path for this display.";
+    public string WallpaperPathToolTip => string.IsNullOrWhiteSpace(_imagePath)
+        ? "Windows did not report a wallpaper path for this display."
+        : _imagePath;
 
     public string ChooseImageAutomationName => $"Choose wallpaper for {DisplayName} ({DeviceName})";
+
+    /// <summary>Loads the real image and its pixel resolution; never throws.</summary>
+    internal void SetImage(string? path)
+    {
+        _imagePath = string.IsNullOrWhiteSpace(path) ? string.Empty : path.Trim();
+        _imagePixelSize = null;
+        PreviewSource = null;
+        ImageResolutionText = "Resolution unavailable";
+        ImageStatusText = string.IsNullOrWhiteSpace(_imagePath)
+            ? "No image reported by Windows"
+            : string.Empty;
+        OnPropertyChanged(nameof(ImagePath));
+        OnPropertyChanged(nameof(ImageName));
+        OnPropertyChanged(nameof(WallpaperPathToolTip));
+
+        if (!string.IsNullOrWhiteSpace(_imagePath))
+        {
+            try
+            {
+                var fullPath = WindowsDesktopWallpaper.ValidateWallpaperPath(_imagePath);
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.UriSource = new Uri(fullPath, UriKind.Absolute);
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+                image.EndInit();
+                image.Freeze();
+                _imagePixelSize = new Size(image.PixelWidth, image.PixelHeight);
+                PreviewSource = image;
+                ImageResolutionText = $"{image.PixelWidth:N0} x {image.PixelHeight:N0}";
+            }
+            catch (Exception ex)
+            {
+                ImageStatusText = $"Preview unavailable: {ex.Message}";
+            }
+        }
+
+        UpdatePreviewGeometry();
+    }
+
+    /// <summary>Span needs a slice of one image across the whole virtual desktop.</summary>
+    internal void SetSpanPreview(bool active, (int Left, int Top, int Width, int Height)? bounds)
+    {
+        IsSpanPreview = active;
+        _spanBounds = bounds;
+        UpdatePreviewGeometry();
+    }
+
+    private void UpdatePreviewGeometry()
+    {
+        if (_isSpanPreview
+            && _spanBounds is { } desktop
+            && desktop.Width > 0
+            && desktop.Height > 0
+            && _imagePixelSize is { Width: > 0, Height: > 0 } pixels)
+        {
+            // Windows spans by filling the whole virtual desktop, cropping the
+            // longer image axis and slicing that result per monitor.
+            var desktopAspect = desktop.Width / (double)desktop.Height;
+            var imageAspect = pixels.Width / pixels.Height;
+            double visibleWidth;
+            double visibleHeight;
+            double offsetX;
+            double offsetY;
+            if (imageAspect > desktopAspect)
+            {
+                visibleHeight = pixels.Height;
+                visibleWidth = visibleHeight * desktopAspect;
+                offsetX = (pixels.Width - visibleWidth) / 2d;
+                offsetY = 0;
+            }
+            else
+            {
+                visibleWidth = pixels.Width;
+                visibleHeight = visibleWidth / desktopAspect;
+                offsetX = 0;
+                offsetY = (pixels.Height - visibleHeight) / 2d;
+            }
+
+            var sourceX = (offsetX + (Left - desktop.Left) * (visibleWidth / desktop.Width)) / pixels.Width;
+            var sourceY = (offsetY + (Top - desktop.Top) * (visibleHeight / desktop.Height)) / pixels.Height;
+            var sourceWidth = Width * (visibleWidth / desktop.Width) / pixels.Width;
+            var sourceHeight = Height * (visibleHeight / desktop.Height) / pixels.Height;
+            PreviewViewbox = new Rect(
+                Math.Clamp(sourceX, 0, 1),
+                Math.Clamp(sourceY, 0, 1),
+                Math.Clamp(sourceWidth, 0, 1),
+                Math.Clamp(sourceHeight, 0, 1));
+            PreviewViewport = new Rect(0, 0, 1, 1);
+            return;
+        }
+
+        PreviewViewbox = new Rect(0, 0, 1, 1);
+        PreviewViewport = Fit == DisplayFit.Tile && _imagePixelSize is { Width: > 0, Height: > 0 } tile
+            ? new Rect(0, 0, tile.Width, tile.Height)
+            : new Rect(0, 0, 1, 1);
+    }
 }

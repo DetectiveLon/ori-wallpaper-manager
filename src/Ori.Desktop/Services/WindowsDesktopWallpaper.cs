@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 
 namespace Ori.Desktop.Services;
 
@@ -22,7 +23,24 @@ public sealed record DisplayMonitor(
     int Width,
     int Height,
     bool IsPrimary,
-    string? CurrentWallpaper);
+    string? CurrentWallpaper)
+{
+    /// <summary>
+    /// Windows' own display number from \\.\DISPLAYn, not the COM enumeration
+    /// index (which is volatile and can point at a stale instance path).
+    /// </summary>
+    public string DisplayNumberText
+    {
+        get
+        {
+            var match = Regex.Match(DeviceName ?? string.Empty, @"DISPLAY\s*(\d+)", RegexOptions.IgnoreCase);
+            return match.Success ? $"Display {match.Groups[1].Value}" : (DeviceName?.Trim() ?? "Display ?");
+        }
+    }
+
+    /// <summary>Stable identity used to preserve selection and preferences across hotplug.</summary>
+    public string Fingerprint => DisplayDetection.Fingerprint(this);
+}
 
 /// <summary>
 /// Windows desktop integration using the documented IDesktopWallpaper COM API.
@@ -57,9 +75,12 @@ public static class WindowsDesktopWallpaper
             var result = new List<DisplayMonitor>(checked((int)count));
 
             // A driver re-enumeration can leave a dead COM path next to the live
-            // one. Both describe the same physical panel (same device name and
-            // bounds), so keep only the path that actually responds to reads.
-            var bestByPanel = new Dictionary<(string Name, int Left, int Top, int Right, int Bottom), MonitorCandidate>();
+            // one. Both describe the same physical panel, so keep only the path
+            // that actually responds to reads. The key uses the Win32 monitor
+            // identity (not the COM index): two genuinely distinct panels that
+            // happen to share bounds are never collapsed into one card.
+            var bestByPanel = new Dictionary<(string Panel, int Left, int Top, int Right, int Bottom), MonitorCandidate>();
+            var assignedNatives = new HashSet<int>();
 
             for (uint index = 0; index < count; index++)
             {
@@ -96,23 +117,32 @@ public static class WindowsDesktopWallpaper
                     currentWallpaper = null;
                 }
 
-                var native = nativeMonitors.FirstOrDefault(candidate =>
-                    candidate.Bounds.Left == bounds.Left
-                    && candidate.Bounds.Top == bounds.Top
-                    && candidate.Bounds.Right == bounds.Right
-                    && candidate.Bounds.Bottom == bounds.Bottom);
+                // Exact geometry first, preferring a Win32 monitor that has not
+                // been claimed yet; a duplicate COM path may reuse the same one.
+                var nativeIndex = FindNativeMonitor(nativeMonitors, bounds, assignedNatives);
+                if (nativeIndex >= 0)
+                    assignedNatives.Add(nativeIndex);
+
+                var native = nativeIndex >= 0 ? nativeMonitors[nativeIndex] : null;
+                // Never borrow a different panel's device name: an unmatched COM
+                // path must be labelled honestly rather than showing a duplicate
+                // Windows display number.
+                var displayName = native?.DeviceName ?? $"UNKNOWN-{index + 1}";
 
                 var monitor = new DisplayMonitor(
                     monitorId,
-                    native?.DeviceName ?? $"DISPLAY{index + 1}",
+                    displayName,
                     bounds.Left,
                     bounds.Top,
                     width,
                     height,
-                    native?.IsPrimary ?? index == 0,
+                    native?.IsPrimary ?? nativeIndex == 0,
                     string.IsNullOrWhiteSpace(currentWallpaper) ? null : currentWallpaper);
 
-                var panel = (monitor.DeviceName, bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
+                var panelKey = nativeIndex >= 0
+                    ? $"win32:{nativeIndex}"
+                    : $"com:{monitorId}";
+                var panel = (panelKey, bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
                 var candidate = new MonitorCandidate(monitor, wallpaperReadSucceeded, checked((int)index));
                 if (bestByPanel.TryGetValue(panel, out var existing))
                 {
@@ -272,6 +302,64 @@ public static class WindowsDesktopWallpaper
         }
     }
 
+    /// <summary>
+    /// Finds the Win32 monitor that owns a COM path's bounds, preferring an
+    /// unclaimed monitor so two genuinely distinct panels never share identity.
+    /// Returns -1 when Windows cannot match the path to a live monitor.
+    /// </summary>
+    private static int FindNativeMonitor(
+        IReadOnlyList<NativeMonitor> monitors,
+        NativeRect bounds,
+        HashSet<int> assigned)
+    {
+        for (var pass = 0; pass < 2; pass++)
+        {
+            for (var index = 0; index < monitors.Count; index++)
+            {
+                var candidate = monitors[index];
+                if (pass == 0 && assigned.Contains(index))
+                    continue;
+
+                if (candidate.Bounds.Left == bounds.Left
+                    && candidate.Bounds.Top == bounds.Top
+                    && candidate.Bounds.Right == bounds.Right
+                    && candidate.Bounds.Bottom == bounds.Bottom)
+                {
+                    return index;
+                }
+            }
+        }
+
+        // DPI or driver changes can shift a path's rect by a pixel. Claim the
+        // closest unused monitor by centre distance, but only when it overlaps.
+        var bestIndex = -1;
+        var bestDistance = double.MaxValue;
+        var centerX = (bounds.Left + bounds.Right) / 2d;
+        var centerY = (bounds.Top + bounds.Bottom) / 2d;
+        for (var index = 0; index < monitors.Count; index++)
+        {
+            if (assigned.Contains(index))
+                continue;
+
+            var rect = monitors[index].Bounds;
+            if (rect.Right <= bounds.Left || rect.Left >= bounds.Right
+                || rect.Bottom <= bounds.Top || rect.Top >= bounds.Bottom)
+            {
+                continue;
+            }
+
+            var distance = Math.Abs((rect.Left + rect.Right) / 2d - centerX)
+                + Math.Abs((rect.Top + rect.Bottom) / 2d - centerY);
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestIndex = index;
+            }
+        }
+
+        return bestIndex;
+    }
+
     private static List<NativeMonitor> EnumerateNativeMonitors()
     {
         var monitors = new List<NativeMonitor>();
@@ -286,6 +374,7 @@ public static class WindowsDesktopWallpaper
             if (GetMonitorInfo(handle, ref info))
             {
                 monitors.Add(new NativeMonitor(
+                    monitors.Count,
                     info.DeviceName,
                     info.Monitor,
                     (info.Flags & 1) != 0));
@@ -307,7 +396,7 @@ public static class WindowsDesktopWallpaper
             throw new PlatformNotSupportedException("Desktop wallpaper control is available only on Windows.");
     }
 
-    private sealed record NativeMonitor(string DeviceName, NativeRect Bounds, bool IsPrimary);
+    private sealed record NativeMonitor(int Index, string DeviceName, NativeRect Bounds, bool IsPrimary);
 
     private sealed record MonitorCandidate(DisplayMonitor Monitor, bool WallpaperReadSucceeded, int Index);
 

@@ -21,7 +21,17 @@ public sealed class MonitorSelectionService
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Ori", "settings", "selected-monitor.json");
 
+    private readonly string _selectionPath;
+
     public static MonitorSelectionService Instance { get; } = new();
+
+    public MonitorSelectionService()
+        : this(SelectionPath)
+    {
+    }
+
+    /// <summary>Test hook: a redirected selection file, same format as production.</summary>
+    internal MonitorSelectionService(string selectionPath) => _selectionPath = selectionPath;
 
     /// <summary>The remembered monitor id, or null when none has been chosen.</summary>
     public string? SelectedMonitorId { get; private set; }
@@ -32,12 +42,16 @@ public sealed class MonitorSelectionService
     /// </summary>
     public void Load(IEnumerable<string> liveMonitorIds)
     {
+        // Clear first: an unplugged monitor must not leave the previous in-memory
+        // id behind when the file is missing, stale or unreadable.
+        SelectedMonitorId = null;
+
         try
         {
-            if (!File.Exists(SelectionPath))
+            if (!File.Exists(_selectionPath))
                 return;
 
-            using var document = JsonDocument.Parse(File.ReadAllText(SelectionPath));
+            using var document = JsonDocument.Parse(File.ReadAllText(_selectionPath));
             if (!document.RootElement.TryGetProperty("monitorId", out var element))
                 return;
 
@@ -64,10 +78,10 @@ public sealed class MonitorSelectionService
         SelectedMonitorId = monitorId;
         try
         {
-            var directory = Path.GetDirectoryName(SelectionPath);
+            var directory = Path.GetDirectoryName(_selectionPath);
             if (directory is not null)
                 Directory.CreateDirectory(directory);
-            File.WriteAllText(SelectionPath, JsonSerializer.Serialize(new { monitorId }));
+            File.WriteAllText(_selectionPath, JsonSerializer.Serialize(new { monitorId }));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

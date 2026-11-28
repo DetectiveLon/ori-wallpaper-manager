@@ -14,6 +14,17 @@ public sealed record RotationFeed
     internal const int MinimumCadence = 1;
     internal const int MaximumCadence = 7 * 24 * 60;
 
+    /// <summary>Paging never asks Wallhaven for fewer than one item.</summary>
+    public const int MinimumMaximumItemsPerFetch = 1;
+    /// <summary>Wallhaven's per-page cap; fetched items per page are clamped to this.</summary>
+    public const int MaximumMaximumItemsPerFetch = 10;
+    /// <summary>How many new items one fetch contributes by default.</summary>
+    public const int DefaultMaximumItemsPerFetch = 3;
+    /// <summary>First page in Wallhaven's 1-based paging.</summary>
+    public const int FirstPage = 1;
+    /// <summary>Persisted seeds are bounded so a corrupt record cannot grow the file.</summary>
+    public const int MaximumSeedLength = 64;
+
     public string Id { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
     public WallhavenFilters Filters { get; init; } = new();
@@ -23,6 +34,49 @@ public sealed record RotationFeed
     public DateTimeOffset? BackoffUntilUtc { get; init; }
     public int ConsecutiveFailures { get; init; }
     public string? LastAppliedId { get; init; }
+
+    // ----- paging state (schema v3) -----
+
+    /// <summary>1-based Wallhaven page this feed fetches next. Always at least 1.</summary>
+    public int CurrentPage
+    {
+        get => _currentPage;
+        init => _currentPage = value < FirstPage ? FirstPage : value;
+    }
+    private int _currentPage = FirstPage;
+
+    /// <summary>Last page Wallhaven reported for this feed's query, when known.</summary>
+    public int? LastPage
+    {
+        get => _lastPage;
+        init => _lastPage = value is { } page && page >= FirstPage ? page : null;
+    }
+    private int? _lastPage;
+
+    /// <summary>Wallhaven random seed used for stable page walking, when known.</summary>
+    public string? Seed
+    {
+        get => _seed;
+        init
+        {
+            var trimmed = value?.Trim();
+            _seed = string.IsNullOrEmpty(trimmed) ? null
+                : trimmed.Length > MaximumSeedLength ? trimmed[..MaximumSeedLength] : trimmed;
+        }
+    }
+    private string? _seed;
+
+    /// <summary>How many images one fetch may take from this feed. Clamped 1..10.</summary>
+    public int MaximumItemsPerFetch
+    {
+        get => _maximumItemsPerFetch;
+        init => _maximumItemsPerFetch = ClampMaximumItemsPerFetch(value);
+    }
+    private int _maximumItemsPerFetch = DefaultMaximumItemsPerFetch;
+
+    /// <summary>Clamps an items-per-fetch value into 1..10.</summary>
+    public static int ClampMaximumItemsPerFetch(int value) =>
+        Math.Clamp(value, MinimumMaximumItemsPerFetch, MaximumMaximumItemsPerFetch);
 
     public void Validate()
     {
@@ -44,6 +98,15 @@ public sealed record RotationFeed
 
         if (LastAppliedId is not null && !IsSafeToken(LastAppliedId, MaximumAppliedIdLength, allowEmpty: true))
             throw new ArgumentException("Last applied id must be at most 40 safe characters.", nameof(LastAppliedId));
+
+        if (CurrentPage < FirstPage)
+            throw new ArgumentOutOfRangeException(nameof(CurrentPage), "Current page must be 1 or greater.");
+
+        if (LastPage is { } lastPage && lastPage < FirstPage)
+            throw new ArgumentOutOfRangeException(nameof(LastPage), "Last page must be 1 or greater.");
+
+        if (MaximumItemsPerFetch < MinimumMaximumItemsPerFetch || MaximumItemsPerFetch > MaximumMaximumItemsPerFetch)
+            throw new ArgumentOutOfRangeException(nameof(MaximumItemsPerFetch), "Items per fetch must be between 1 and 10.");
     }
 
     /// <summary>Shared by the model and the store so both agree on what a safe token is.</summary>

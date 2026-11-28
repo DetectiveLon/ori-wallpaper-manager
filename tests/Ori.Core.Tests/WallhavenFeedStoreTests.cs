@@ -85,7 +85,7 @@ public sealed class WallhavenFeedStoreTests : IDisposable
         WallhavenFeedStore.SetAutoFetchEnabled(true);
 
         using var document = JsonDocument.Parse(File.ReadAllText(_path));
-        Assert.Equal(2, document.RootElement.GetProperty("Version").GetInt32());
+        Assert.Equal(3, document.RootElement.GetProperty("Version").GetInt32());
         var feeds = document.RootElement.GetProperty("Feeds");
         Assert.Equal(1, feeds.GetArrayLength());
         Assert.Equal("saved-search", feeds[0].GetProperty("Id").GetString());
@@ -406,7 +406,7 @@ public sealed class WallhavenFeedStoreTests : IDisposable
         Assert.Equal(WallhavenCategory.Anime, WallhavenFeedStore.Load()!.Categories);
         Assert.True(WallhavenFeedStore.IsAutoFetchEnabled());
         using var document = JsonDocument.Parse(File.ReadAllText(_path));
-        Assert.Equal(2, document.RootElement.GetProperty("Version").GetInt32());
+        Assert.Equal(3, document.RootElement.GetProperty("Version").GetInt32());
     }
 
     [Fact]

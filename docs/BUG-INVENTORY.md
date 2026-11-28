@@ -51,7 +51,7 @@ in the script.
 
 | View | Controls (`Element.Attribute` → binding path) |
 |---|---|
-| AutomationView | `CheckBox.IsChecked` (`PauseWhenFullscreen`, `AutoFetchFromWallhaven`, `IsEnabled`); `ComboBox.SelectedItem` (`CadenceMinutes`, `SelectedInterval`) |
+| AutomationView | `CheckBox.IsChecked` (`PauseWhenFullscreen`, `AutoFetchFromWallhaven`, `IsEnabled`, `FetchApplyToAll`); `ComboBox.SelectedItem` (`CadenceMinutes`, `SelectedInterval`, `SourceKind`, `SourceId`) |
 | DiscoverView | `ComboBox.SelectedItem` (`SelectedFeedCadence`, `SelectedSorting`, `SelectedTopRange`, `SelectedOrder`, `SelectedRatio`, `SelectedMonitor`); `ListBox.SelectedItem` (`SelectedCard`); `ToggleButton.IsChecked` (`General`, `Anime`, `People`, `Safe`, `Sketchy`, `Explicit`, `IsSelected`) |
 | DisplaysView | `ComboBox.SelectedItem` (`SelectedPositionOption`) |
 | LibraryView | `ComboBox.SelectedItem` (`SelectedCollectionFilter`, `SelectedSort`, `SelectedDisplay`); `ComboBox.Text` (`SelectedCollection`); `CheckBox.IsChecked` (`FavoritesOnly`, `DeleteFileOnRemove`); `ListBox.SelectedItem` (`SelectedEntry`) |

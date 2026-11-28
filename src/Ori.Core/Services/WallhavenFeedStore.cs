@@ -6,15 +6,19 @@ namespace Ori.Core.Services;
 
 /// <summary>
 /// Persists the Discover search preferences used by hands-free Wallhaven rotation.
-/// Version 2 stores a list of independently scheduled feeds; version 1 records are
-/// migrated in memory to a single "Saved search" feed and promoted on the next write.
-/// The record is written atomically so a crash can never leave a half-written
-/// preference file; a missing or corrupt record is simply reported as "no feed".
-/// The opt-in flag lives in the same record so enabling auto-fetch survives restarts.
+/// Version 3 stores a list of independently scheduled feeds, each carrying its own
+/// paging state (<see cref="RotationFeed.CurrentPage"/>, <see cref="RotationFeed.LastPage"/>,
+/// <see cref="RotationFeed.Seed"/>, <see cref="RotationFeed.MaximumItemsPerFetch"/>).
+/// Version 1 records are migrated in memory to a single "Saved search" feed; version 2
+/// records are promoted in place. Unknown fields are ignored and a corrupt file is
+/// quarantined. The record is written atomically so a crash can never leave a
+/// half-written preference file; a missing or corrupt record is simply reported as
+/// "no feed". The opt-in flag lives in the same record so enabling auto-fetch survives
+/// restarts.
 /// </summary>
 public static class WallhavenFeedStore
 {
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
     private const long MaximumDocumentBytes = 1024 * 1024;
     public const int MinimumCadenceMinutes = 1;
     public const int MaximumCadenceMinutes = 7 * 24 * 60; // one week
@@ -24,6 +28,38 @@ public static class WallhavenFeedStore
     public const string MigratedFeedName = "Saved search";
     public const int MaximumFailures = 20;
     public static readonly TimeSpan MaximumBackoff = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Product floor for a feed's fetch cadence. Core validation still accepts any
+    /// whole minute, but every cadence editor offers and clamps to this range.
+    /// </summary>
+    public const int MinimumFeedCadenceMinutes = 15;
+    /// <summary>Product ceiling for a feed's fetch cadence (one week).</summary>
+    public const int MaximumFeedCadenceMinutes = 7 * 24 * 60;
+
+    /// <summary>
+    /// One shared cadence choice list driven by Core bounds (15..10080 minutes).
+    /// Custom numeric entry is supported separately by <see cref="ClampFeedCadence"/>.
+    /// </summary>
+    public static IReadOnlyList<int> FeedCadenceChoices { get; } = new[]
+    {
+        MinimumFeedCadenceMinutes, 30, 60, 120, 240, 360, 720, 1440, MaximumFeedCadenceMinutes
+    };
+
+    /// <summary>Clamps a cadence into the shared 15..10080 minute feed range.</summary>
+    public static int ClampFeedCadence(int minutes) =>
+        Math.Clamp(minutes, MinimumFeedCadenceMinutes, MaximumFeedCadenceMinutes);
+
+    /// <summary>
+    /// Shared list of choices for a ComboBox: the standard cadences plus any custom
+    /// value already in use, clamped into range, in ascending order.
+    /// </summary>
+    public static IReadOnlyList<int> BuildCadenceChoices(int currentMinutes)
+    {
+        var choices = new SortedSet<int>(FeedCadenceChoices);
+        choices.Add(ClampFeedCadence(currentMinutes));
+        return choices.ToArray();
+    }
 
     private static readonly string Path = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -36,7 +72,13 @@ public static class WallhavenFeedStore
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() }
+        Converters =
+        {
+            new TolerantEnumConverterFactory(
+                (typeof(WallhavenSort), WallhavenSort.Random),
+                (typeof(WallhavenOrder), WallhavenOrder.Descending),
+                (typeof(WallhavenTopRange), WallhavenTopRange.Month))
+        }
     };
 
     /// <summary>Saves the current Discover filters and their fetch cadence.</summary>
@@ -149,7 +191,7 @@ public static class WallhavenFeedStore
 
         lock (SyncRoot)
         {
-            // A raw read is deliberate: ReadCore() migrates v1 records and sanitizes
+            // A raw read is deliberate: ReadCore() migrates legacy records and sanitizes
             // feeds in memory, and persisting that result would create/rewrite feeds.
             var existing = ReadDocumentRaw();
             var document = existing is null
@@ -175,14 +217,14 @@ public static class WallhavenFeedStore
             if (existing is null)
             {
                 // No saved Discover filters yet; store the preference in an empty
-                // v2 record so it survives until the first successful search saves them.
+                // v3 record so it survives until the first successful search saves them.
                 Persist(new FeedDocument(SchemaVersion, null, 0, enabled, null), changed: true);
                 return;
             }
 
             if (existing.AutoFetchEnabled == enabled)
             {
-                // A migrated v1 record is still only in memory; promote it now.
+                // A migrated legacy record is still only in memory; promote it now.
                 Persist(existing with { Version = SchemaVersion }, changed: false);
                 return;
             }
@@ -346,6 +388,91 @@ public static class WallhavenFeedStore
         }
     }
 
+    // ----- paging (contract: Feed agent -> Automation agent) -----
+
+    /// <summary>
+    /// The page and seed a fetch should use for this feed.
+    /// Returns the feed's <see cref="RotationFeed.CurrentPage"/> clamped into
+    /// 1..<see cref="RotationFeed.LastPage"/> when the last page is known, plus the
+    /// feed's stored seed. Pure: no file access and no mutation.
+    /// </summary>
+    public static (int Page, string? Seed) GetFetchRequest(RotationFeed feed, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(feed);
+
+        var page = feed.CurrentPage < RotationFeed.FirstPage ? RotationFeed.FirstPage : feed.CurrentPage;
+        if (feed.LastPage is { } lastPage && lastPage >= RotationFeed.FirstPage && page > lastPage)
+            page = lastPage;
+
+        var seed = feed.Seed;
+        if (string.IsNullOrWhiteSpace(seed))
+            seed = null;
+        else
+        {
+            var trimmed = seed.Trim();
+            seed = trimmed.Length > RotationFeed.MaximumSeedLength
+                ? trimmed[..RotationFeed.MaximumSeedLength] : trimmed;
+        }
+
+        // 'now' is accepted for symmetry with the rest of the store; cadence is
+        // enforced by SelectNextFeed, not by paging.
+        _ = now;
+        return (page, seed);
+    }
+
+    /// <summary>
+    /// Records the page actually used for a fetch, the last page Wallhaven reported
+    /// and its seed, then advances <see cref="RotationFeed.CurrentPage"/> to the next
+    /// page, wrapping to 1 after the last page. Unknown or blank ids change nothing.
+    /// </summary>
+    public static void RecordFetchPage(string id, int pageUsed, int? lastPage, string? seed)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return;
+
+        var used = pageUsed < RotationFeed.FirstPage ? RotationFeed.FirstPage : pageUsed;
+        int? reportedLast = lastPage is { } page && page >= RotationFeed.FirstPage ? page : null;
+
+        string? trimmedSeed = seed?.Trim();
+        if (string.IsNullOrEmpty(trimmedSeed))
+            trimmedSeed = null;
+        else if (trimmedSeed.Length > RotationFeed.MaximumSeedLength)
+            trimmedSeed = trimmedSeed[..RotationFeed.MaximumSeedLength];
+
+        lock (SyncRoot)
+        {
+            var document = ReadCore();
+            var feeds = document?.Feeds?.ToList();
+            if (feeds is null)
+                return;
+
+            var index = feeds.FindIndex(f => string.Equals(
+                f.Id, id.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+                return;
+
+            var feed = feeds[index];
+            var effectiveLast = reportedLast ?? feed.LastPage;
+
+            int nextPage;
+            if (effectiveLast is { } last && used >= last)
+                nextPage = RotationFeed.FirstPage;                       // wrap after the last page
+            else if (effectiveLast is { } bound && used + 1 > bound)
+                nextPage = RotationFeed.FirstPage;
+            else
+                nextPage = used + 1;
+
+            feeds[index] = feed with
+            {
+                CurrentPage = nextPage,
+                LastPage = effectiveLast,
+                Seed = trimmedSeed ?? feed.Seed
+            };
+
+            Persist(document! with { Feeds = feeds }, changed: true);
+        }
+    }
+
     /// <summary>
     /// Round-robin selection over enabled feeds, starting just after the one fetched
     /// most recently. No file access and no mutation: callers can use it for previews.
@@ -410,7 +537,7 @@ public static class WallhavenFeedStore
     // ----- persistence -----
 
     /// <summary>
-    /// Reads the file exactly as stored, without v1 migration or feed sanitization.
+    /// Reads the file exactly as stored, without legacy migration or feed sanitization.
     /// Used by operations that must not change feeds as a side effect.
     /// </summary>
     private static FeedDocument? ReadDocumentRaw()
@@ -457,8 +584,8 @@ public static class WallhavenFeedStore
     }
 
     /// <summary>
-    /// Reads the record, migrating a v1 record in memory. A migration is marked
-    /// pending so the next write promotes the file to v2.
+    /// Reads the record, migrating a v1 or v2 record in memory. A migration is marked
+    /// pending so the next write promotes the file to v3.
     /// </summary>
     private static FeedDocument? ReadCore()
     {
@@ -514,6 +641,17 @@ public static class WallhavenFeedStore
                 return document with { Version = SchemaVersion, Feeds = feeds };
             }
 
+            if (document.Version == 2)
+            {
+                // v2 has no paging state; new fields take their safe defaults.
+                _migrationPending = true;
+                return document with
+                {
+                    Version = SchemaVersion,
+                    Feeds = NormalizeFeeds(document.Feeds, DateTimeOffset.UtcNow)
+                };
+            }
+
             if (document.Version != SchemaVersion)
             {
                 // An unreadable record would otherwise be silently overwritten by the
@@ -536,7 +674,7 @@ public static class WallhavenFeedStore
         }
     }
 
-    /// <summary>Writes through when something changed, or when a v1 record needs promoting.</summary>
+    /// <summary>Writes through when something changed, or when a legacy record needs promoting.</summary>
     private static void Persist(FeedDocument? document, bool changed)
     {
         if (document is not null && (changed || _migrationPending))
@@ -672,7 +810,13 @@ public static class WallhavenFeedStore
                 LastAppliedId = RotationFeed.IsSafeToken(
                     candidate.LastAppliedId, RotationFeed.MaximumAppliedIdLength, allowEmpty: true)
                     ? candidate.LastAppliedId
-                    : null
+                    : null,
+                // Paging state is sanitized rather than dropping the feed.
+                CurrentPage = candidate.CurrentPage < RotationFeed.FirstPage
+                    ? RotationFeed.FirstPage : candidate.CurrentPage,
+                LastPage = candidate.LastPage is { } lastPage && lastPage >= RotationFeed.FirstPage
+                    ? lastPage : null,
+                MaximumItemsPerFetch = RotationFeed.ClampMaximumItemsPerFetch(candidate.MaximumItemsPerFetch)
             });
 
             if (normalized.Count == MaximumFeeds)

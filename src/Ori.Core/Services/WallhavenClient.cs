@@ -138,6 +138,31 @@ public sealed class WallhavenClient
     }
 
     /// <summary>
+    /// Fetches an explicit page/seed pair (as produced by
+    /// <see cref="WallhavenFeedStore.GetFetchRequest"/>) without mutating the filters.
+    /// Everything else matches <see cref="SearchAsync(WallhavenFilters, string?, CancellationToken)"/>.
+    /// </summary>
+    public Task<WallhavenSearchPage> SearchAsync(
+        WallhavenFilters filters,
+        int page,
+        string? seed,
+        string? apiKey = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filters);
+        if (page < 1)
+            throw new ArgumentOutOfRangeException(nameof(page), "Page must be 1 or greater.");
+
+        var request = filters with
+        {
+            Page = page,
+            // An explicit seed wins; otherwise keep the filters' own seed.
+            Seed = string.IsNullOrWhiteSpace(seed) ? filters.Seed : seed.Trim()
+        };
+        return SearchAsync(request, apiKey, cancellationToken);
+    }
+
+    /// <summary>
     /// Fetches the tag names for a single wallpaper from the documented detail endpoint.
     /// The search endpoint does not expose tags. Any normal network/HTTP/parse failure
     /// yields an empty array; cancellation is propagated.

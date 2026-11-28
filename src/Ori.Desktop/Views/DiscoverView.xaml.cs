@@ -40,7 +40,6 @@ public partial class DiscoverView : UserControl
         ApiKeyBox.Password = _viewModel.ApiKey;
         _viewModel.OwnerWindow = Window.GetWindow(this);
         _viewModel.LoadDisplays();
-        _viewModel.RefreshFeeds();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e) => _viewModel.CancelSearch();

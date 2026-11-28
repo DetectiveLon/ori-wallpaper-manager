@@ -4,6 +4,7 @@ namespace Ori.Core.Services;
 
 public static class WallhavenQueryBuilder
 {
+    /// <summary>Builds the Wallhaven v1 search URL for these filters, including Page and Seed.</summary>
     public static Uri Build(WallhavenFilters filters)
     {
         ArgumentNullException.ThrowIfNull(filters);
@@ -65,6 +66,35 @@ public static class WallhavenQueryBuilder
 
         var query = string.Join('&', values.Select(v => $"{Uri.EscapeDataString(v.Key)}={Uri.EscapeDataString(v.Value)}"));
         return new Uri($"https://wallhaven.cc/api/v1/search?{query}", UriKind.Absolute);
+    }
+
+    /// <summary>
+    /// Builds the URL for an explicit page/seed pair, as produced by
+    /// <see cref="WallhavenFeedStore.GetFetchRequest"/>, without mutating the filters.
+    /// </summary>
+    public static Uri Build(WallhavenFilters filters, int page, string? seed)
+    {
+        ArgumentNullException.ThrowIfNull(filters);
+        if (page < 1)
+            throw new ArgumentOutOfRangeException(nameof(page), "Page must be 1 or greater.");
+
+        var request = filters with
+        {
+            Page = page,
+            // An explicit seed wins; otherwise keep the filters' own seed.
+            Seed = string.IsNullOrWhiteSpace(seed) ? filters.Seed : seed.Trim()
+        };
+        return Build(request);
+    }
+
+    /// <summary>
+    /// Builds the URL for a feed fetch: the page/seed pair from
+    /// <see cref="WallhavenFeedStore.GetFetchRequest"/> applied to the feed's filters.
+    /// </summary>
+    public static Uri BuildFetch(RotationFeed feed, (int Page, string? Seed) request)
+    {
+        ArgumentNullException.ThrowIfNull(feed);
+        return Build(feed.Filters, request.Page, request.Seed);
     }
 
     private static KeyValuePair<string, string> Pair(string key, string value) => new(key, value);

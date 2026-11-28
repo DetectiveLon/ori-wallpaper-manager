@@ -3,11 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:vm="clr-namespace:Ori.Desktop.ViewModels"
              mc:Ignorable="d"
-             d:DesignHeight="680" d:DesignWidth="1000"
+             d:DesignHeight="760" d:DesignWidth="1000"
              Background="{StaticResource WindowBrush}">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <!-- One converter replaces the old six fit booleans. -->
+        <vm:DisplayFitPreviewConverter x:Key="DisplayFitPreviewConverter" />
 
         <Style x:Key="DisplayGlyph" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
@@ -29,7 +32,6 @@
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
                 </Trigger>
-                <!-- Keyboard users get the same visible cue as mouse users. -->
                 <Trigger Property="IsKeyboardFocused" Value="True">
                     <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
                     <Setter Property="BorderThickness" Value="2" />
@@ -41,70 +43,13 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-
-        <!-- One reusable vector landscape. Viewbox lets the same artwork stand in
-             for a cropped, fitted, stretched, centred, tiled or spanned image. -->
-        <DataTemplate x:Key="SampleLandscape">
-            <Viewbox Stretch="Fill">
-                <Grid Width="120" Height="72" ClipToBounds="True">
-                    <Rectangle Fill="{StaticResource AccentTintBrush}" Width="120" Height="72" />
-                    <Path Data="M 0 72 L 32 36 L 58 58 L 86 24 L 120 62 L 120 72 Z"
-                          Fill="{StaticResource AccentBrush}" Opacity="0.72" />
-                    <Ellipse Width="14" Height="14" Fill="{StaticResource WarningBrush}"
-                             HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,14,0" />
-                    <Rectangle Height="1" Fill="{StaticResource DividerBrush}"
-                               HorizontalAlignment="Stretch" VerticalAlignment="Bottom" Margin="0,0,0,18" />
-                </Grid>
-            </Viewbox>
-        </DataTemplate>
-
-        <Style x:Key="FitSampleStyle" TargetType="ContentControl">
-            <Setter Property="Content" Value="landscape" />
-            <Setter Property="ContentTemplate" Value="{StaticResource SampleLandscape}" />
-            <Setter Property="HorizontalAlignment" Value="Center" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="IsHitTestVisible" Value="False" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsFill}" Value="True">
-                    <Setter Property="Width" Value="224" />
-                    <Setter Property="Height" Value="128" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding IsFit}" Value="True">
-                    <Setter Property="Width" Value="160" />
-                    <Setter Property="Height" Value="96" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding IsStretch}" Value="True">
-                    <Setter Property="Width" Value="180" />
-                    <Setter Property="Height" Value="100" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding IsCenter}" Value="True">
-                    <Setter Property="Width" Value="100" />
-                    <Setter Property="Height" Value="60" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding IsTile}" Value="True">
-                    <Setter Property="Visibility" Value="Collapsed" />
-                </DataTrigger>
-                <DataTrigger Binding="{Binding IsSpan}" Value="True">
-                    <Setter Property="Visibility" Value="Collapsed" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="TilePreviewStyle" TargetType="UniformGrid">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsTile}" Value="True">
-                    <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
     </UserControl.Resources>
 
     <!-- The shell renders the page title and subtitle; this page starts with content. -->
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="0,0,0,8">
 
-            <!-- Connected displays: geometry-driven diagram, not a text list. -->
+            <!-- Connected displays: geometry-driven diagram, real image previews. -->
             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -123,7 +68,7 @@
                                        FontSize="12" />
                             <TextBlock Text="Your display layout" Style="{StaticResource SectionTitleStyle}"
                                        Margin="0,6,0,0" />
-                            <TextBlock Text="Cards sit where Windows places each monitor. Click one to make it the target for Apply actions."
+                            <TextBlock Text="Windows numbers each monitor; click a card to choose where Apply lands. Previews show the real image with the saved fit."
                                        Style="{StaticResource CaptionTextStyle}" FontSize="12"
                                        TextWrapping="Wrap" Margin="0,6,0,0" />
                         </StackPanel>
@@ -131,7 +76,7 @@
                                 Command="{Binding RefreshCommand}" Padding="14,9" MinHeight="36"
                                 Margin="16,0,0,0" VerticalAlignment="Center"
                                 AutomationProperties.Name="Refresh monitors"
-                                ToolTip="Re-detect monitors and re-read the current wallpaper and fit mode.">
+                                ToolTip="Re-detect monitors and re-read each display's wallpaper.">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="&#xE72C;" Style="{StaticResource DisplayGlyph}" FontSize="13"
                                            Margin="0,0,7,0" />
@@ -140,17 +85,22 @@
                         </Button>
                     </Grid>
 
-                    <!-- Scaled virtual-desktop surface. The host size follows the
-                         monitors' bounds; each card is positioned from Left/Top and
-                         sized from Width/Height reported by DisplayDetection.Read(). -->
+                    <!-- Scaled virtual-desktop surface. The inner grid keeps a
+                         logical minimum card size; LayoutTransform scales the
+                         whole diagram so it cannot overflow the host. -->
                     <Border Grid.Row="1" Margin="0,16,0,0" Padding="12" MaxHeight="420"
                             Background="{StaticResource PanelAltBrush}"
                             CornerRadius="{StaticResource ControlCornerRadius}">
                         <ScrollViewer HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto">
-                            <Grid MinWidth="0">
+                            <Grid MinWidth="0" ClipToBounds="True">
                                 <Grid Width="{Binding LayoutWidth}" Height="{Binding LayoutHeight}"
                                       HorizontalAlignment="Left" Background="Transparent">
+                                    <Grid.LayoutTransform>
+                                        <ScaleTransform ScaleX="{Binding DiagramScale}"
+                                                        ScaleY="{Binding DiagramScale}" />
+                                    </Grid.LayoutTransform>
+
                                     <!-- Virtual-desktop origin, only when it falls inside the diagram. -->
                                     <StackPanel HorizontalAlignment="Left" VerticalAlignment="Top"
                                                 Orientation="Horizontal" IsHitTestVisible="False"
@@ -201,7 +151,8 @@
                                                             <RowDefinition Height="Auto" />
                                                             <RowDefinition Height="Auto" />
                                                             <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="*" />
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
                                                             <RowDefinition Height="Auto" />
                                                         </Grid.RowDefinitions>
 
@@ -228,27 +179,70 @@
                                                             <Run Text="{Binding ResolutionText, Mode=OneWay}" />
                                                         </TextBlock>
 
-                                                        <TextBlock Grid.Row="3" FontSize="12" Margin="0,6,0,0"
+                                                        <!-- The actual image, cropped/fitted exactly as the card's fit
+                                                             (or its slice of a spanned image). -->
+                                                        <Border Grid.Row="3" Height="104" Margin="0,10,0,0"
+                                                                ClipToBounds="True"
+                                                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                                                ToolTip="{Binding WallpaperPathToolTip}">
+                                                            <Border.Background>
+                                                                <ImageBrush ImageSource="{Binding PreviewSource}"
+                                                                            Viewbox="{Binding PreviewViewbox}"
+                                                                            ViewboxUnits="RelativeToBoundingBox"
+                                                                            Viewport="{Binding PreviewViewport}">
+                                                                    <ImageBrush.Stretch>
+                                                                        <MultiBinding Converter="{StaticResource DisplayFitPreviewConverter}" ConverterParameter="Stretch">
+                                                                            <Binding Path="Fit" />
+                                                                            <Binding Path="IsSpanPreview" />
+                                                                        </MultiBinding>
+                                                                    </ImageBrush.Stretch>
+                                                                    <ImageBrush.TileMode>
+                                                                        <MultiBinding Converter="{StaticResource DisplayFitPreviewConverter}" ConverterParameter="TileMode">
+                                                                            <Binding Path="Fit" />
+                                                                            <Binding Path="IsSpanPreview" />
+                                                                        </MultiBinding>
+                                                                    </ImageBrush.TileMode>
+                                                                    <ImageBrush.ViewportUnits>
+                                                                        <MultiBinding Converter="{StaticResource DisplayFitPreviewConverter}" ConverterParameter="ViewportUnits">
+                                                                            <Binding Path="Fit" />
+                                                                            <Binding Path="IsSpanPreview" />
+                                                                        </MultiBinding>
+                                                                    </ImageBrush.ViewportUnits>
+                                                                    <ImageBrush.AlignmentX>
+                                                                        <MultiBinding Converter="{StaticResource DisplayFitPreviewConverter}" ConverterParameter="AlignmentX">
+                                                                            <Binding Path="Fit" />
+                                                                            <Binding Path="IsSpanPreview" />
+                                                                        </MultiBinding>
+                                                                    </ImageBrush.AlignmentX>
+                                                                    <ImageBrush.AlignmentY>
+                                                                        <MultiBinding Converter="{StaticResource DisplayFitPreviewConverter}" ConverterParameter="AlignmentY">
+                                                                            <Binding Path="Fit" />
+                                                                            <Binding Path="IsSpanPreview" />
+                                                                        </MultiBinding>
+                                                                    </ImageBrush.AlignmentY>
+                                                                </ImageBrush>
+                                                            </Border.Background>
+                                                        </Border>
+
+                                                        <TextBlock Grid.Row="4" FontSize="12" Margin="0,8,0,0"
                                                                    TextTrimming="CharacterEllipsis"
                                                                    ToolTip="{Binding WallpaperPathToolTip}">
-                                                            <Run Text="Wallpaper: " Foreground="{StaticResource MutedBrush}" />
-                                                            <Run Text="{Binding WallpaperName, Mode=OneWay}" />
+                                                            <Run Text="{Binding ImageName, Mode=OneWay}" />
+                                                            <Run Text="&#x2022;" Foreground="{StaticResource MutedBrush}" />
+                                                            <Run Text="{Binding ImageResolutionText, Mode=OneWay}"
+                                                                 Foreground="{StaticResource MutedBrush}" />
                                                         </TextBlock>
 
-                                                        <Button Grid.Row="4" Style="{StaticResource PrimaryButtonStyle}"
-                                                                HorizontalAlignment="Left" Margin="0,12,0,0"
-                                                                Padding="12,8" MinHeight="36"
-                                                                AutomationProperties.Name="{Binding ChooseImageAutomationName}"
-                                                                ToolTip="Choose an image for this display. Unavailable while Span mode is active."
-                                                                IsEnabled="{Binding DataContext.CanChoosePerMonitorImage, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                                Command="{Binding DataContext.ChooseImageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                                CommandParameter="{Binding}">
-                                                            <StackPanel Orientation="Horizontal">
-                                                                <TextBlock Text="&#xE8B9;" Style="{StaticResource DisplayGlyph}"
-                                                                           FontSize="13" Margin="0,0,7,0" />
-                                                                <TextBlock Text="Choose image" />
-                                                            </StackPanel>
-                                                        </Button>
+                                                        <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,6,0,0">
+                                                            <Border Style="{StaticResource MonitorChipStyle}">
+                                                                <TextBlock Text="{Binding FitLabel, Mode=OneWay}" FontSize="11"
+                                                                           FontWeight="SemiBold"
+                                                                           Foreground="{StaticResource AccentBrush}" />
+                                                            </Border>
+                                                            <TextBlock Text="{Binding ImageStatusText, Mode=OneWay}"
+                                                                       FontSize="11" Foreground="{StaticResource WarningBrush}"
+                                                                       TextTrimming="CharacterEllipsis" Margin="8,0,0,0" />
+                                                        </StackPanel>
                                                     </Grid>
                                                 </Border>
                                             </DataTemplate>
@@ -265,131 +259,125 @@
                         </ScrollViewer>
                     </Border>
 
-                    <TextBlock Grid.Row="2" Text="Per-monitor images apply only when the fit mode is not Span. Applying one returns the shared fit mode from Span to Fill."
+                    <TextBlock Grid.Row="2" Text="Display numbers come from Windows, not the COM enumeration. Each panel keeps its own fit and source across unplug/replug."
                                Style="{StaticResource CaptionTextStyle}" FontSize="12"
                                Margin="0,10,0,0" TextWrapping="Wrap" />
                 </Grid>
             </Border>
 
-            <!-- Global fit: one Windows-wide setting, with a live visual explanation. -->
+            <!-- One staged source, one fit and one Apply for the target display. -->
             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <StackPanel>
-                        <TextBlock Text="GLOBAL FIT" Style="{StaticResource EyebrowTextStyle}" FontSize="12" />
-                        <TextBlock Text="How images fit" Style="{StaticResource SectionTitleStyle}" Margin="0,6,0,0" />
-                        <TextBlock Text="Windows applies one fit mode to every display. You can still choose a different image per monitor, except in Span mode."
+                        <TextBlock Text="TARGET DISPLAY" Style="{StaticResource EyebrowTextStyle}" FontSize="12" />
+                        <TextBlock Text="Choose source and fit" Style="{StaticResource SectionTitleStyle}" Margin="0,6,0,0" />
+                        <TextBlock Text="Pick the display card above, stage a source, then press Apply. Nothing changes until Apply."
                                    Style="{StaticResource CaptionTextStyle}" FontSize="12"
                                    TextWrapping="Wrap" Margin="0,6,0,0" />
                     </StackPanel>
 
                     <Grid Grid.Row="1" Margin="0,16,0,0">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="24" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <!-- Fit illustration: a landscape sample cropped differently
-                             for every mode. Tile and Span swap in their own diagrams. -->
-                        <StackPanel Width="220">
-                            <Border Width="180" Height="100" HorizontalAlignment="Center"
-                                    Background="{StaticResource WindowBrush}"
-                                    BorderBrush="{StaticResource DividerBrush}" BorderThickness="1"
-                                    ClipToBounds="True">
-                                <Border.Style>
-                                    <Style TargetType="Border">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsSpan}" Value="True">
-                                                <Setter Property="Visibility" Value="Collapsed" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Border.Style>
+                        <StackPanel MinWidth="0">
+                            <TextBlock Text="Source" Style="{StaticResource FieldLabelStyle}" FontSize="12" />
+                            <ComboBox MinWidth="220" HorizontalAlignment="Left"
+                                      ItemsSource="{Binding SourceKindOptions}"
+                                      DisplayMemberPath="Label"
+                                      SelectionChanged="OnSourceKindChanged"
+                                      AutomationProperties.Name="Wallpaper source kind"
+                                      ToolTip="Choose an image file, a saved library item or a saved feed." />
+
+                            <StackPanel Margin="0,12,0,0"
+                                        Visibility="{Binding IsFileSource, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="Image file" Style="{StaticResource FieldLabelStyle}" FontSize="12" />
                                 <Grid>
-                                    <ContentControl Style="{StaticResource FitSampleStyle}" />
-                                    <UniformGrid Columns="3" Rows="2" Style="{StaticResource TilePreviewStyle}">
-                                        <ContentControl Content="sample" ContentTemplate="{StaticResource SampleLandscape}"
-                                                        Width="60" Height="50" IsHitTestVisible="False" />
-                                        <ContentControl Content="sample" ContentTemplate="{StaticResource SampleLandscape}"
-                                                        Width="60" Height="50" IsHitTestVisible="False" />
-                                        <ContentControl Content="sample" ContentTemplate="{StaticResource SampleLandscape}"
-                                                        Width="60" Height="50" IsHitTestVisible="False" />
-                                        <ContentControl Content="sample" ContentTemplate="{StaticResource SampleLandscape}"
-                                                        Width="60" Height="50" IsHitTestVisible="False" />
-                                        <ContentControl Content="sample" ContentTemplate="{StaticResource SampleLandscape}"
-                                                        Width="60" Height="50" IsHitTestVisible="False" />
-                                        <ContentControl Content="sample" ContentTemplate="{StaticResource SampleLandscape}"
-                                                        Width="60" Height="50" IsHitTestVisible="False" />
-                                    </UniformGrid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="8" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Text="{Binding DraftFilePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             MinWidth="180" Height="36" VerticalContentAlignment="Center"
+                                             AutomationProperties.Name="Wallpaper file path"
+                                             ToolTip="Path to a JPG, PNG, BMP or TIFF wallpaper." />
+                                    <Button Grid.Column="2" Style="{StaticResource SecondaryButtonStyle}"
+                                            Command="{Binding ChooseImageCommand}" MinHeight="36"
+                                            AutomationProperties.Name="Browse for wallpaper file"
+                                            ToolTip="Browse for a wallpaper file. The file is only staged until Apply.">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="&#xE8B7;" Style="{StaticResource DisplayGlyph}" FontSize="13"
+                                                       Margin="0,0,7,0" />
+                                            <TextBlock Text="Browse" />
+                                        </StackPanel>
+                                    </Button>
                                 </Grid>
-                            </Border>
+                            </StackPanel>
 
-                            <!-- One image across two screens: the gap hides the seam
-                                 so the sample reads as a single stretched picture. -->
-                            <Grid Width="220" Height="100" IsHitTestVisible="False">
-                                <Grid.Style>
-                                    <Style TargetType="Grid">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsSpan}" Value="True">
-                                                <Setter Property="Visibility" Value="Visible" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Grid.Style>
-                                <ContentControl Content="sample" ContentTemplate="{StaticResource SampleLandscape}"
-                                                Width="220" Height="100" IsHitTestVisible="False" />
-                                <Border Width="8" Height="100" Background="{StaticResource WindowBrush}"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                <Border Width="106" Height="100" HorizontalAlignment="Left" VerticalAlignment="Center"
-                                        Background="Transparent" BorderBrush="{StaticResource DividerBrush}" BorderThickness="1" />
-                                <Border Width="106" Height="100" HorizontalAlignment="Right" VerticalAlignment="Center"
-                                        Background="Transparent" BorderBrush="{StaticResource DividerBrush}" BorderThickness="1" />
-                            </Grid>
-
-                            <TextBlock Text="Illustration only" Style="{StaticResource CaptionTextStyle}"
-                                       HorizontalAlignment="Center" Margin="0,8,0,0" />
+                            <StackPanel Margin="0,12,0,0"
+                                        Visibility="{Binding UsesListSource, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="Saved image" Style="{StaticResource FieldLabelStyle}" FontSize="12" />
+                                <ComboBox MinWidth="260" MaxWidth="420" HorizontalAlignment="Left"
+                                          ItemsSource="{Binding AvailableSources}"
+                                          DisplayMemberPath="Summary"
+                                          SelectionChanged="OnSourceChanged"
+                                          AutomationProperties.Name="Saved wallpaper source"
+                                          ToolTip="Choose a library image or the newest image fetched by a feed." />
+                            </StackPanel>
                         </StackPanel>
 
                         <StackPanel Grid.Column="2" MinWidth="0">
-                            <TextBlock Text="Fit mode" Style="{StaticResource FieldLabelStyle}" FontSize="12" />
-                            <ComboBox MinWidth="240" MaxWidth="360" HorizontalAlignment="Left"
+                            <TextBlock Text="Fit for this display" Style="{StaticResource FieldLabelStyle}" FontSize="12" />
+                            <ComboBox MinWidth="220" HorizontalAlignment="Left"
                                       ItemsSource="{Binding PositionOptions}"
                                       SelectedItem="{Binding SelectedPositionOption, Mode=TwoWay}"
                                       DisplayMemberPath="Label"
-                                      AutomationProperties.Name="Global wallpaper fit mode"
-                                      ToolTip="Windows applies this fit mode to every display. Span asks for one image across all displays." />
+                                      IsEnabled="{Binding CanChooseFit}"
+                                      AutomationProperties.Name="Wallpaper fit mode"
+                                      ToolTip="Fill, Fit, Stretch, Center or Tile for the selected display. Span is a separate toggle." />
 
                             <TextBlock Text="{Binding PositionDescription}" Style="{StaticResource CaptionTextStyle}"
-                                       FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0" />
+                                       FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0" />
 
-                            <!-- Explicit text cue when Windows did not report a fit mode. -->
-                            <TextBlock Text="Windows did not confirm the fit mode; Fill is only an assumption."
-                                       Foreground="{StaticResource WarningBrush}" FontSize="12"
-                                       TextWrapping="Wrap" Margin="0,4,0,0"
-                                       Visibility="{Binding PositionFallbackVisible, Converter={StaticResource BoolToVisibility}}" />
+                            <ToggleButton Margin="0,12,0,0" Padding="12,8" MinHeight="36"
+                                          HorizontalAlignment="Left" ClickMode="Press"
+                                          IsChecked="{Binding IsSpanActive, Mode=TwoWay}"
+                                          Checked="OnSpanChecked" Unchecked="OnSpanUnchecked"
+                                          AutomationProperties.Name="Span one image across all displays"
+                                          ToolTip="Turn Span on or off. Switching it off restores the fit used before Span.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE7BA;" Style="{StaticResource DisplayGlyph}" FontSize="13"
+                                               Margin="0,0,7,0" />
+                                    <TextBlock Text="Span across all displays" />
+                                </StackPanel>
+                            </ToggleButton>
 
-                            <!-- Text, not just colour: Span really does ignore per-monitor images. -->
-                            <Border Margin="0,12,0,0" Padding="12,10"
+                            <Border Margin="0,10,0,0" Padding="12,10"
                                     CornerRadius="{StaticResource ControlCornerRadius}"
                                     Background="{StaticResource AccentTintBrush}"
                                     Visibility="{Binding IsSpanActive, Converter={StaticResource BoolToVisibility}}">
                                 <StackPanel>
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="&#xE7BA;" Style="{StaticResource DisplayGlyph}" FontSize="14"
-                                                   Foreground="{StaticResource WarningBrush}" Margin="0,0,8,0" />
-                                        <TextBlock Text="Span is active: Windows uses one image across all displays. Per-monitor images are ignored, so Choose image is unavailable."
-                                                   Foreground="{StaticResource WarningBrush}" FontSize="12"
-                                                   TextWrapping="Wrap" />
-                                    </StackPanel>
+                                    <TextBlock Text="Span is active: Windows uses one image across every display. Per-display images are ignored until you switch it off."
+                                               Foreground="{StaticResource WarningBrush}" FontSize="12"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12"
+                                               TextWrapping="Wrap" Margin="0,6,0,0">
+                                        <Run Text="Image: " />
+                                        <Run Text="{Binding SpanImageName, Mode=OneWay}" />
+                                    </TextBlock>
                                     <Button Style="{StaticResource SecondaryButtonStyle}"
                                             Command="{Binding SetSpanWallpaperCommand}"
-                                            Margin="0,12,0,0" HorizontalAlignment="Left" MinHeight="36"
+                                            Margin="0,10,0,0" HorizontalAlignment="Left" MinHeight="36"
                                             AutomationProperties.Name="Choose one wallpaper for all displays in Span mode"
                                             ToolTip="Pick or replace the single image Windows stretches across every display.">
                                         <StackPanel Orientation="Horizontal">
@@ -402,6 +390,23 @@
                             </Border>
                         </StackPanel>
                     </Grid>
+
+                    <!-- Exactly one primary action on this view. -->
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,20,0,0">
+                        <Button Style="{StaticResource PrimaryButtonStyle}"
+                                Command="{Binding ApplyCommand}" MinWidth="140" MinHeight="40"
+                                AutomationProperties.Name="Apply wallpaper to the selected display"
+                                ToolTip="Apply the staged image and fit to the selected display.">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE8A7;" Style="{StaticResource DisplayGlyph}" FontSize="13"
+                                           Margin="0,0,7,0" />
+                                <TextBlock Text="Apply" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock Text="Failures leave the current wallpaper and saved preferences untouched."
+                                   Style="{StaticResource CaptionTextStyle}" FontSize="12"
+                                   TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0" />
+                    </StackPanel>
                 </Grid>
             </Border>
 

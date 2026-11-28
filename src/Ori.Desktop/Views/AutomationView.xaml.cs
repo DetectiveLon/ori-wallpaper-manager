@@ -24,11 +24,7 @@ public partial class AutomationView : UserControl
     {
         // NavigationService caches this view, so Loaded fires again on every return
         // visit. Keep the handler attached: InitializeAsync re-reads the library on
-        // each visit (so Start/Rotate recover after wallpapers are added elsewhere)
-        // and only marks itself initialized after restore and both timers succeed.
-        // If a first load fails, the next visit retries instead of staying broken.
-        // Schedules for displays that appear during an in-app refresh are restored by
-        // the view model's RefreshDisplaysAsync path instead.
+        // each visit and only marks itself initialized after restore + timers succeed.
         try
         {
             await ViewModel.InitializeAsync();

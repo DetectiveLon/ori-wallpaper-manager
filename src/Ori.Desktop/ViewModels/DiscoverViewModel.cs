@@ -105,43 +105,6 @@ public sealed class WallpaperCard : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
-/// <summary>
-/// One saved rotation feed in the Discover rail. Holds the parent view-model so the
-/// row's buttons can reach its commands without leaving the items template.
-/// </summary>
-public sealed class FeedItemViewModel
-{
-    public FeedItemViewModel(RotationFeed feed, DiscoverViewModel parent)
-    {
-        Feed = feed;
-        Parent = parent;
-    }
-
-    public RotationFeed Feed { get; }
-    public DiscoverViewModel Parent { get; }
-
-    public string Id => Feed.Id;
-    public string Name => Feed.Name;
-    public int CadenceMinutes => Feed.CadenceMinutes;
-    public bool IsEnabled => Feed.Enabled;
-
-    /// <summary>Backoff, failure count and the last successful fetch in one compact line.</summary>
-    public string StatusText
-    {
-        get
-        {
-            var notes = new List<string>();
-            if (Feed.BackoffUntilUtc is { } backoff && backoff > DateTimeOffset.UtcNow)
-                notes.Add($"Paused until {backoff.ToLocalTime():g}");
-            if (Feed.ConsecutiveFailures > 0)
-                notes.Add($"{Feed.ConsecutiveFailures} failed attempt(s)");
-            if (Feed.LastFetchedUtc is { } fetched)
-                notes.Add($"Last fetched {fetched.ToLocalTime():g}");
-            return notes.Count == 0 ? "Not fetched yet" : string.Join(" · ", notes);
-        }
-    }
-}
-
 /// <summary>Wallhaven discovery and direct-to-display wallpaper selection (MVVM port of DiscoverPage).</summary>
 public sealed class DiscoverViewModel : ViewModelBase
 {
@@ -168,9 +131,7 @@ public sealed class DiscoverViewModel : ViewModelBase
     private readonly DelegateCommand _applyPresetCommand;
     private readonly DelegateCommand _applyTagCommand;
     private readonly DelegateCommand _saveAsFeedCommand;
-    private readonly DelegateCommand _refreshFeedsCommand;
-    private readonly DelegateCommand _removeFeedCommand;
-    private readonly DelegateCommand _toggleFeedEnabledCommand;
+    private readonly DelegateCommand _applyCustomFeedCadenceCommand;
     private readonly DelegateCommand _saveApiKeyCommand;
 
     private WallhavenSearchPage? _currentPage;
@@ -289,15 +250,12 @@ public sealed class DiscoverViewModel : ViewModelBase
             },
             tag => tag is string, ReportCommandFailure);
         _saveAsFeedCommand = new DelegateCommand(_ => SaveAsFeedAsync(), _ => !_busy, ReportCommandFailure);
-        _refreshFeedsCommand = new DelegateCommand(_ =>
+        // Custom numeric cadence entry, clamped to the shared Core bounds.
+        _applyCustomFeedCadenceCommand = new DelegateCommand(_ =>
             {
-                RefreshFeeds();
+                ApplyCustomFeedCadence();
                 return Task.CompletedTask;
             }, _ => true, ReportCommandFailure);
-        _removeFeedCommand = new DelegateCommand(RemoveFeedAsync,
-            parameter => parameter is string, ReportCommandFailure);
-        _toggleFeedEnabledCommand = new DelegateCommand(ToggleFeedEnabledAsync,
-            parameter => parameter is string, ReportCommandFailure);
         // Saving the key is an explicit user action, never a side effect of searching.
         _saveApiKeyCommand = new DelegateCommand(_ => SaveApiKey(), _ => true, ReportCommandFailure);
     }
@@ -382,9 +340,48 @@ public sealed class DiscoverViewModel : ViewModelBase
                 _pendingFeedUpdateName = null;
         }
     }
-    public int SelectedFeedCadence { get; set; } = 60;
-    public IReadOnlyList<int> FeedCadenceChoices { get; } = [15, 30, 60, 120, 360, 720, 1440];
-    public ObservableCollection<FeedItemViewModel> Feeds { get; } = [];
+    /// <summary>Cadence for a new feed, in minutes. One shared list, custom numeric entry supported.</summary>
+    public int SelectedFeedCadence
+    {
+        get => _selectedFeedCadence;
+        set => SetProperty(ref _selectedFeedCadence, value);
+    }
+    private int _selectedFeedCadence = 60;
+
+    /// <summary>
+    /// The single shared cadence choice list driven by Core bounds
+    /// (<see cref="WallhavenFeedStore.MinimumFeedCadenceMinutes"/>..
+    /// <see cref="WallhavenFeedStore.MaximumFeedCadenceMinutes"/> = 15..10080).
+    /// </summary>
+    public IReadOnlyList<int> FeedCadenceChoices => WallhavenFeedStore.FeedCadenceChoices;
+
+    /// <summary>Custom numeric cadence entry, in minutes. Committed by ApplyCustomFeedCadenceCommand.</summary>
+    public string CustomFeedCadenceText
+    {
+        get => _customFeedCadenceText;
+        set => SetProperty(ref _customFeedCadenceText, value ?? string.Empty);
+    }
+    private string _customFeedCadenceText = string.Empty;
+
+    public int MinimumFeedCadenceMinutes => WallhavenFeedStore.MinimumFeedCadenceMinutes;
+    public int MaximumFeedCadenceMinutes => WallhavenFeedStore.MaximumFeedCadenceMinutes;
+
+    /// <summary>How many images one fetch may take from this feed. Clamped 1..10.</summary>
+    public int FeedMaximumItemsPerFetch
+    {
+        get => _feedMaximumItemsPerFetch;
+        set
+        {
+            var clamped = RotationFeed.ClampMaximumItemsPerFetch(value);
+            if (_feedMaximumItemsPerFetch == clamped) return;
+            _feedMaximumItemsPerFetch = clamped;
+            OnPropertyChanged();
+        }
+    }
+    private int _feedMaximumItemsPerFetch = RotationFeed.DefaultMaximumItemsPerFetch;
+
+    public int MinimumMaximumItemsPerFetch => RotationFeed.MinimumMaximumItemsPerFetch;
+    public int MaximumMaximumItemsPerFetch => RotationFeed.MaximumMaximumItemsPerFetch;
 
     public DisplayMonitor? SelectedMonitor
     {
@@ -466,9 +463,8 @@ public sealed class DiscoverViewModel : ViewModelBase
     public ICommand ApplyPresetCommand => _applyPresetCommand;
     public ICommand ApplyTagCommand => _applyTagCommand;
     public ICommand SaveAsFeedCommand => _saveAsFeedCommand;
-    public ICommand RefreshFeedsCommand => _refreshFeedsCommand;
-    public ICommand RemoveFeedCommand => _removeFeedCommand;
-    public ICommand ToggleFeedEnabledCommand => _toggleFeedEnabledCommand;
+    /// <summary>Commit the custom numeric cadence in <see cref="CustomFeedCadenceText"/>.</summary>
+    public ICommand ApplyCustomFeedCadenceCommand => _applyCustomFeedCadenceCommand;
     public ICommand SaveApiKeyCommand => _saveApiKeyCommand;
 
     /// <summary>Enumerates displays once the view is loaded; detection failures stay non-fatal.</summary>
@@ -582,9 +578,7 @@ public sealed class DiscoverViewModel : ViewModelBase
         _applySelectedCommand.RaiseCanExecuteChanged();
         _openPageCommand.RaiseCanExecuteChanged();
         _saveAsFeedCommand.RaiseCanExecuteChanged();
-        _refreshFeedsCommand.RaiseCanExecuteChanged();
-        _removeFeedCommand.RaiseCanExecuteChanged();
-        _toggleFeedEnabledCommand.RaiseCanExecuteChanged();
+        _applyCustomFeedCadenceCommand.RaiseCanExecuteChanged();
     }
 
     private async Task SearchFirstPageAsync()
@@ -754,7 +748,7 @@ public sealed class DiscoverViewModel : ViewModelBase
             if (name.Length == 0)
                 name = Tags.Trim();
             if (name.Length == 0)
-                name = $"Wallhaven feed {Feeds.Count + 1}";
+                name = $"Wallhaven feed {ExistingFeedCount() + 1}";
 
             // Re-saving the same name used to create another indistinguishable feed.
             // The first click now asks for confirmation; a second click with the same
@@ -770,35 +764,44 @@ public sealed class DiscoverViewModel : ViewModelBase
             }
             _pendingFeedUpdateName = null;
 
+            // One shared cadence list + custom numeric entry; clamped to Core bounds.
+            var cadence = WallhavenFeedStore.ClampFeedCadence(SelectedFeedCadence);
+            var itemsPerFetch = RotationFeed.ClampMaximumItemsPerFetch(FeedMaximumItemsPerFetch);
+
             var feed = existing is null
                 ? new RotationFeed
                 {
                     Id = Guid.NewGuid().ToString("N"),
                     Name = name,
                     Filters = filters,
-                    CadenceMinutes = SelectedFeedCadence,
+                    CadenceMinutes = cadence,
                     Enabled = true,
                     LastFetchedUtc = null,
                     BackoffUntilUtc = null,
                     ConsecutiveFailures = 0,
-                    LastAppliedId = null
+                    LastAppliedId = null,
+                    CurrentPage = RotationFeed.FirstPage,
+                    LastPage = null,
+                    Seed = filters.Seed,
+                    MaximumItemsPerFetch = itemsPerFetch
                 }
                 : existing with
                 {
                     Name = name,
                     Filters = filters,
-                    CadenceMinutes = SelectedFeedCadence
+                    CadenceMinutes = cadence,
+                    MaximumItemsPerFetch = itemsPerFetch
                 };
             feed.Validate();
             WallhavenFeedStore.UpsertFeed(feed);
             RecordTags(filters.Query);
-            RefreshFeeds();
             // The field is two-way bound, so clear it through the notifying setter to
             // empty the textbox as well as the view model after a successful save.
             FeedName = string.Empty;
-            Status = existing is null
-                ? $"Rotation feed “{feed.Name}” saved — fetches every {feed.CadenceMinutes} min."
-                : $"Rotation feed “{feed.Name}” updated — fetches every {feed.CadenceMinutes} min.";
+            Status = (existing is null
+                    ? $"Rotation feed “{feed.Name}” saved"
+                    : $"Rotation feed “{feed.Name}” updated")
+                + $" — fetches every {feed.CadenceMinutes} min. Manage it in Auto rotation.";
         }
         catch (Exception ex)
         {
@@ -807,80 +810,27 @@ public sealed class DiscoverViewModel : ViewModelBase
         return Task.CompletedTask;
     }
 
-    /// <summary>Repopulates the rail from the store; collection updates happen on the UI thread.</summary>
-    public void RefreshFeeds()
+    /// <summary>
+    /// Custom numeric cadence entry. Clamps to Core bounds 15..10080 minutes.
+    /// Discover only authors feeds; saved feeds are managed in Auto rotation.
+    /// </summary>
+    public void ApplyCustomFeedCadence()
     {
-        try
+        var raw = (CustomFeedCadenceText ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(raw) || !int.TryParse(raw, out var minutes))
         {
-            var saved = WallhavenFeedStore.ListFeeds().ToArray();
-            OnUiThread(() =>
-            {
-                Feeds.Clear();
-                foreach (var feed in saved)
-                    Feeds.Add(new FeedItemViewModel(feed, this));
-            });
+            Status = $"Cadence must be a whole number of minutes between {WallhavenFeedStore.MinimumFeedCadenceMinutes} and {WallhavenFeedStore.MaximumFeedCadenceMinutes}.";
+            return;
         }
-        catch (Exception ex)
-        {
-            OnUiThread(() => Status = $"Could not load rotation feeds: {ex.Message}");
-        }
+
+        SelectedFeedCadence = WallhavenFeedStore.ClampFeedCadence(minutes);
+        CustomFeedCadenceText = SelectedFeedCadence.ToString();
     }
 
-    private Task RemoveFeedAsync(object? parameter)
+    private int ExistingFeedCount()
     {
-        if (parameter is not string id)
-            return Task.CompletedTask;
-        try
-        {
-            WallhavenFeedStore.RemoveFeed(id);
-            RefreshFeeds();
-            Status = "Rotation feed removed.";
-        }
-        catch (Exception ex)
-        {
-            Status = $"Could not remove rotation feed: {ex.Message}";
-        }
-        return Task.CompletedTask;
-    }
-
-    private Task ToggleFeedEnabledAsync(object? parameter)
-    {
-        if (parameter is not string id)
-            return Task.CompletedTask;
-        try
-        {
-            var feed = WallhavenFeedStore.ListFeeds()
-                .FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.Ordinal));
-            if (feed is null)
-            {
-                Status = "That rotation feed no longer exists.";
-                RefreshFeeds();
-                return Task.CompletedTask;
-            }
-
-            // Rebuild rather than mutate: the stored record owns its metadata and may
-            // expose it as init-only, so every field is copied explicitly.
-            var updated = new RotationFeed
-            {
-                Id = feed.Id,
-                Name = feed.Name,
-                Filters = feed.Filters,
-                CadenceMinutes = feed.CadenceMinutes,
-                Enabled = !feed.Enabled,
-                LastFetchedUtc = feed.LastFetchedUtc,
-                BackoffUntilUtc = feed.BackoffUntilUtc,
-                ConsecutiveFailures = feed.ConsecutiveFailures,
-                LastAppliedId = feed.LastAppliedId
-            };
-            WallhavenFeedStore.UpsertFeed(updated);
-            RefreshFeeds();
-            Status = $"Rotation feed “{feed.Name}” {(updated.Enabled ? "enabled" : "disabled")}.";
-        }
-        catch (Exception ex)
-        {
-            Status = $"Could not update rotation feed: {ex.Message}";
-        }
-        return Task.CompletedTask;
+        try { return WallhavenFeedStore.ListFeeds().Count; }
+        catch { return 0; }
     }
 
     private async Task ChangePageAsync(int delta)
