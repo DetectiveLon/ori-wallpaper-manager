@@ -1,0 +1,203 @@
+<Window x:Class="Ori.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="Ori" Height="640" Width="1240" MinHeight="600" MinWidth="1040"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource WindowBrush}"
+        WindowStyle="None" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0"
+                            ResizeBorderThickness="6"
+                            GlassFrameThickness="0"
+                            CornerRadius="0" />
+    </shell:WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <!-- One rail template for every entry in PrimaryItems and FooterItem. The
+             button Tag feeds the shared NavButtonStyle selection trigger, which
+             also paints the selected row's accent bar. AccessText renders the "_"
+             in AccessLabel as an Alt+letter mnemonic (D/L/P/A/S) and underlines
+             it on demand. -->
+        <DataTemplate x:Key="NavItemTemplate">
+            <Grid Margin="0,0,0,4" SnapsToDevicePixels="True">
+                <Button Style="{StaticResource NavButtonStyle}"
+                        Tag="{Binding Key}"
+                        Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding Key}"
+                        AutomationProperties.Name="{Binding Label}"
+                        AutomationProperties.HelpText="{Binding ToolTip}"
+                        ToolTip="{Binding ToolTip}"
+                        KeyboardNavigation.TabIndex="{Binding TabIndex}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Glyph}" FontFamily="Segoe Fluent Icons"
+                                   FontSize="{StaticResource NavIconSize}" Width="20"
+                                   TextAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                        <AccessText Text="{Binding AccessLabel}" Margin="12,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="{StaticResource TitleBarRowHeight}" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom title bar: single brand + drag region + caption buttons. -->
+        <Border Grid.Row="0"
+                Background="{StaticResource TitleBarBrush}"
+                BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1"
+                MouseLeftButtonDown="OnTitleBarMouseLeftButtonDown">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="{StaticResource RailWidth}" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- The one brand sits in the title bar, aligned with the rail. -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="16,0,0,0"
+                            VerticalAlignment="Center">
+                    <Border Width="24" Height="24"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
+                            Background="{StaticResource AccentBrush}">
+                        <TextBlock Text="&#xE91B;" FontFamily="Segoe Fluent Icons"
+                                   FontSize="{StaticResource NavIconSize}"
+                                   Foreground="{StaticResource OnAccentBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="Ori" FontSize="14" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}"
+                               Margin="8,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!-- Empty middle column is the drag region. -->
+                <Grid Grid.Column="1" Background="Transparent" />
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Stretch"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="MinimizeButton" AutomationProperties.Name="Minimize" ToolTip="Minimize (Alt+M)"
+                            KeyboardNavigation.TabIndex="0"
+                            Style="{StaticResource WindowButtonStyle}" Click="OnMinimizeClick"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <TextBlock Text="&#xE921;" FontFamily="Segoe Fluent Icons"
+                                   FontSize="{StaticResource WindowGlyphSize}"
+                                   Foreground="{StaticResource WindowButtonForegroundBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                    <Button x:Name="MaximizeButton" AutomationProperties.Name="Maximize" ToolTip="Maximize / Restore (Alt+R)"
+                            KeyboardNavigation.TabIndex="1"
+                            Style="{StaticResource WindowButtonStyle}" Click="OnMaximizeClick"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <TextBlock FontFamily="Segoe Fluent Icons"
+                                   FontSize="{StaticResource WindowGlyphSize}"
+                                   Foreground="{StaticResource WindowButtonForegroundBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="&#xE922;" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized">
+                                            <Setter Property="Text" Value="&#xE923;" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Button>
+                    <Button x:Name="CloseButton" AutomationProperties.Name="Close" ToolTip="Close (Alt+C)"
+                            KeyboardNavigation.TabIndex="2"
+                            Style="{StaticResource CloseWindowButtonStyle}" Click="OnCloseClick"
+                            shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                        <TextBlock Text="&#xE8BB;" FontFamily="Segoe Fluent Icons"
+                                   FontSize="{StaticResource WindowGlyphSize}"
+                                   Foreground="{StaticResource WindowButtonForegroundBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Body: navigation rail + page host. -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="{StaticResource RailWidth}" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="{StaticResource RailSurfaceBrush}"
+                    BorderBrush="{StaticResource RailOutlineBrush}" BorderThickness="0,0,1,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Primary destinations fill the rail; the two group headers
+                         come from CollectionViewSource. No scroll viewer: four
+                         destinations fit, and a second scroll root would steal the
+                         pages' own scrolling. -->
+                    <ItemsControl Grid.Row="0" Margin="12,16,12,8"
+                                  ItemTemplate="{StaticResource NavItemTemplate}">
+                        <ItemsControl.Resources>
+                            <CollectionViewSource x:Key="NavGroups" Source="{Binding PrimaryItems}">
+                                <CollectionViewSource.GroupDescriptions>
+                                    <PropertyGroupDescription PropertyName="Section" />
+                                </CollectionViewSource.GroupDescriptions>
+                            </CollectionViewSource>
+                        </ItemsControl.Resources>
+                        <ItemsControl.ItemsSource>
+                            <Binding Source="{StaticResource NavGroups}" />
+                        </ItemsControl.ItemsSource>
+                        <ItemsControl.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}"
+                                                   Style="{StaticResource NavGroupHeaderStyle}"
+                                                   Margin="14,12,0,6" />
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ItemsControl.GroupStyle>
+                    </ItemsControl>
+
+                    <!-- Settings stays pinned at the bottom. It uses the same
+                         NavItemTemplate, so its Tag still drives the shared
+                         selection accent. One top rule, and nothing else. -->
+                    <Border Grid.Row="1" BorderBrush="{StaticResource DividerBrush}"
+                            BorderThickness="0,1,0,0" Margin="12,8,12,16">
+                        <ContentControl Content="{Binding FooterItem}"
+                                        ContentTemplate="{StaticResource NavItemTemplate}" />
+                    </Border>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="1" Margin="{StaticResource ContentMargin}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <!-- Accent overline -> title -> subtitle. Spacing follows the
+                     shared 8pt scale so the header reads as one hierarchy. -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,28">
+                    <Border Width="24" Height="2" Background="{StaticResource AccentBrush}"
+                            CornerRadius="1" HorizontalAlignment="Left" Margin="0,0,0,14" />
+                    <TextBlock x:Name="PageTitle" Text="{Binding Title}" Style="{StaticResource TitleTextStyle}" />
+                    <TextBlock x:Name="PageSubtitle" Text="{Binding Subtitle}" Style="{StaticResource BodyTextStyle}"
+                               Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0" />
+                </StackPanel>
+
+                <!-- No host ScrollViewer: every page owns its own vertical scrolling.
+                     A second one here would either double the scrollbars or make
+                     the page's inner scroll viewer stop working. -->
+                <ContentControl x:Name="PageBody" Grid.Row="1" Content="{Binding CurrentView}" Margin="0" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

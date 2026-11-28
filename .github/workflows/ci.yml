@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "foundation/**", "feature/**", "work/**"]
+    branches: [main, v2-shell, "foundation/**", "feature/**", "work/**"]
   pull_request:
   workflow_dispatch:
 
@@ -17,13 +17,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install .NET 10 SDK
+      - name: Install .NET 10 SDK (pinned by global.json)
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.404"
 
       - name: Run core tests
-        run: dotnet test tests/Oriole.Core.Tests/Oriole.Core.Tests.csproj --configuration Release
+        run: dotnet test tests/Ori.Core.Tests/Ori.Core.Tests.csproj --configuration Release
+
+  core-tests-windows:
+    name: Core tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10 SDK (pinned by global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.404"
+
+      # The case-insensitive path comparison branch in WallpaperLibraryStore only
+      # runs on Windows. Running the same suite here keeps that branch covered on
+      # every PR instead of only on release tags.
+      - name: Run core tests
+        run: dotnet test tests/Ori.Core.Tests/Ori.Core.Tests.csproj --configuration Release
 
   windows-build:
     name: Windows desktop build
@@ -32,13 +50,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install .NET 10 SDK
+      - name: Install .NET 10 SDK (pinned by global.json)
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.404"
 
       - name: Restore solution
-        run: dotnet restore Oriole.sln
+        run: dotnet restore Ori.sln
 
-      - name: Build desktop app
-        run: dotnet build src/Oriole.Desktop/Oriole.Desktop.csproj --configuration Release --no-restore
+      - name: Build solution (app + updater)
+        run: dotnet build Ori.sln --configuration Release --no-restore
+
+      - name: Desktop helper tests
+        run: dotnet test tests/Ori.Desktop.Tests/Ori.Desktop.Tests.csproj --configuration Release --no-restore
+
+      - name: Static regression guards
+        shell: pwsh
+        run: |
+          ./scripts/check-tray.ps1 -Strict
+          ./scripts/check-theme.ps1
+          ./scripts/check-buttons.ps1 -Strict
+          ./scripts/check-invariants.ps1

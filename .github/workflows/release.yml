@@ -1,0 +1,185 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify before release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10 SDK (pinned by global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.404"
+
+      - name: Restore solution
+        run: dotnet restore Ori.sln
+
+      - name: Core tests
+        run: dotnet test tests/Ori.Core.Tests/Ori.Core.Tests.csproj --configuration Release --no-restore
+
+      - name: Build solution (app + updater + tests)
+        run: dotnet build Ori.sln --configuration Release --no-restore
+
+      - name: Desktop helper tests
+        run: dotnet test tests/Ori.Desktop.Tests/Ori.Desktop.Tests.csproj --configuration Release --no-restore
+
+      - name: Static regression guards
+        shell: pwsh
+        run: |
+          ./scripts/check-tray.ps1 -Strict
+          ./scripts/check-theme.ps1
+          ./scripts/check-buttons.ps1 -Strict
+          ./scripts/check-invariants.ps1
+
+  release:
+    name: Package and publish release
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install .NET 10 SDK (pinned by global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.404"
+
+      - name: Build release package
+        shell: pwsh
+        # Never interpolate a ref into PowerShell source: pass it as data.
+        env:
+          TAG: ${{ github.ref_name }}
+        # Tests already ran in the verify job; publish.ps1 runs them again only
+        # for local invocations. -SkipTests keeps CI from duplicating the work.
+        run: ./scripts/publish.ps1 -Tag $env:TAG -SkipTests
+
+      - name: Locate package and compute checksum
+        id: package
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Path artifacts -Filter 'ori-*-win-x64.zip' |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $zip) { throw 'No release zip found under artifacts/.' }
+          $exe = Get-ChildItem -Path artifacts -Filter 'ori-*-win-x64.exe' |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $exe) { throw 'No versioned release EXE found under artifacts/.' }
+          $manifest = Join-Path (Resolve-Path artifacts) 'update-manifest.json'
+          if (-not (Test-Path $manifest)) { throw 'No update manifest found under artifacts/.' }
+          $zipHash = (Get-FileHash -Algorithm SHA256 -Path $zip.FullName).Hash
+          $exeHash = (Get-FileHash -Algorithm SHA256 -Path $exe.FullName).Hash
+          "path=$($zip.FullName)"     | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "name=$($zip.Name)"         | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "exe=$($exe.FullName)"      | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "exename=$($exe.Name)"      | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "manifest=$manifest"        | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sha256=$zipHash"           | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "exesha256=$exeHash"        | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Package: $($zip.FullName)"
+          Write-Host "SHA-256: $zipHash"
+          Write-Host "Release EXE: $($exe.FullName)"
+          Write-Host "SHA-256: $exeHash"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ori-win-x64
+          path: |
+            ${{ steps.package.outputs.path }}
+            ${{ steps.package.outputs.exe }}
+            ${{ steps.package.outputs.manifest }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          ZIP_PATH: ${{ steps.package.outputs.path }}
+          EXE_PATH: ${{ steps.package.outputs.exe }}
+          MANIFEST_PATH: ${{ steps.package.outputs.manifest }}
+          ZIP_NAME: ${{ steps.package.outputs.name }}
+          EXE_NAME: ${{ steps.package.outputs.exename }}
+          ZIP_SHA: ${{ steps.package.outputs.sha256 }}
+          EXE_SHA: ${{ steps.package.outputs.exesha256 }}
+        run: |
+          $notes = @"
+          Self-contained, single-file win-x64 build. No .NET runtime to install.
+
+          Assets:
+            $env:ZIP_NAME  - portable zip (Ori.exe + Ori.Updater.exe)
+            $env:EXE_NAME  - standalone EXE used by auto-update
+            update-manifest.json  - update manifest consumed by Ori.Updater
+
+          SHA-256 checksums:
+            Zip: $env:ZIP_SHA
+            EXE: $env:EXE_SHA
+
+          Signing / SmartScreen: these binaries are NOT code-signed. Windows SmartScreen
+          may warn on first run until the app builds reputation. Code signing is deferred
+          (a certificate is not available yet), not silently ignored.
+
+          See RELEASE-NOTES.txt inside the zip. No API keys or secrets are included.
+          "@
+          gh release create $env:TAG `
+            --title "Ori $env:TAG" `
+            --notes $notes `
+            --verify-tag `
+            $env:ZIP_PATH `
+            $env:EXE_PATH `
+            $env:MANIFEST_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'gh release create failed.' }
+
+      - name: Validate published manifest and asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'ori-release-verify'
+          if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+          gh release download $env:TAG --repo $env:REPO `
+            --pattern 'update-manifest.json' --dir $dir --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download the published update manifest.' }
+
+          $manifest = Get-Content -LiteralPath (Join-Path $dir 'update-manifest.json') -Raw | ConvertFrom-Json
+          $version = $env:TAG -replace '^v', ''
+          if ($manifest.version -ne $version) {
+            throw "Manifest version '$($manifest.version)' does not match tag '$env:TAG'."
+          }
+          if ($manifest.assetName -notmatch '^ori-\d+\.\d+\.\d+-win-x64\.exe$') {
+            throw "Manifest asset name '$($manifest.assetName)' is malformed."
+          }
+          $expectedUrl = "https://github.com/$env:REPO/releases/download/$env:TAG/$($manifest.assetName)"
+          if ($manifest.url -ne $expectedUrl) {
+            throw "Manifest URL '$($manifest.url)' does not point at the uploaded asset and tag."
+          }
+
+          gh release download $env:TAG --repo $env:REPO `
+            --pattern $manifest.assetName --dir $dir --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download the published update asset.' }
+
+          $assetPath = Join-Path $dir $manifest.assetName
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $assetPath).Hash.ToLowerInvariant()
+          if ($actual -ne ([string]$manifest.sha256).ToLowerInvariant()) {
+            throw 'Published asset SHA-256 does not match the manifest hash.'
+          }
+          Write-Host "Validated $($manifest.assetName): hash, URL and tag all match."
