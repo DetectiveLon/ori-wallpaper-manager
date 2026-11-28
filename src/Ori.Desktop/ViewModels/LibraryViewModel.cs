@@ -294,7 +294,8 @@ public sealed class LibraryViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _selectedDisplay, value))
-                MonitorSelectionService.Instance.Select(value?.Id);
+                // Fingerprint, not the volatile COM path, survives a monitor replug.
+                MonitorSelectionService.Instance.Select(value?.Fingerprint);
         }
     }
 
@@ -479,10 +480,12 @@ public sealed class LibraryViewModel : ViewModelBase
 
             var primary = detection.Monitors.FirstOrDefault(monitor => monitor.IsPrimary)
                 ?? detection.Monitors.FirstOrDefault();
-            MonitorSelectionService.Instance.Load(Displays.Select(monitor => monitor.Id));
-            var targetId = MonitorSelectionService.Instance.Resolve(primary?.Id);
+            // Resolve by stable fingerprint so a replugged panel (new COM path)
+            // keeps the user's chosen apply target.
+            MonitorSelectionService.Instance.Load(Displays.Select(monitor => monitor.Fingerprint));
+            var targetFingerprint = MonitorSelectionService.Instance.Resolve(primary?.Fingerprint);
             SelectedDisplay = Displays.FirstOrDefault(monitor =>
-                    string.Equals(monitor.Id, targetId, StringComparison.OrdinalIgnoreCase))
+                    string.Equals(monitor.Fingerprint, targetFingerprint, StringComparison.OrdinalIgnoreCase))
                 ?? primary;
             // Keep this out of Status: RefreshCommand overwrites Status on view load,
             // which used to erase the detection error before anyone could read it.
@@ -778,7 +781,10 @@ public sealed class LibraryViewModel : ViewModelBase
             if (!File.Exists(entry.LocalPath))
                 throw new FileNotFoundException("The saved wallpaper file is missing.", entry.LocalPath);
 
-            WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, entry.LocalPath);
+            // Apply the target display's saved fit: Windows has one global fit mode
+            // and leaves it untouched when no position is supplied.
+            var fit = DisplayPreferencesStore.Load().GetFit(monitor.Fingerprint);
+            WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, entry.LocalPath, fit.ToWallpaperPosition());
             Status = $"Applied {entry.Title} to {monitor.DeviceName}.";
         }
         catch (Exception ex)

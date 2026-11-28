@@ -19,7 +19,7 @@
              in AccessLabel as an Alt+letter mnemonic (D/L/P/A/S) and underlines
              it on demand. -->
         <DataTemplate x:Key="NavItemTemplate">
-            <Grid Margin="0,2,0,2" SnapsToDevicePixels="True">
+            <Grid Margin="0,0,0,4" SnapsToDevicePixels="True">
                 <Button Style="{StaticResource NavButtonStyle}"
                         Tag="{Binding Key}"
                         Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
@@ -44,11 +44,11 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="48" />
+            <RowDefinition Height="{StaticResource TitleBarHeight}" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Custom title bar: empty brand column + drag region + caption buttons. -->
+        <!-- Custom title bar: single brand + drag region + caption buttons. -->
         <Border Grid.Row="0"
                 Background="{StaticResource TitleBarBrush}"
                 BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1"
@@ -60,9 +60,21 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- The brand now lives at the top of the rail; this column keeps
-                     the title bar aligned with it and stays draggable. -->
-                <Grid Grid.Column="0" Background="Transparent" />
+                <!-- The one brand sits in the title bar, aligned with the rail. -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="16,0,0,0"
+                            VerticalAlignment="Center">
+                    <Border Width="24" Height="24"
+                            CornerRadius="{StaticResource ControlCornerRadius}"
+                            Background="{StaticResource AccentBrush}">
+                        <TextBlock Text="&#xE91B;" FontFamily="Segoe Fluent Icons"
+                                   FontSize="{StaticResource NavIconSize}"
+                                   Foreground="{StaticResource OnAccentBrush}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="Ori" FontSize="14" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}"
+                               Margin="8,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
 
                 <!-- Empty middle column is the drag region. -->
                 <Grid Grid.Column="1" Background="Transparent" />
@@ -122,41 +134,15 @@
                     BorderBrush="{StaticResource RailOutlineBrush}" BorderThickness="0,0,1,0">
                 <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Row 0: brand header with its own bottom divider. -->
-                    <Border Grid.Row="0" BorderBrush="{StaticResource RailDividerBrush}"
-                            BorderThickness="0,0,0,1">
-                        <Grid Margin="20,14,16,14">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Border Width="34" Height="34" CornerRadius="10"
-                                    Background="{StaticResource AccentBrush}"
-                                    VerticalAlignment="Center">
-                                <TextBlock Text="O" FontSize="16" FontWeight="Bold"
-                                           Foreground="{StaticResource OnAccentBrush}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            </Border>
-                            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                                <TextBlock Text="ORI" FontSize="14" FontWeight="SemiBold"
-                                           Foreground="{StaticResource TextBrush}" />
-                                <TextBlock Text="WALLPAPER STUDIO" Style="{StaticResource CaptionTextStyle}"
-                                           FontSize="10" Margin="0,2,0,0" />
-                            </StackPanel>
-                        </Grid>
-                    </Border>
-
-                    <!-- Row 1: primary destinations only, grouped by Section into
-                         FIND & SAVE and YOUR DESKTOP. Settings lives in the footer,
-                         so the third header tier is gone. No scroll viewer: four
+                    <!-- Primary destinations fill the rail; the two group headers
+                         come from CollectionViewSource. No scroll viewer: four
                          destinations fit, and a second scroll root would steal the
                          pages' own scrolling. -->
-                    <ItemsControl Grid.Row="1" Margin="12,16,12,8"
+                    <ItemsControl Grid.Row="0" Margin="12,16,12,8"
                                   ItemTemplate="{StaticResource NavItemTemplate}">
                         <ItemsControl.Resources>
                             <CollectionViewSource x:Key="NavGroups" Source="{Binding PrimaryItems}">
@@ -172,35 +158,23 @@
                             <GroupStyle>
                                 <GroupStyle.HeaderTemplate>
                                     <DataTemplate>
-                                        <StackPanel>
-                                            <Border Style="{StaticResource NavGroupRuleStyle}" />
-                                            <TextBlock Text="{Binding Name}" Style="{StaticResource NavGroupHeaderStyle}"
-                                                       Margin="14,10,0,8" />
-                                        </StackPanel>
+                                        <TextBlock Text="{Binding Name}"
+                                                   Style="{StaticResource NavGroupHeaderStyle}"
+                                                   Margin="14,12,0,6" />
                                     </DataTemplate>
                                 </GroupStyle.HeaderTemplate>
                             </GroupStyle>
                         </ItemsControl.GroupStyle>
                     </ItemsControl>
 
-                    <!-- Row 2: footer — Settings uses the same NavItemTemplate, so
-                         its Tag still drives the shared selection accent, followed
-                         by the LOCAL · ON THIS PC chip. -->
-                    <StackPanel Grid.Row="2">
-                        <ContentControl Margin="12,0,12,4"
-                                        Content="{Binding FooterItem}"
+                    <!-- Settings stays pinned at the bottom. It uses the same
+                         NavItemTemplate, so its Tag still drives the shared
+                         selection accent. One top rule, and nothing else. -->
+                    <Border Grid.Row="1" BorderBrush="{StaticResource DividerBrush}"
+                            BorderThickness="0,1,0,0" Margin="12,8,12,16">
+                        <ContentControl Content="{Binding FooterItem}"
                                         ContentTemplate="{StaticResource NavItemTemplate}" />
-                        <Border Style="{StaticResource RailStatusChipStyle}"
-                                Margin="16,0,16,16"
-                                ToolTip="Wallpapers are saved and rotated on this PC">
-                            <StackPanel Orientation="Horizontal">
-                                <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}"
-                                         VerticalAlignment="Center" />
-                                <TextBlock Text="LOCAL · ON THIS PC" Style="{StaticResource CaptionTextStyle}"
-                                           Margin="10,0,0,0" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
+                    </Border>
                 </Grid>
             </Border>
 

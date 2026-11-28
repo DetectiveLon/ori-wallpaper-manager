@@ -10,71 +10,72 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
 
-            <!-- 1. Global controls. One caption, three switches, one primary commit. -->
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,24">
+            <!-- Global defaults: one heading, one short caption, three switches, one primary action. -->
+            <Border Style="{StaticResource CardStyle}" BorderThickness="0" Margin="0,0,0,16">
                 <StackPanel>
-                    <TextBlock Text="Automation" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="Global defaults" Style="{StaticResource SectionTitleStyle}" />
                     <TextBlock Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"
                                Margin="0,8,0,0"
-                               Text="Set the app-wide defaults here; each display and feed has its own controls below." />
+                               Text="App-wide defaults. Each display and feed has its own controls." />
 
                     <CheckBox Content="Pause rotation while a full-screen app is active"
                               IsChecked="{Binding PauseWhenFullscreen, Mode=TwoWay}"
                               Margin="0,16,0,0"
-                              ToolTip="Master switch: rotation pauses only on displays that also have their own full-screen pause enabled."
+                              ToolTip="Requires the matching per-display switch to be on."
                               AutomationProperties.Name="Master switch: pause rotation while a full-screen app is active" />
                     <CheckBox Content="Enable automatic Wallhaven fetching"
                               IsChecked="{Binding AutoFetchFromWallhaven, Mode=TwoWay}"
                               Margin="0,8,0,0"
-                              ToolTip="Off by default. Only enabled feeds fetch, each on its own cadence."
+                              ToolTip="Only enabled feeds fetch, each on its own cadence."
                               AutomationProperties.Name="Enable automatic Wallhaven fetching" />
                     <CheckBox Content="Apply Fetch now to all running displays"
                               IsChecked="{Binding FetchApplyToAll, Mode=TwoWay}"
                               Margin="0,8,0,0"
-                              ToolTip="Off: Fetch now targets only the selected display. On: apply to every running display."
+                              ToolTip="Off targets the selected display; on targets every running display."
                               AutomationProperties.Name="Apply Fetch now to all running displays" />
 
                     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                         <Button Content="Fetch now" Style="{StaticResource PrimaryButtonStyle}"
                                 Command="{Binding FetchNowCommand}"
-                                ToolTip="Fetch the selected display's feed now, or every running display when apply-to-all is on."
+                                ToolTip="Fetch the selected display's feed, or every running display when apply-to-all is on."
                                 AutomationProperties.Name="Fetch new wallpapers now" />
-                        <Button Content="Refresh monitors" Style="{StaticResource GhostButtonStyle}"
+                        <Button Content="Refresh monitors" Style="{StaticResource RefreshButtonStyle}"
                                 Margin="8,0,0,0"
                                 Command="{Binding RefreshDisplaysCommand}"
-                                ToolTip="Re-detect connected monitors and restore saved schedules for any monitor that appears."
+                                ToolTip="Re-detect connected monitors."
                                 AutomationProperties.Name="Refresh monitors" />
                     </StackPanel>
                 </StackPanel>
             </Border>
 
-            <!-- 2. Rotation feeds: one compact row per feed, full filter draft collapsed. -->
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,24">
+            <!-- Rotation feeds: one compact row per feed, one collapsed Filters draft. -->
+            <Border Style="{StaticResource CardStyle}" BorderThickness="0" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="Rotation feeds" Style="{StaticResource SectionTitleStyle}" />
 
-                    <ItemsControl ItemsSource="{Binding Feeds}">
+                    <ItemsControl ItemsSource="{Binding Feeds}" Margin="0,12,0,0">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Style="{StaticResource PanelStyle}" Margin="0,16,0,0">
+                                <Border Style="{StaticResource PanelStyle}" Margin="0,0,0,12">
                                     <StackPanel>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
 
                                             <StackPanel Grid.Column="0" Margin="0,0,12,0" MinWidth="160">
-                                                <TextBlock Text="FEED NAME" Style="{StaticResource FieldLabelStyle}" />
-                                                <TextBox Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                                <TextBlock Text="Feed name" Style="{StaticResource FieldLabelStyle}" />
+                                                <TextBox Style="{StaticResource InlineFieldStyle}"
+                                                         Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                                          MinHeight="32"
                                                          ToolTip="Rename this feed. The name is saved when the field loses focus."
                                                          AutomationProperties.Name="Rotation feed name" />
                                             </StackPanel>
 
                                             <StackPanel Grid.Column="1" Margin="0,0,12,0" MinWidth="160">
-                                                <TextBlock Text="FETCH EVERY" Style="{StaticResource FieldLabelStyle}" />
+                                                <TextBlock Text="Fetch every" Style="{StaticResource FieldLabelStyle}" />
                                                 <ComboBox ItemsSource="{Binding CadenceOptions}"
                                                           SelectedItem="{Binding CadenceMinutes, Mode=TwoWay}"
                                                           MinHeight="32"
@@ -87,7 +88,8 @@
                                                             Command="{Binding ApplyCustomCadenceCommand}"
                                                             ToolTip="Commit a custom whole-minute cadence."
                                                             AutomationProperties.Name="Apply custom feed cadence" />
-                                                    <TextBox Text="{Binding CustomCadenceText, Mode=TwoWay}"
+                                                    <TextBox Style="{StaticResource InlineFieldStyle}"
+                                                             Text="{Binding CustomCadenceText, Mode=TwoWay}"
                                                              MinHeight="32" MinWidth="72"
                                                              ToolTip="Custom cadence in minutes (15–10080)."
                                                              AutomationProperties.Name="Custom feed cadence minutes" />
@@ -95,7 +97,6 @@
                                             </StackPanel>
 
                                             <StackPanel Grid.Column="2" MinWidth="104" VerticalAlignment="Bottom">
-                                                <TextBlock Text="STATE" Style="{StaticResource FieldLabelStyle}" />
                                                 <CheckBox Content="Enabled"
                                                           IsChecked="{Binding IsEnabled, Mode=TwoWay}"
                                                           ToolTip="Turn this feed on or off without deleting it."
@@ -121,13 +122,13 @@
                                                        TextWrapping="Wrap" />
                                         </DockPanel>
 
-                                        <WrapPanel Margin="0,8,0,0">
-                                            <Button Content="Fetch now" Style="{StaticResource SecondaryButtonStyle}"
+                                        <StackPanel Style="{StaticResource CardActionRowStyle}">
+                                            <Button Content="Fetch this feed" Style="{StaticResource CardActionButtonStyle}"
                                                     Command="{Binding FetchNowCommand}"
                                                     IsEnabled="{Binding CanFetchNow}"
                                                     ToolTip="Fetch this feed now; applies to the selected display, or all running displays when that option is on."
                                                     AutomationProperties.Name="Fetch this feed now" />
-                                            <Button Content="Save filters" Style="{StaticResource SecondaryButtonStyle}"
+                                            <Button Content="Save filters" Style="{StaticResource CardActionButtonStyle}"
                                                     Margin="8,0,0,0"
                                                     Command="{Binding SaveFiltersCommand}"
                                                     ToolTip="Validate and save this feed's filters."
@@ -147,16 +148,18 @@
                                                     Command="{Binding RemoveCommand}"
                                                     ToolTip="Remove this feed. Saved wallpapers stay in your library."
                                                     AutomationProperties.Name="Remove feed" />
-                                        </WrapPanel>
+                                        </StackPanel>
 
+                                        <!-- Collapsed by default: the full filter draft, all properties preserved. -->
                                         <Expander Style="{StaticResource SectionExpanderStyle}"
                                                   Header="Filters" Margin="0,12,0,0">
                                             <StackPanel Margin="0,8,0,0">
 
                                                 <Border Style="{StaticResource PanelStyle}" Margin="0,0,0,12">
                                                     <StackPanel>
-                                                        <TextBlock Text="SEARCH QUERY" Style="{StaticResource FieldLabelStyle}" />
-                                                        <TextBox Text="{Binding FilterQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                        <TextBlock Text="Search query" Style="{StaticResource FieldLabelStyle}" />
+                                                        <TextBox Style="{StaticResource InlineFieldStyle}"
+                                                                 Text="{Binding FilterQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                                  MinHeight="32"
                                                                  ToolTip="Wallhaven search expression for this feed (at most 300 characters)."
                                                                  AutomationProperties.Name="Feed search query" />
@@ -165,35 +168,35 @@
 
                                                 <Border Style="{StaticResource PanelStyle}" Margin="0,0,0,12">
                                                     <StackPanel>
-                                                        <TextBlock Text="CATEGORIES" Style="{StaticResource FieldLabelStyle}" />
-                                                        <WrapPanel>
-                                                            <ToggleButton Content="General" Padding="12,6" MinHeight="32"
+                                                        <TextBlock Text="Categories" Style="{StaticResource FieldLabelStyle}" />
+                                                        <StackPanel Style="{StaticResource FilterGroupStyle}">
+                                                            <ToggleButton Content="General" Style="{StaticResource FilterToggleStyle}"
                                                                           IsChecked="{Binding IncludeGeneral, Mode=TwoWay}"
                                                                           AutomationProperties.Name="Include general category" />
-                                                            <ToggleButton Content="Anime" Padding="12,6" MinHeight="32"
+                                                            <ToggleButton Content="Anime" Style="{StaticResource FilterToggleStyle}"
                                                                           Margin="8,0,0,0"
                                                                           IsChecked="{Binding IncludeAnime, Mode=TwoWay}"
                                                                           AutomationProperties.Name="Include anime category" />
-                                                            <ToggleButton Content="People" Padding="12,6" MinHeight="32"
+                                                            <ToggleButton Content="People" Style="{StaticResource FilterToggleStyle}"
                                                                           Margin="8,0,0,0"
                                                                           IsChecked="{Binding IncludePeople, Mode=TwoWay}"
                                                                           AutomationProperties.Name="Include people category" />
-                                                        </WrapPanel>
-                                                        <TextBlock Text="PURITY" Style="{StaticResource FieldLabelStyle}" Margin="0,12,0,0" />
-                                                        <WrapPanel>
-                                                            <ToggleButton Content="Safe" Padding="12,6" MinHeight="32"
+                                                        </StackPanel>
+                                                        <TextBlock Text="Purity" Style="{StaticResource FieldLabelStyle}" Margin="0,12,0,0" />
+                                                        <StackPanel Style="{StaticResource FilterGroupStyle}">
+                                                            <ToggleButton Content="Safe" Style="{StaticResource FilterToggleStyle}"
                                                                           IsChecked="{Binding IncludeSafe, Mode=TwoWay}"
                                                                           AutomationProperties.Name="Include safe content" />
-                                                            <ToggleButton Content="Sketchy" Padding="12,6" MinHeight="32"
+                                                            <ToggleButton Content="Sketchy" Style="{StaticResource FilterToggleStyle}"
                                                                           Margin="8,0,0,0"
                                                                           IsChecked="{Binding IncludeSketchy, Mode=TwoWay}"
                                                                           AutomationProperties.Name="Include sketchy content" />
-                                                            <ToggleButton Content="Explicit" Padding="12,6" MinHeight="32"
+                                                            <ToggleButton Content="Explicit" Style="{StaticResource FilterToggleStyle}"
                                                                           Margin="8,0,0,0"
                                                                           IsChecked="{Binding IncludeExplicit, Mode=TwoWay}"
                                                                           ToolTip="NSFW requires a saved Wallhaven API key in Settings."
                                                                           AutomationProperties.Name="Include explicit content" />
-                                                        </WrapPanel>
+                                                        </StackPanel>
                                                     </StackPanel>
                                                 </Border>
 
@@ -205,7 +208,7 @@
                                                                 <ColumnDefinition Width="*" />
                                                             </Grid.ColumnDefinitions>
                                                             <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                                                <TextBlock Text="SORTING" Style="{StaticResource FieldLabelStyle}" />
+                                                                <TextBlock Text="Sorting" Style="{StaticResource FieldLabelStyle}" />
                                                                 <ComboBox ItemsSource="{Binding SortingChoices}"
                                                                           SelectedValuePath="Value"
                                                                           SelectedValue="{Binding Sorting, Mode=TwoWay}"
@@ -214,7 +217,7 @@
                                                                           AutomationProperties.Name="Feed sorting" />
                                                             </StackPanel>
                                                             <StackPanel Grid.Column="1">
-                                                                <TextBlock Text="ORDER" Style="{StaticResource FieldLabelStyle}" />
+                                                                <TextBlock Text="Order" Style="{StaticResource FieldLabelStyle}" />
                                                                 <ComboBox ItemsSource="{Binding OrderChoices}"
                                                                           SelectedValuePath="Value"
                                                                           SelectedValue="{Binding Order, Mode=TwoWay}"
@@ -229,7 +232,7 @@
                                                                 <ColumnDefinition Width="*" />
                                                             </Grid.ColumnDefinitions>
                                                             <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                                                <TextBlock Text="TOP RANGE" Style="{StaticResource FieldLabelStyle}" />
+                                                                <TextBlock Text="Top range" Style="{StaticResource FieldLabelStyle}" />
                                                                 <ComboBox ItemsSource="{Binding TopRangeChoices}"
                                                                           SelectedValuePath="Value"
                                                                           SelectedValue="{Binding TopRange, Mode=TwoWay}"
@@ -239,7 +242,7 @@
                                                                           AutomationProperties.Name="Feed top range" />
                                                             </StackPanel>
                                                             <StackPanel Grid.Column="1">
-                                                                <TextBlock Text="RATIO" Style="{StaticResource FieldLabelStyle}" />
+                                                                <TextBlock Text="Ratio" Style="{StaticResource FieldLabelStyle}" />
                                                                 <ComboBox ItemsSource="{Binding RatioChoices}"
                                                                           SelectedValuePath="Value"
                                                                           SelectedValue="{Binding Ratio, Mode=TwoWay}"
@@ -253,7 +256,7 @@
 
                                                 <Border Style="{StaticResource PanelStyle}" Margin="0,0,0,12">
                                                     <StackPanel>
-                                                        <TextBlock Text="COLOUR" Style="{StaticResource FieldLabelStyle}" />
+                                                        <TextBlock Text="Colour" Style="{StaticResource FieldLabelStyle}" />
                                                         <ItemsControl ItemsSource="{Binding ColorChoices}">
                                                             <ItemsControl.ItemsPanel>
                                                                 <ItemsPanelTemplate>
@@ -262,7 +265,8 @@
                                                             </ItemsControl.ItemsPanel>
                                                             <ItemsControl.ItemTemplate>
                                                                 <DataTemplate>
-                                                                    <ToggleButton MinHeight="32" MinWidth="32" Padding="4"
+                                                                    <ToggleButton Style="{StaticResource FilterToggleStyle}"
+                                                                                  MinHeight="32" MinWidth="32" Padding="4"
                                                                                   Margin="0,0,4,4"
                                                                                   IsChecked="{Binding IsSelected, Mode=TwoWay}"
                                                                                   ToolTip="{Binding ToolTip}"
@@ -273,9 +277,10 @@
                                                                 </DataTemplate>
                                                             </ItemsControl.ItemTemplate>
                                                         </ItemsControl>
-                                                        <TextBlock Text="EXTRA COLOURS (COMMA-SEPARATED HEX)"
+                                                        <TextBlock Text="Extra colours (comma-separated hex)"
                                                                    Style="{StaticResource FieldLabelStyle}" Margin="0,12,0,0" />
-                                                        <TextBox Text="{Binding CustomColors, Mode=TwoWay}"
+                                                        <TextBox Style="{StaticResource InlineFieldStyle}"
+                                                                 Text="{Binding CustomColors, Mode=TwoWay}"
                                                                  MinHeight="32"
                                                                  AutomationProperties.Name="Extra feed colours" />
                                                     </StackPanel>
@@ -289,14 +294,16 @@
                                                                 <ColumnDefinition Width="*" />
                                                             </Grid.ColumnDefinitions>
                                                             <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                                                <TextBlock Text="MINIMUM RESOLUTION" Style="{StaticResource FieldLabelStyle}" />
-                                                                <TextBox Text="{Binding MinimumResolution, Mode=TwoWay}"
+                                                                <TextBlock Text="Minimum resolution" Style="{StaticResource FieldLabelStyle}" />
+                                                                <TextBox Style="{StaticResource InlineFieldStyle}"
+                                                                         Text="{Binding MinimumResolution, Mode=TwoWay}"
                                                                          MinHeight="32" ToolTip="For example 1920x1080."
                                                                          AutomationProperties.Name="Feed minimum resolution" />
                                                             </StackPanel>
                                                             <StackPanel Grid.Column="1">
-                                                                <TextBlock Text="EXACT RESOLUTION" Style="{StaticResource FieldLabelStyle}" />
-                                                                <TextBox Text="{Binding ExactResolution, Mode=TwoWay}"
+                                                                <TextBlock Text="Exact resolution" Style="{StaticResource FieldLabelStyle}" />
+                                                                <TextBox Style="{StaticResource InlineFieldStyle}"
+                                                                         Text="{Binding ExactResolution, Mode=TwoWay}"
                                                                          MinHeight="32" ToolTip="For example 3840x2160."
                                                                          AutomationProperties.Name="Feed exact resolution" />
                                                             </StackPanel>
@@ -307,29 +314,32 @@
                                                                 <ColumnDefinition Width="*" />
                                                             </Grid.ColumnDefinitions>
                                                             <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                                                <TextBlock Text="SEED" Style="{StaticResource FieldLabelStyle}" />
-                                                                <TextBox Text="{Binding Seed, Mode=TwoWay}" MinHeight="32"
+                                                                <TextBlock Text="Seed" Style="{StaticResource FieldLabelStyle}" />
+                                                                <TextBox Style="{StaticResource InlineFieldStyle}"
+                                                                         Text="{Binding Seed, Mode=TwoWay}" MinHeight="32"
                                                                          ToolTip="Optional Wallhaven seed for stable page walking."
                                                                          AutomationProperties.Name="Feed search seed" />
                                                             </StackPanel>
                                                             <StackPanel Grid.Column="1">
-                                                                <TextBlock Text="PAGE" Style="{StaticResource FieldLabelStyle}" />
-                                                                <TextBox Text="{Binding Page, Mode=TwoWay}" MinHeight="32"
+                                                                <TextBlock Text="Page" Style="{StaticResource FieldLabelStyle}" />
+                                                                <TextBox Style="{StaticResource InlineFieldStyle}"
+                                                                         Text="{Binding Page, Mode=TwoWay}" MinHeight="32"
                                                                          ToolTip="Page to fetch next (1 or higher)."
                                                                          AutomationProperties.Name="Feed page" />
                                                             </StackPanel>
                                                         </Grid>
-                                                        <TextBlock Text="MAXIMUM ITEMS PER FETCH"
+                                                        <TextBlock Text="Maximum items per fetch"
                                                                    Style="{StaticResource FieldLabelStyle}" Margin="0,12,0,0" />
-                                                        <TextBox Text="{Binding MaximumItemsPerFetch, Mode=TwoWay}"
+                                                        <TextBox Style="{StaticResource InlineFieldStyle}"
+                                                                 Text="{Binding MaximumItemsPerFetch, Mode=TwoWay}"
                                                                  MinHeight="32" MaxWidth="160"
                                                                  ToolTip="Whole number of images from 1 to 10."
                                                                  AutomationProperties.Name="Feed maximum items per fetch" />
                                                     </StackPanel>
                                                 </Border>
 
-                                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                                    <Button Content="Save draft" Style="{StaticResource SecondaryButtonStyle}"
+                                                <StackPanel Style="{StaticResource CardActionRowStyle}">
+                                                    <Button Content="Save draft" Style="{StaticResource CardActionButtonStyle}"
                                                             Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}"
                                                             ToolTip="Validate and save the whole filter draft."
                                                             AutomationProperties.Name="Save feed filter draft" />
@@ -351,16 +361,15 @@
                 </StackPanel>
             </Border>
 
-            <!-- 3. Display schedules heading. -->
+            <!-- Display schedules: one heading inside a panel, one card per display. -->
             <Border Style="{StaticResource PanelStyle}" Margin="0,0,0,16">
                 <TextBlock Text="Display schedules" Style="{StaticResource SectionTitleStyle}" />
             </Border>
 
-            <!-- 4. One card per connected display. -->
             <ItemsControl ItemsSource="{Binding Schedules}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,24">
+                        <Border Style="{StaticResource CardStyle}" BorderThickness="0" Margin="0,0,0,16">
                             <StackPanel>
 
                                 <Grid>
@@ -383,27 +392,27 @@
                                         <TextBlock>
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                                                    <Setter Property="Text" Value="RUNNING" />
+                                                    <Setter Property="Text" Value="Running" />
                                                     <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding RotationState}"
                                                                      Value="{x:Static vm:RotationState.Paused}">
-                                                            <Setter Property="Text" Value="PAUSED" />
+                                                            <Setter Property="Text" Value="Paused" />
                                                             <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding RotationState}"
                                                                      Value="{x:Static vm:RotationState.Idle}">
-                                                            <Setter Property="Text" Value="IDLE" />
+                                                            <Setter Property="Text" Value="Idle" />
                                                             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding RotationState}"
                                                                      Value="{x:Static vm:RotationState.Preparing}">
-                                                            <Setter Property="Text" Value="STARTING" />
+                                                            <Setter Property="Text" Value="Starting" />
                                                             <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding RotationState}"
                                                                      Value="{x:Static vm:RotationState.Applying}">
-                                                            <Setter Property="Text" Value="APPLYING" />
+                                                            <Setter Property="Text" Value="Applying" />
                                                             <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
@@ -413,8 +422,8 @@
                                     </Border>
                                 </Grid>
 
-                                <!-- NEXT CHANGE countdown. -->
-                                <Border Style="{StaticResource PanelStyle}" Margin="0,16,0,0">
+                                <!-- Countdown. -->
+                                <Border Style="{StaticResource PanelStyle}" Margin="0,12,0,0">
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBlock FontSize="20" Width="26"
                                                    Margin="0,0,8,0" VerticalAlignment="Center">
@@ -448,7 +457,7 @@
                                             </TextBlock.Style>
                                         </TextBlock>
                                         <StackPanel VerticalAlignment="Center">
-                                            <TextBlock Text="NEXT CHANGE" Style="{StaticResource FieldLabelStyle}" />
+                                            <TextBlock Text="Next change" Style="{StaticResource FieldLabelStyle}" />
                                             <TextBlock Text="{Binding Countdown}" FontSize="20" FontWeight="SemiBold">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
@@ -474,23 +483,21 @@
                                            TextWrapping="Wrap" Margin="0,12,0,0" />
 
                                 <!-- Per-display opt-out, subordinate to the master switch. -->
-                                <StackPanel Margin="0,8,0,0">
-                                    <TextBlock Text="THIS DISPLAY" Style="{StaticResource FieldLabelStyle}" />
-                                    <CheckBox Content="Pause rotation for full-screen apps on this display"
-                                              IsChecked="{Binding PauseWhenFullscreen, Mode=TwoWay}"
-                                              ToolTip="Per-display opt-out: this display pauses only when the global master switch is also on."
-                                              AutomationProperties.Name="Pause rotation for full-screen apps on this display" />
-                                </StackPanel>
+                                <CheckBox Content="Pause rotation for full-screen apps on this display"
+                                          IsChecked="{Binding PauseWhenFullscreen, Mode=TwoWay}"
+                                          Margin="0,8,0,0"
+                                          ToolTip="Per-display opt-out: this display pauses only when the global master switch is also on."
+                                          AutomationProperties.Name="Pause rotation for full-screen apps on this display" />
 
                                 <!-- Per-display rotation source. -->
-                                <Border Style="{StaticResource PanelStyle}" Margin="0,16,0,0">
+                                <Border Style="{StaticResource PanelStyle}" Margin="0,12,0,0">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                            <TextBlock Text="SOURCE" Style="{StaticResource FieldLabelStyle}" />
+                                            <TextBlock Text="Source" Style="{StaticResource FieldLabelStyle}" />
                                             <ComboBox ItemsSource="{Binding SourceKinds}"
                                                       SelectedItem="{Binding SourceKind, Mode=TwoWay}"
                                                       MinHeight="32"
@@ -498,7 +505,7 @@
                                                       AutomationProperties.Name="Rotation source kind for this display" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1">
-                                            <TextBlock Text="SOURCE DETAIL" Style="{StaticResource FieldLabelStyle}" />
+                                            <TextBlock Text="Source detail" Style="{StaticResource FieldLabelStyle}" />
                                             <ComboBox ItemsSource="{Binding SourceIdOptions}"
                                                       SelectedItem="{Binding SourceId, Mode=TwoWay}"
                                                       MinHeight="32"
@@ -509,7 +516,7 @@
                                 </Border>
 
                                 <!-- Interval picker, custom minutes and actions. -->
-                                <Border Style="{StaticResource PanelStyle}" Margin="0,16,0,0">
+                                <Border Style="{StaticResource PanelStyle}" Margin="0,12,0,0">
                                     <StackPanel>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
@@ -517,7 +524,7 @@
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                                <TextBlock Text="CHANGE EVERY" Style="{StaticResource FieldLabelStyle}" />
+                                                <TextBlock Text="Change every" Style="{StaticResource FieldLabelStyle}" />
                                                 <ComboBox ItemsSource="{Binding Intervals}"
                                                           SelectedItem="{Binding SelectedInterval, Mode=TwoWay}"
                                                           IsEnabled="{Binding IntervalEnabled}"
@@ -526,7 +533,7 @@
                                                           AutomationProperties.Name="Rotation interval for this display" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="1">
-                                                <TextBlock Text="CUSTOM MINUTES (1–10080)" Style="{StaticResource FieldLabelStyle}" />
+                                                <TextBlock Text="Custom minutes (1–10080)" Style="{StaticResource FieldLabelStyle}" />
                                                 <DockPanel>
                                                     <Button DockPanel.Dock="Right" Content="Set"
                                                             Style="{StaticResource GhostButtonStyle}"
@@ -534,7 +541,8 @@
                                                             Command="{Binding CommitCustomIntervalCommand}"
                                                             ToolTip="Commit a custom whole-minute interval."
                                                             AutomationProperties.Name="Commit custom interval in minutes" />
-                                                    <TextBox Text="{Binding CustomMinutesInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                    <TextBox Style="{StaticResource InlineFieldStyle}"
+                                                             Text="{Binding CustomMinutesInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                              MinHeight="32" MinWidth="72"
                                                              ToolTip="Any whole number of minutes from 1 to 10080. Takes effect on Set."
                                                              AutomationProperties.Name="Custom interval minutes" />
@@ -545,7 +553,7 @@
                                             </StackPanel>
                                         </Grid>
 
-                                        <WrapPanel Margin="0,12,0,0">
+                                        <StackPanel Style="{StaticResource CardActionRowStyle}">
                                             <Button Content="Start" Style="{StaticResource SecondaryButtonStyle}"
                                                     Command="{Binding StartCommand}" IsEnabled="{Binding CanStart}"
                                                     ToolTip="Start rotating wallpapers on this display using its chosen source."
@@ -555,26 +563,26 @@
                                                     IsEnabled="{Binding CanPause}"
                                                     ToolTip="Pause this schedule without losing its deadline, or resume a paused schedule."
                                                     AutomationProperties.Name="Pause or resume rotation on this display" />
-                                            <Button Content="Previous" Style="{StaticResource GhostButtonStyle}"
+                                            <Button Content="Previous" Style="{StaticResource CardActionButtonStyle}"
                                                     Margin="8,0,0,0" Command="{Binding PreviousCommand}"
                                                     IsEnabled="{Binding CanUsePrevious}"
                                                     ToolTip="Re-apply the previous wallpaper on this display and restart the interval."
                                                     AutomationProperties.Name="Restore the previous wallpaper on this display" />
-                                            <Button Content="Rotate now" Style="{StaticResource GhostButtonStyle}"
+                                            <Button Content="Rotate now" Style="{StaticResource CardActionButtonStyle}"
                                                     Margin="8,0,0,0" Command="{Binding RotateNowCommand}"
                                                     IsEnabled="{Binding CanRotateNow}"
                                                     ToolTip="Apply a new wallpaper from this display's source now and restart the interval."
                                                     AutomationProperties.Name="Rotate the wallpaper now on this display" />
-                                            <Button Content="Fetch now" Style="{StaticResource GhostButtonStyle}"
+                                            <Button Content="Fetch for display" Style="{StaticResource CardActionButtonStyle}"
                                                     Margin="8,0,0,0" Command="{Binding FetchNowCommand}"
                                                     ToolTip="Fetch this display's feed now; preserves the current wallpaper on failure."
                                                     AutomationProperties.Name="Fetch new wallpapers for this display now" />
-                                            <Button Content="Stop" Style="{StaticResource GhostButtonStyle}"
+                                            <Button Content="Stop" Style="{StaticResource CardActionButtonStyle}"
                                                     Margin="8,0,0,0" Command="{Binding StopCommand}"
                                                     IsEnabled="{Binding CanStop}"
                                                     ToolTip="Stop this display's schedule and clear its saved schedule."
                                                     AutomationProperties.Name="Stop rotation on this display" />
-                                        </WrapPanel>
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -583,14 +591,14 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <!-- 5. Authoring lives on Discover; this is a navigation link, not a commit. -->
+            <!-- Navigation link to authoring, not another action in the hierarchy. -->
             <Button Content="Add feed from Discover" Style="{StaticResource GhostButtonStyle}"
                     HorizontalAlignment="Left" Margin="0,8,0,0"
                     Command="{Binding AddFeedFromDiscoverCommand}"
                     ToolTip="Open Discover, search Wallhaven and save a search as a rotation feed."
                     AutomationProperties.Name="Add a rotation feed from Discover" />
 
-            <!-- 6. One status line for the page. -->
+            <!-- One status line for the page. -->
             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                 <Ellipse Width="8" Height="8" Fill="{StaticResource AccentBrush}"
                          VerticalAlignment="Center" Margin="0,0,8,0" />

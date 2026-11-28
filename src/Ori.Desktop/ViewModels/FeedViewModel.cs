@@ -195,8 +195,8 @@ public sealed class FeedViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Fetch now follows the same global opt-in as the automatic sweep.</summary>
-    public bool CanFetchNow => _owner.AutoFetchFromWallhaven;
+    /// <summary>An explicit Fetch now is always available; the opt-in only gates automatic sweeps.</summary>
+    public bool CanFetchNow => true;
 
     /// <summary>Human-readable summary of the persisted fetch/backoff/failure state.</summary>
     public string StatusText

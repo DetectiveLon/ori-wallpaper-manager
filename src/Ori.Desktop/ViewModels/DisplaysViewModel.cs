@@ -365,7 +365,20 @@ public sealed class DisplaysViewModel : ViewModelBase, IDisposable
                     : $"Newest image from {feed.Name}"));
         }
 
+        // The candidate lists are rebuilt on every navigation, so the staged
+        // SourceCandidate is a stale object. Re-anchor it by stable identity to
+        // the new instance, otherwise the picker cannot show the source Apply
+        // uses and a return visit silently loses the staged choice.
+        if (_selectedSource is { } staged)
+        {
+            var replacement = AvailableSources.FirstOrDefault(candidate =>
+                string.Equals(candidate.Kind, staged.Kind, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(candidate.Id, staged.Id, StringComparison.Ordinal));
+            _selectedSource = replacement ?? staged;
+        }
+
         OnPropertyChanged(nameof(AvailableSources));
+        OnPropertyChanged(nameof(SelectedSource));
         OnPropertyChanged(nameof(HasDraftSource));
         OnPropertyChanged(nameof(CanApply));
         ((RelayCommand)ApplyCommand).RaiseCanExecuteChanged();
@@ -674,7 +687,7 @@ public sealed class DisplaysViewModel : ViewModelBase, IDisposable
         _preferences.SetSelection(monitor.Fingerprint);
         _preferences.Save();
         if (persist)
-            MonitorSelectionService.Instance.Select(monitor.Id);
+            MonitorSelectionService.Instance.Select(monitor.Fingerprint);
     }
 
     private void SyncPositionSelection()
@@ -736,11 +749,11 @@ public sealed class DisplaysViewModel : ViewModelBase, IDisposable
 
             // Resolve by stable panel fingerprint first: a hotplug changes the
             // COM path but not the physical monitor or its saved choices.
-            MonitorSelectionService.Instance.Load(Monitors.Select(monitor => monitor.Id));
+            MonitorSelectionService.Instance.Load(Monitors.Select(monitor => monitor.Fingerprint));
             var primary = Monitors.FirstOrDefault(monitor => monitor.IsPrimary) ?? Monitors[0];
-            var rememberedId = MonitorSelectionService.Instance.Resolve(primary.Id);
+            var rememberedFingerprint = MonitorSelectionService.Instance.Resolve(primary.Fingerprint);
             var target = Monitors.FirstOrDefault(monitor => monitor.Fingerprint == previousFingerprint)
-                ?? Monitors.FirstOrDefault(monitor => monitor.Id == rememberedId)
+                ?? Monitors.FirstOrDefault(monitor => monitor.Fingerprint == rememberedFingerprint)
                 ?? primary;
             SetSelectedMonitor(target, persist: false);
 

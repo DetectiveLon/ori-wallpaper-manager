@@ -47,12 +47,24 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
         Func<DateTimeOffset, Task>? nextRunChanged = null,
         Func<Exception, Task>? failed = null,
         CancellationToken cancellationToken = default,
-        DateTimeOffset? lastCompletedAt = null)
+        DateTimeOffset? lastCompletedAt = null,
+        Func<TimeSpan>? intervalProvider = null)
     {
         ArgumentNullException.ThrowIfNull(shouldPause);
         ArgumentNullException.ThrowIfNull(rotateAsync);
         if (interval < TimeSpan.FromMinutes(1) || interval > TimeSpan.FromDays(7))
             throw new ArgumentOutOfRangeException(nameof(interval));
+
+        // A live provider lets a committed custom interval take effect on a running
+        // schedule without Stop/Start. Out-of-range values fall back to the validated
+        // start interval so a bad edit can never produce a busy or stalled loop.
+        TimeSpan EffectiveInterval()
+        {
+            var candidate = intervalProvider?.Invoke() ?? interval;
+            return candidate >= TimeSpan.FromMinutes(1) && candidate <= TimeSpan.FromDays(7)
+                ? candidate
+                : interval;
+        }
 
         // A throwing UI callback must not unwind the loop. Keep the original delegates
         // in locals so the wrappers cannot recurse into themselves.
@@ -87,13 +99,25 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
         {
         }
 
-        var nextRun = CalculateNextRun(_timeProvider.GetUtcNow(), interval, lastCompletedAt);
+        var currentInterval = EffectiveInterval();
+        var nextRun = CalculateNextRun(_timeProvider.GetUtcNow(), currentInterval, lastCompletedAt);
         if (nextRunChanged is not null)
             await nextRunChanged(nextRun).ConfigureAwait(false);
 
         var deferredByPause = false;
         while (!cancellationToken.IsCancellationRequested)
         {
+            var intervalNow = EffectiveInterval();
+            if (intervalNow != currentInterval)
+            {
+                // The user committed a new interval while this loop was running:
+                // re-anchor immediately so the countdown and the UI agree.
+                currentInterval = intervalNow;
+                nextRun = _timeProvider.GetUtcNow() + currentInterval;
+                if (nextRunChanged is not null)
+                    await nextRunChanged(nextRun).ConfigureAwait(false);
+            }
+
             if (shouldPause())
             {
                 deferredByPause = true;
@@ -111,7 +135,7 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
                 }
 
                 // Do not apply immediately after a pause (for example, after a game exits).
-                nextRun = _timeProvider.GetUtcNow() + interval;
+                nextRun = _timeProvider.GetUtcNow() + currentInterval;
                 deferredByPause = false;
                 if (nextRunChanged is not null)
                     await nextRunChanged(nextRun).ConfigureAwait(false);
@@ -120,12 +144,12 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
 
             var now = _timeProvider.GetUtcNow();
             var remaining = nextRun - now;
-            if (remaining > interval)
+            if (remaining > currentInterval)
             {
                 // The clock jumped backwards: a deadline computed before the jump
                 // must not stretch this interval.
-                nextRun = now + interval;
-                remaining = interval;
+                nextRun = now + currentInterval;
+                remaining = currentInterval;
                 if (nextRunChanged is not null)
                     await nextRunChanged(nextRun).ConfigureAwait(false);
             }
@@ -147,7 +171,7 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
                 {
                     await resetTask.ConfigureAwait(false);
                     waitCancellation.Cancel();
-                    nextRun = _timeProvider.GetUtcNow() + interval;
+                    nextRun = _timeProvider.GetUtcNow() + currentInterval;
                     if (nextRunChanged is not null)
                         await nextRunChanged(nextRun).ConfigureAwait(false);
                 }
@@ -162,7 +186,7 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
 
             if (_resetSignal.Wait(0))
             {
-                nextRun = _timeProvider.GetUtcNow() + interval;
+                nextRun = _timeProvider.GetUtcNow() + currentInterval;
                 if (nextRunChanged is not null)
                     await nextRunChanged(nextRun).ConfigureAwait(false);
                 continue;
@@ -189,7 +213,7 @@ public sealed class RotationLoop(TimeProvider? timeProvider = null)
                     await failed(ex).ConfigureAwait(false);
             }
 
-            nextRun = _timeProvider.GetUtcNow() + interval;
+            nextRun = _timeProvider.GetUtcNow() + currentInterval;
             if (nextRunChanged is not null)
                 await nextRunChanged(nextRun).ConfigureAwait(false);
         }

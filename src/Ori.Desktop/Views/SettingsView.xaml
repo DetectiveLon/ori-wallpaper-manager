@@ -30,7 +30,7 @@
                                  ToolTip="Paste a Wallhaven API key. It is stored encrypted for this Windows user."
                                  KeyboardNavigation.TabIndex="8" />
 
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <StackPanel Style="{StaticResource CardActionRowStyle}">
                         <Button Content="Save API key" Style="{StaticResource PrimaryButtonStyle}"
                                 Command="{Binding SaveApiKeyCommand}"
                                 ToolTip="Encrypt and save the API key for this Windows user"
@@ -47,7 +47,7 @@
                 </StackPanel>
             </Border>
 
-            <!-- Startup: the text is the state signal; the chip only reinforces it. -->
+            <!-- Startup: the toggle's label is the single state signal. -->
             <Border Style="{StaticResource CardStyle}" Margin="0,0,0,24">
                 <StackPanel>
                     <TextBlock Text="Startup" Style="{StaticResource SectionTitleStyle}" />
@@ -60,27 +60,8 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="Start Ori when I sign in:" Style="{StaticResource BodyTextStyle}"
-                                       VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <Border Style="{StaticResource ChipStyle}"
-                                    AutomationProperties.Name="{Binding StartupAutomationName}">
-                                <TextBlock FontWeight="SemiBold" VerticalAlignment="Center">
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
-                                            <Setter Property="Text" Value="Off" />
-                                            <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding StartupEnabled}" Value="True">
-                                                    <Setter Property="Text" Value="On" />
-                                                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
-                            </Border>
-                        </StackPanel>
+                        <TextBlock Text="Start Ori when I sign in:" Style="{StaticResource BodyTextStyle}"
+                                   VerticalAlignment="Center" />
                         <Button Grid.Column="1" Content="{Binding StartupToggleLabel}"
                                 Style="{StaticResource GhostButtonStyle}"
                                 Command="{Binding ToggleStartupCommand}"
@@ -111,7 +92,7 @@
                                Margin="0,8,0,0"
                                Text="Thumbnails and full-size downloads are cached to avoid repeat downloads. Clearing the cache never removes wallpapers you saved to your library." />
 
-                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                    <StackPanel Style="{StaticResource CardActionRowStyle}" Margin="0,16,0,0">
                         <Button Content="Clear cached images" Style="{StaticResource GhostButtonStyle}"
                                 Command="{Binding ClearCacheCommand}"
                                 ToolTip="Delete downloaded thumbnails and full-size images from the cache; your library is not affected"
@@ -139,7 +120,7 @@
                         <StackPanel>
                             <TextBlock Text="{Binding ClearOrphansConfirmationText}"
                                        Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
-                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <StackPanel Style="{StaticResource CardActionRowStyle}" Margin="0,8,0,0">
                                 <Button Content="Confirm clear" Style="{StaticResource PrimaryButtonStyle}"
                                         Command="{Binding ConfirmClearOrphansCommand}" IsDefault="True"
                                         KeyboardNavigation.TabIndex="13"

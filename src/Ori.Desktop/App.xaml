@@ -50,17 +50,14 @@
         <SolidColorBrush x:Key="DividerBrush" Color="#222B37" />
 
         <!-- Navigation rail surfaces: quiet by default, elevated on hover/press,
-             and a distinct selected tint with its own outline. -->
+             and one selected tint with a single accent-bar cue. -->
         <SolidColorBrush x:Key="RailSurfaceBrush" Color="#0E1520" />
         <SolidColorBrush x:Key="RailOutlineBrush" Color="#1E2A3A" />
         <SolidColorBrush x:Key="RailDividerBrush" Color="#1B2635" />
         <SolidColorBrush x:Key="NavHoverBrush" Color="#182534" />
         <SolidColorBrush x:Key="NavPressedBrush" Color="#243A57" />
         <SolidColorBrush x:Key="NavActiveBrush" Color="#1C3B5E" />
-        <SolidColorBrush x:Key="NavActiveBorderBrush" Color="#2E5A8C" />
         <SolidColorBrush x:Key="NavSectionLabelBrush" Color="#7E91A8" />
-        <SolidColorBrush x:Key="RailStatusBackgroundBrush" Color="#152131" />
-        <SolidColorBrush x:Key="RailStatusBorderBrush" Color="#253548" />
 
         <!-- Custom title bar. -->
         <SolidColorBrush x:Key="TitleBarBrush" Color="#10161F" />
@@ -98,21 +95,21 @@
         <sys:Double x:Key="TitleSize">28</sys:Double>
         <sys:Double x:Key="SubtitleSize">13</sys:Double>
         <sys:Double x:Key="BodySize">13</sys:Double>
-        <sys:Double x:Key="CaptionSize">11</sys:Double>
+        <sys:Double x:Key="CaptionSize">12</sys:Double>
         <sys:Double x:Key="NavSize">13</sys:Double>
         <!-- Rail sizing tokens. NavSize is kept for the shared type scale; the
              rail itself uses the larger label/icon/row values below. -->
         <sys:Double x:Key="NavLabelSize">14</sys:Double>
-        <sys:Double x:Key="NavIconSize">17</sys:Double>
-        <sys:Double x:Key="NavRowHeight">44</sys:Double>
-        <GridLength x:Key="RailWidth">240</GridLength>
+        <sys:Double x:Key="NavIconSize">16</sys:Double>
+        <sys:Double x:Key="NavRowHeight">40</sys:Double>
+        <GridLength x:Key="RailWidth">208</GridLength>
         <CornerRadius x:Key="NavItemCornerRadius">12</CornerRadius>
-        <Thickness x:Key="NavItemPadding">12,10,12,10</Thickness>
+        <Thickness x:Key="NavItemPadding">12,8,12,8</Thickness>
         <sys:Double x:Key="ButtonSize">13</sys:Double>
         <sys:Double x:Key="GlyphSize">16</sys:Double>
         <sys:Double x:Key="WindowGlyphSize">12</sys:Double>
         <sys:Double x:Key="HeadlineSize">15</sys:Double>
-        <sys:Double x:Key="TitleBarHeight">44</sys:Double>
+        <sys:Double x:Key="TitleBarHeight">48</sys:Double>
         <sys:Double x:Key="SpaceXS">4</sys:Double>
         <sys:Double x:Key="SpaceS">8</sys:Double>
         <sys:Double x:Key="SpaceM">16</sys:Double>
@@ -258,24 +255,10 @@
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
-        <!-- Rail section labels: quiet, uppercase, and consistently sized. -->
+        <!-- Rail section labels: quiet, uppercase, and consistently sized
+             through the shared EyebrowSize token. -->
         <Style x:Key="NavGroupHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource EyebrowTextStyle}">
-            <Setter Property="FontSize" Value="11" />
             <Setter Property="Foreground" Value="{StaticResource NavSectionLabelBrush}" />
-        </Style>
-        <!-- Divider between rail groups, inset to line up with the section label. -->
-        <Style x:Key="NavGroupRuleStyle" TargetType="Border">
-            <Setter Property="Height" Value="1" />
-            <Setter Property="Background" Value="{StaticResource RailDividerBrush}" />
-            <Setter Property="Margin" Value="24,0,24,0" />
-        </Style>
-        <!-- Local-only status chip in the rail footer. -->
-        <Style x:Key="RailStatusChipStyle" TargetType="Border">
-            <Setter Property="Background" Value="{StaticResource RailStatusBackgroundBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource RailStatusBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="10" />
-            <Setter Property="Padding" Value="12,10" />
         </Style>
 
         <!-- Sidebar navigation: icon + label. Hover is a subtle tint, press is
@@ -334,9 +317,9 @@
                                     </MultiBinding>
                                 </DataTrigger.Binding>
                                 <Setter TargetName="Surface" Property="Background" Value="{StaticResource NavActiveBrush}" />
-                                <Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource NavActiveBorderBrush}" />
                                 <Setter TargetName="ActiveBar" Property="Opacity" Value="1" />
                                 <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
                                 <Setter Property="AutomationProperties.ItemStatus" Value="Selected" />
                             </DataTrigger>
                         </ControlTemplate.Triggers>
@@ -474,7 +457,7 @@
         <Style x:Key="CardStyle" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource PanelBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="{StaticResource CardCornerRadius}" />
             <Setter Property="Padding" Value="{StaticResource CardPadding}" />
             <Setter Property="SnapsToDevicePixels" Value="True" />
@@ -485,7 +468,7 @@
             <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}" />
-            <Setter Property="Padding" Value="14" />
+            <Setter Property="Padding" Value="12" />
             <Setter Property="SnapsToDevicePixels" Value="True" />
         </Style>
 
@@ -824,7 +807,7 @@
                     <ControlTemplate TargetType="ToggleButton">
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6" SnapsToDevicePixels="True">
+                                CornerRadius="{StaticResource ControlCornerRadius}" SnapsToDevicePixels="True">
                             <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                               TextElement.Foreground="{TemplateBinding Foreground}" />
                         </Border>
@@ -865,7 +848,7 @@
                     <ControlTemplate TargetType="TextBox">
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="7" SnapsToDevicePixels="True">
+                                CornerRadius="{StaticResource ControlCornerRadius}" SnapsToDevicePixels="True">
                             <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
                                           HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"
                                           Margin="{TemplateBinding Padding}" />
@@ -903,7 +886,7 @@
                     <ControlTemplate TargetType="PasswordBox">
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="7" SnapsToDevicePixels="True">
+                                CornerRadius="{StaticResource ControlCornerRadius}" SnapsToDevicePixels="True">
                             <ScrollViewer x:Name="PART_ContentHost" Focusable="False"
                                           HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"
                                           Margin="{TemplateBinding Padding}" />
@@ -939,7 +922,7 @@
                     <ControlTemplate TargetType="ListBox">
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="8" SnapsToDevicePixels="True">
+                                CornerRadius="{StaticResource ControlCornerRadius}" SnapsToDevicePixels="True">
                             <ScrollViewer Focusable="False" Padding="{TemplateBinding Padding}"
                                           HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}"
                                           VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}">
@@ -968,7 +951,7 @@
                     <ControlTemplate TargetType="ListBoxItem">
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
-                                Padding="{TemplateBinding Padding}" CornerRadius="6" SnapsToDevicePixels="True">
+                                Padding="{TemplateBinding Padding}" CornerRadius="{StaticResource ControlCornerRadius}" SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                               TextElement.Foreground="{TemplateBinding Foreground}" />
@@ -1003,7 +986,7 @@
                     <ControlTemplate TargetType="ToolTip">
                         <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}"
-                                CornerRadius="6" SnapsToDevicePixels="True">
+                                CornerRadius="{StaticResource ControlCornerRadius}" SnapsToDevicePixels="True">
                             <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}" />
                         </Border>
                     </ControlTemplate>
@@ -1161,11 +1144,199 @@
         </Style>
 
         <!-- ============================================================
+             Shared view patterns. Keyed button/toggle styles carry their own
+             dark ControlTemplate so none can fall back to a light theme style.
+             Accent appears only on selected surfaces and checked filters.
+             ============================================================ -->
+
+        <!-- Filled card used as a ListBoxItem: fill separates the card, only
+             hover and selection draw a border. -->
+        <Style x:Key="CardSelectionStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{StaticResource CardCornerRadius}"
+                                Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}" />
+                                <Setter TargetName="Surface" Property="BorderThickness" Value="1" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource PanelAltBrush}" />
+                                <Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="Surface" Property="BorderThickness" Value="2" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Action strip under card content. -->
+        <Style x:Key="CardActionRowStyle" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Margin" Value="0,12,0,0" />
+        </Style>
+
+        <!-- Low-emphasis text action inside a card, 32px tall. -->
+        <Style x:Key="CardActionButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="FontSize" Value="{StaticResource ButtonSize}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlPressedBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Filter chip: quiet when off, tinted with an accent outline when on. -->
+        <Style x:Key="FilterToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="FontSize" Value="{StaticResource ButtonSize}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlPressedBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource AccentTintBrush}" />
+                                <Setter TargetName="Surface" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Horizontal group of filter chips. -->
+        <Style x:Key="FilterGroupStyle" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Margin" Value="0,8,0,0" />
+        </Style>
+
+        <!-- Bottom bar holding the apply target and its commit action. -->
+        <Style x:Key="ApplyTargetBarStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
+            <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="Margin" Value="0,16,0,0" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+        </Style>
+
+        <!-- Inherits the dark ComboBox template (which owns the clickable
+             PART_DropDownToggle); this style only fixes its geometry. -->
+        <Style x:Key="ApplyTargetComboStyle" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="Width" Value="172" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+        </Style>
+
+        <!-- Ghost refresh action, same 32px rhythm as the other card actions. -->
+        <Style x:Key="RefreshButtonStyle" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="FontSize" Value="{StaticResource ButtonSize}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlPressedBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Compact inline text field matching the apply-target combo geometry. -->
+        <Style x:Key="InlineFieldStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Width" Value="172" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+        </Style>
+
+        <!-- ============================================================
              Custom title-bar caption buttons (used by MainWindow).
              ============================================================ -->
         <Style x:Key="WindowButtonStyle" TargetType="Button">
             <Setter Property="Width" Value="46" />
-            <Setter Property="Height" Value="44" />
+            <Setter Property="Height" Value="{StaticResource TitleBarHeight}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Focusable" Value="True" />
@@ -1199,7 +1370,7 @@
 
         <Style x:Key="CloseWindowButtonStyle" TargetType="Button">
             <Setter Property="Width" Value="46" />
-            <Setter Property="Height" Value="44" />
+            <Setter Property="Height" Value="{StaticResource TitleBarHeight}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Focusable" Value="True" />

@@ -11,9 +11,11 @@ namespace Ori.Desktop.Services;
 /// visiting Library or Discover silently reset the target to the primary
 /// monitor, so a wallpaper could land on the wrong screen.
 ///
-/// The stored id is validated against the monitors Ori can currently see; a
-/// stale id (unplugged monitor, driver re-enumeration) simply falls back to the
-/// primary display instead of making Apply fail.
+/// The stored key is the panel's stable fingerprint, never its volatile COM
+/// device path. Callers pass fingerprints to <see cref="Load"/>,
+/// <see cref="Select"/> and <see cref="Resolve"/>. A fingerprint that no longer
+/// matches a live panel (or an old COM-path value left by an earlier build)
+/// falls back to the primary display instead of making Apply fail.
 /// </summary>
 public sealed class MonitorSelectionService
 {
@@ -33,17 +35,20 @@ public sealed class MonitorSelectionService
     /// <summary>Test hook: a redirected selection file, same format as production.</summary>
     internal MonitorSelectionService(string selectionPath) => _selectionPath = selectionPath;
 
-    /// <summary>The remembered monitor id, or null when none has been chosen.</summary>
+    /// <summary>The remembered fingerprint, or null when none has been chosen.</summary>
     public string? SelectedMonitorId { get; private set; }
 
+    /// <summary>Fingerprint alias for callers that think in panel identity.</summary>
+    public string? SelectedFingerprint => SelectedMonitorId;
+
     /// <summary>
-    /// Loads the remembered id, discarding it when it no longer matches a live
-    /// monitor. Call this once the current monitor list is known.
+    /// Loads the remembered fingerprint, discarding it when it no longer matches
+    /// a live panel. Call this once the current monitor list is known.
     /// </summary>
-    public void Load(IEnumerable<string> liveMonitorIds)
+    public void Load(IEnumerable<string> liveMonitorFingerprints)
     {
         // Clear first: an unplugged monitor must not leave the previous in-memory
-        // id behind when the file is missing, stale or unreadable.
+        // key behind when the file is missing, stale or unreadable.
         SelectedMonitorId = null;
 
         try
@@ -52,14 +57,19 @@ public sealed class MonitorSelectionService
                 return;
 
             using var document = JsonDocument.Parse(File.ReadAllText(_selectionPath));
-            if (!document.RootElement.TryGetProperty("monitorId", out var element))
+            var root = document.RootElement;
+            // "fingerprint" is the current key; "monitorId" is kept for files
+            // written by older builds, whose value is validated the same way.
+            var found = root.TryGetProperty("fingerprint", out var element)
+                || root.TryGetProperty("monitorId", out element);
+            if (!found)
                 return;
 
-            var id = element.GetString();
-            if (!string.IsNullOrWhiteSpace(id)
-                && liveMonitorIds.Contains(id, StringComparer.OrdinalIgnoreCase))
+            var key = element.GetString();
+            if (!string.IsNullOrWhiteSpace(key)
+                && liveMonitorFingerprints.Contains(key, StringComparer.OrdinalIgnoreCase))
             {
-                SelectedMonitorId = id;
+                SelectedMonitorId = key;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
@@ -69,19 +79,22 @@ public sealed class MonitorSelectionService
         }
     }
 
-    /// <summary>Remembers a choice and persists it for the next page or session.</summary>
-    public void Select(string? monitorId)
+    /// <summary>Remembers a fingerprint choice and persists it for the next page or session.</summary>
+    public void Select(string? monitorFingerprint)
     {
-        if (string.IsNullOrWhiteSpace(monitorId))
+        if (string.IsNullOrWhiteSpace(monitorFingerprint))
             return;
 
-        SelectedMonitorId = monitorId;
+        SelectedMonitorId = monitorFingerprint;
         try
         {
             var directory = Path.GetDirectoryName(_selectionPath);
             if (directory is not null)
                 Directory.CreateDirectory(directory);
-            File.WriteAllText(_selectionPath, JsonSerializer.Serialize(new { monitorId }));
+            // Both names carry the same fingerprint: "monitorId" keeps older
+            // readers working, "fingerprint" names what is actually stored.
+            File.WriteAllText(_selectionPath, JsonSerializer.Serialize(
+                new { monitorId = monitorFingerprint, fingerprint = monitorFingerprint }));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -89,7 +102,7 @@ public sealed class MonitorSelectionService
         }
     }
 
-    /// <summary>Returns the remembered monitor, or the caller's primary fallback.</summary>
-    public string? Resolve(string? primaryMonitorId) =>
-        string.IsNullOrWhiteSpace(SelectedMonitorId) ? primaryMonitorId : SelectedMonitorId;
+    /// <summary>Returns the remembered fingerprint, or the caller's primary fallback.</summary>
+    public string? Resolve(string? primaryMonitorFingerprint) =>
+        string.IsNullOrWhiteSpace(SelectedMonitorId) ? primaryMonitorFingerprint : SelectedMonitorId;
 }

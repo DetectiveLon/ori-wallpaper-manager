@@ -52,6 +52,8 @@ public sealed class AutomationViewModel : ViewModelBase
     private const string EmptyLibraryStatus =
         "Save wallpapers from Discover or enable a Wallhaven feed to use Start and Rotate now.";
     private static readonly TimeSpan FeedSweepInterval = TimeSpan.FromSeconds(15);
+    // A fetch that has been "in flight" this long with no live work is treated as stale.
+    private static readonly TimeSpan StaleFeedFetchTimeout = TimeSpan.FromMinutes(5);
 
     // Bounded so a stuck COM call cannot prevent MainWindow from closing.
     private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(3);
@@ -86,6 +88,11 @@ public sealed class AutomationViewModel : ViewModelBase
 
     private CancellationTokenSource _feedCts = new();
     private int _feedFetchInFlight;
+    // Identity of the current gate owner; 0 when free. Only that owner may clear it.
+    private long _feedFetchToken;
+    // Environment.TickCount64 when the gate was taken; 0 when released. Used to
+    // recover a gate left latched by a cancelled or crashed fetch.
+    private long _feedFetchStartedTick;
     private int _feedSweepPending;
     private bool _pauseWhenFullscreen = true;
     private bool _autoFetchFromWallhaven;
@@ -856,9 +863,22 @@ public sealed class AutomationViewModel : ViewModelBase
             var task = session.Loop.RunAsync(
                 interval,
                 shouldPause: () => ShouldPause(session),
-                rotateAsync: cancellationToken => RotateFromLibraryAsync(
-                    session, cancellationToken, respectPause: true,
-                    expectedManualRotationGeneration: Volatile.Read(ref session.ManualRotationGeneration)),
+                rotateAsync: async cancellationToken =>
+                {
+                    // A feed-bound display fetches before selecting, but only when its
+                    // feed is due — never on every tick of the rotation interval.
+                    if (session.SourceKind == RotationSourceKind.Feed
+                        && session.PendingFeedEntryId is null)
+                    {
+                        await FetchForRotationIfDueAsync(session, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+
+                    await RotateFromLibraryAsync(
+                        session, cancellationToken, respectPause: true,
+                        expectedManualRotationGeneration: Volatile.Read(ref session.ManualRotationGeneration))
+                        .ConfigureAwait(false);
+                },
                 nextRunChanged: async nextRun =>
                 {
                     await TryInvokeOnDispatcherAsync(() =>
@@ -878,7 +898,9 @@ public sealed class AutomationViewModel : ViewModelBase
                     }).ConfigureAwait(false);
                 },
                 cancellationToken: token,
-                lastCompletedAt: resumeAt.HasValue ? resumeAt.Value - interval : null);
+                lastCompletedAt: resumeAt.HasValue ? resumeAt.Value - interval : null,
+                // A committed custom interval reaches the running loop on its next poll.
+                intervalProvider: () => session.Interval);
 
             session.LoopTask = task;
             session.LoopObserverTask = ObserveLoopAsync(session, task);
@@ -1187,13 +1209,58 @@ public sealed class AutomationViewModel : ViewModelBase
             }
         }
         catch { /* already cancelled */ }
+
+        // Do NOT release the gate here. Cancelling only signals the owner: its finally
+        // releases with its own token. Releasing here let a second fetch take the gate
+        // and then have the first fetch's finally clear the second one's gate.
+    }
+
+    /// <summary>
+    /// Takes the single app-wide fetch gate and returns the owner token the caller
+    /// must pass to <see cref="EndFeedFetch"/>; false means a fetch is already running.
+    /// </summary>
+    private bool TryBeginFeedFetch(out long token)
+    {
+        token = 0;
+        if (_shutdownRequested || Interlocked.Exchange(ref _feedFetchInFlight, 1) != 0) return false;
+        token = Interlocked.Increment(ref _feedFetchToken);
+        Volatile.Write(ref _feedFetchStartedTick, Environment.TickCount64);
+        return true;
+    }
+
+    /// <summary>Releases the gate only for its owner; a stale owner cannot clear a newer fetch.</summary>
+    private void EndFeedFetch(long token)
+    {
+        if (token == 0 || Interlocked.Read(ref _feedFetchToken) != token) return;
+        Volatile.Write(ref _feedFetchStartedTick, 0);
+        Volatile.Write(ref _feedFetchInFlight, 0);
+    }
+
+    /// <summary>Last-resort recovery for a gate left latched by a crashed fetch.</summary>
+    private void ForceReleaseStaleFeedFetch()
+    {
+        Volatile.Write(ref _feedFetchStartedTick, 0);
+        Volatile.Write(ref _feedFetchInFlight, 0);
     }
 
     private async void OnFeedTimerTick(object? sender, EventArgs e)
     {
         try
         {
-            if (_shutdownRequested || Volatile.Read(ref _feedFetchInFlight) != 0 || !AutoFetchFromWallhaven) return;
+            if (_shutdownRequested || !AutoFetchFromWallhaven) return;
+            if (Volatile.Read(ref _feedFetchInFlight) != 0)
+            {
+                // Defensive recovery: if a fetch was cancelled/crashed without running
+                // its finally, the gate would stay latched and stop every later sweep.
+                var started = Volatile.Read(ref _feedFetchStartedTick);
+                // A zero timestamp means the gate was just taken; never clear it then.
+                if (started == 0
+                    || Environment.TickCount64 - started < StaleFeedFetchTimeout.TotalMilliseconds)
+                    return;
+                // A newer owner can no longer be cleared by the old fetch's finally:
+                // EndFeedFetch checks the owner token.
+                ForceReleaseStaleFeedFetch();
+            }
             await FetchDueFeedSafelyAsync();
         }
         catch (Exception ex) { SetFeedStatus($"Feed check failed: {ex.Message}"); }
@@ -1202,24 +1269,23 @@ public sealed class AutomationViewModel : ViewModelBase
     private async Task FetchDueFeedSafelyAsync()
     {
         try { await FetchDueFeedAsync(_feedCts.Token); }
-        catch (OperationCanceledException) { Volatile.Write(ref _feedFetchInFlight, 0); }
+        catch (OperationCanceledException) { /* FetchDueFeedAsync releases its own gate */ }
         catch (Exception ex) { SetFeedStatus($"Feed check failed: {ex.Message}"); }
     }
 
     /// <summary>Due-feed sweep; serialized app-wide. Queues images, never resets countdowns.</summary>
     internal async Task FetchDueFeedAsync(CancellationToken cancellationToken)
     {
-        var acquired = Interlocked.Exchange(ref _feedFetchInFlight, 1) == 0;
-        if (_shutdownRequested)
+        if (!TryBeginFeedFetch(out var gateToken))
         {
-            if (acquired) Volatile.Write(ref _feedFetchInFlight, 0);
+            Volatile.Write(ref _feedSweepPending, 1);
             return;
         }
-        if (!acquired) { Volatile.Write(ref _feedSweepPending, 1); return; }
 
         try
         {
             Interlocked.Exchange(ref _feedSweepPending, 0);
+            // The opt-in still gates the automatic 15s sweep only.
             if (!AutoFetchFromWallhaven) return;
 
             RotationFeed? feed;
@@ -1232,11 +1298,37 @@ public sealed class AutomationViewModel : ViewModelBase
         }
         finally
         {
-            Volatile.Write(ref _feedFetchInFlight, 0);
+            EndFeedFetch(gateToken);
             if (Interlocked.Exchange(ref _feedSweepPending, 0) == 1
                 && !_shutdownRequested && AutoFetchFromWallhaven)
                 _ = FetchDueFeedSafelyAsync();
         }
+    }
+
+    /// <summary>
+    /// Rotation-driven fetch. Unlike an explicit Fetch now, this respects cadence,
+    /// 429 backoff and the master toggle: a fetch that finds no new images still
+    /// stamps LastFetchedUtc, so the next rotation tick skips it until due again.
+    /// </summary>
+    private async Task FetchForRotationIfDueAsync(RotationSession session, CancellationToken cancellationToken)
+    {
+        if (session.SourceKind != RotationSourceKind.Feed || string.IsNullOrWhiteSpace(session.SourceId)) return;
+
+        var feedId = session.SourceId!;
+        var feed = FindFeed(feedId);
+        if (feed is null || !feed.Enabled) return;
+
+        var now = DateTimeOffset.UtcNow;
+        try
+        {
+            // GetNextDueFeed enforces the master opt-in; the shared selector applies
+            // the same enabled/cadence/backoff rules the automatic sweep uses.
+            if (WallhavenFeedStore.GetNextDueFeed(now) is null) return;
+            if (WallhavenFeedStore.SelectNextFeed([feed], now) is null) return;
+        }
+        catch { return; }
+
+        await FetchNowForDisplayAsync(session, fetchOnly: true, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1261,7 +1353,7 @@ public sealed class AutomationViewModel : ViewModelBase
         await FetchNowAsync(feedId).ConfigureAwait(false);
     }
 
-    /// <summary>Fetch one named feed now, ignoring its cadence. Global Wallhaven opt-in gates this.</summary>
+    /// <summary>Fetch one named feed now, ignoring its cadence. Explicit actions are never gated by the auto opt-in.</summary>
     internal Task FetchNowAsync(string feedId) =>
         FetchNowAsync(feedId, _fetchApplyToAll);
 
@@ -1272,13 +1364,8 @@ public sealed class AutomationViewModel : ViewModelBase
     /// </summary>
     internal async Task FetchNowAsync(string feedId, bool applyToAll)
     {
-        if (!AutoFetchFromWallhaven)
-        {
-            SetFeedStatus("Turn on automatic Wallhaven fetching before using Fetch now.");
-            return;
-        }
-
-        if (_shutdownRequested || Interlocked.Exchange(ref _feedFetchInFlight, 1) != 0)
+        if (_shutdownRequested) return;
+        if (!TryBeginFeedFetch(out var gateToken))
         {
             SetFeedStatus("A Wallhaven fetch is already running.");
             return;
@@ -1292,15 +1379,20 @@ public sealed class AutomationViewModel : ViewModelBase
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            Volatile.Write(ref _feedFetchInFlight, 0);
             SetFeedStatus("Wallhaven fetch cancelled.");
         }
         catch (Exception ex) { SetFeedStatus($"Could not fetch this feed: {ex.Message}"); }
-        finally { Volatile.Write(ref _feedFetchInFlight, 0); }
+        finally { EndFeedFetch(gateToken); }
     }
 
-    /// <summary>Per-display Fetch now. Targets this display unless apply-to-all is requested.</summary>
-    internal async Task FetchNowForDisplayAsync(RotationSession session)
+    /// <summary>
+    /// Per-display Fetch now. Targets this display unless apply-to-all is requested.
+    /// <paramref name="fetchOnly"/> queues images for the next rotation instead of
+    /// applying them here; the rotation loop uses that path. Both go through the
+    /// same serialized gate, backoff and apply pipeline.
+    /// </summary>
+    internal async Task FetchNowForDisplayAsync(
+        RotationSession session, bool fetchOnly = false, CancellationToken cancellationToken = default)
     {
         var feedId = session.SourceKind == RotationSourceKind.Feed && !string.IsNullOrWhiteSpace(session.SourceId)
             ? session.SourceId!
@@ -1311,33 +1403,38 @@ public sealed class AutomationViewModel : ViewModelBase
             return;
         }
 
-        // Route through the same serialized path but pin this display.
-        if (!AutoFetchFromWallhaven)
-        {
-            SetFeedStatus("Turn on automatic Wallhaven fetching before using Fetch now.");
-            return;
-        }
-        if (_shutdownRequested || Interlocked.Exchange(ref _feedFetchInFlight, 1) != 0)
+        if (_shutdownRequested) return;
+        if (!TryBeginFeedFetch(out var gateToken))
         {
             SetFeedStatus("A Wallhaven fetch is already running.");
             return;
         }
 
-        var token = EnsureFeedCts();
+        var feedToken = EnsureFeedCts();
+        CancellationTokenSource? linked = null;
+        var token = feedToken;
         try
         {
-            var targets = _fetchApplyToAll
-                ? SnapshotSessions().Where(s => s.IsRunning).ToArray()
-                : [session];
-            await FetchFeedAsync(feedId, token, new FetchTarget(targets, _fetchApplyToAll)).ConfigureAwait(false);
+            if (cancellationToken.CanBeCanceled)
+            {
+                linked = CancellationTokenSource.CreateLinkedTokenSource(feedToken, cancellationToken);
+                token = linked.Token;
+            }
+            var targets = fetchOnly
+                ? FetchTarget.None
+                : new FetchTarget(ResolveFetchTargets(_fetchApplyToAll, _fetchApplyToAll ? null : session), _fetchApplyToAll);
+            await FetchFeedAsync(feedId, token, targets).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            Volatile.Write(ref _feedFetchInFlight, 0);
             SetFeedStatus("Wallhaven fetch cancelled.");
         }
         catch (Exception ex) { SetFeedStatus($"Could not fetch this feed: {ex.Message}"); }
-        finally { Volatile.Write(ref _feedFetchInFlight, 0); }
+        finally
+        {
+            linked?.Dispose();
+            EndFeedFetch(gateToken);
+        }
     }
 
     private IReadOnlyList<RotationSession> ResolveFetchTargets(bool applyToAll, RotationSession? explicitTarget)
@@ -1487,7 +1584,12 @@ public sealed class AutomationViewModel : ViewModelBase
                 else
                 {
                     appliedId = await ApplyFetchedWallpapersAsync(
-                        addedIds[0], feedName, target, cancellationToken).ConfigureAwait(false);
+                        addedIds[0], feedName, feedId, target, cancellationToken).ConfigureAwait(false);
+
+                    // Queue only when nothing was applied: an image already applied to
+                    // its targets must not be re-applied on the next rotation.
+                    if (appliedId is null)
+                        await QueuePendingFeedEntryAsync(addedIds[0], feedId).ConfigureAwait(false);
                     message = appliedId is not null
                         ? $"Added {addedIds.Count} new wallpaper(s) from '{feedName}' and applied one."
                         : $"Added {addedIds.Count} new wallpaper(s) from '{feedName}'. The first one is pending for the next rotation.";
@@ -1558,12 +1660,12 @@ public sealed class AutomationViewModel : ViewModelBase
     /// failure the prior wallpaper is restored. Never throws past a per-display guard.
     /// </summary>
     private async Task<string?> ApplyFetchedWallpapersAsync(
-        string entryId, string feedName, FetchTarget target, CancellationToken cancellationToken)
+        string entryId, string feedName, string feedId, FetchTarget target, CancellationToken cancellationToken)
     {
         // Scheduled sweep (no explicit target): queue for the next rotation, don't apply.
         if (target.Targets.Count == 0)
         {
-            await QueueFetchedWallpapersAsync(entryId, feedName).ConfigureAwait(false);
+            await QueueFetchedWallpapersAsync(entryId, feedName, feedId).ConfigureAwait(false);
             return null;
         }
 
@@ -1571,7 +1673,7 @@ public sealed class AutomationViewModel : ViewModelBase
         var anyApplied = false;
         foreach (var session in targets)
         {
-            var ok = await ApplyFetchedToSessionAsync(session, entryId, feedName, cancellationToken).ConfigureAwait(false);
+            var ok = await ApplyFetchedToSessionAsync(session, entryId, feedName, feedId, cancellationToken).ConfigureAwait(false);
             anyApplied |= ok;
         }
 
@@ -1585,7 +1687,7 @@ public sealed class AutomationViewModel : ViewModelBase
     }
 
     private async Task<bool> ApplyFetchedToSessionAsync(
-        RotationSession session, string entryId, string feedName, CancellationToken cancellationToken)
+        RotationSession session, string entryId, string feedName, string feedId, CancellationToken cancellationToken)
     {
         var entry = (await _library.GetAllAsync(cancellationToken).ConfigureAwait(false))
             .FirstOrDefault(c => string.Equals(c.Id, entryId, StringComparison.OrdinalIgnoreCase));
@@ -1602,7 +1704,7 @@ public sealed class AutomationViewModel : ViewModelBase
 
         if (ShouldPause(session))
         {
-            session.PendingFeedEntryId = entryId;
+            if (CanConsumeFeedEntry(session, feedId)) session.PendingFeedEntryId = entryId;
             session.StatusMessage = $"Fetched from '{feedName}'. The new image will be applied when this display is no longer paused.";
             UpdateSessionUi(session);
             return false;
@@ -1617,7 +1719,7 @@ public sealed class AutomationViewModel : ViewModelBase
                 cancellationToken.ThrowIfCancellationRequested();
                 if (ShouldPause(session) || !ReferenceEquals(monitorAtSelection, session.Monitor))
                 {
-                    session.PendingFeedEntryId = entryId;
+                    if (CanConsumeFeedEntry(session, feedId)) session.PendingFeedEntryId = entryId;
                     session.StatusMessage = $"Fetched from '{feedName}'. The new image will be applied on the next change.";
                     UpdateSessionUi(session);
                     return;
@@ -1672,15 +1774,38 @@ public sealed class AutomationViewModel : ViewModelBase
         finally { _rotationGate.Release(); }
     }
 
-    private async Task QueueFetchedWallpapersAsync(string entryId, string feedName)
+    /// <summary>
+    /// Only a running display bound to this exact feed can consume one of its entries.
+    /// Library/Collection displays and other feeds must never receive a pending feed id.
+    /// </summary>
+    private static bool CanConsumeFeedEntry(RotationSession session, string feedId) =>
+        session.IsRunning
+        && session.SourceKind == RotationSourceKind.Feed
+        && string.Equals(session.SourceId, feedId, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Marks the newest fetched image as the one the next rotation should apply.</summary>
+    private async Task QueuePendingFeedEntryAsync(string entryId, string feedId)
     {
-        var running = SnapshotSessions().Where(s => s.IsRunning).ToArray();
-        if (running.Length == 0 || _dispatcher.HasShutdownStarted) return;
+        if (_dispatcher.HasShutdownStarted) return;
+        var sessions = SnapshotSessions().Where(s => CanConsumeFeedEntry(s, feedId)).ToArray();
+        if (sessions.Length == 0) return;
 
         await _dispatcher.InvokeAsync(() =>
         {
-            foreach (var session in running) session.PendingFeedEntryId = entryId;
-            foreach (var session in running.Where(s =>
+            foreach (var session in sessions) session.PendingFeedEntryId = entryId;
+        });
+    }
+
+    private async Task QueueFetchedWallpapersAsync(string entryId, string feedName, string feedId)
+    {
+        if (_dispatcher.HasShutdownStarted) return;
+        var sessions = SnapshotSessions().Where(s => CanConsumeFeedEntry(s, feedId)).ToArray();
+        if (sessions.Length == 0) return;
+
+        await _dispatcher.InvokeAsync(() =>
+        {
+            foreach (var session in sessions) session.PendingFeedEntryId = entryId;
+            foreach (var session in sessions.Where(s =>
                          !ShouldPause(s) && !s.IsStarting && !s.ManualRotationRunning && !s.PreviousRotationRunning))
             {
                 session.StatusMessage = $"Fetched from '{feedName}'. The new image will be applied on the next scheduled change.";

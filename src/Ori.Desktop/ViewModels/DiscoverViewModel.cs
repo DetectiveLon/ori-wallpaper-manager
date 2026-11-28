@@ -393,9 +393,10 @@ public sealed class DiscoverViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedMonitor, value))
             {
-                // Remember the user's target so switching pages (or restarting Ori)
-                // does not silently move the next wallpaper back to the primary display.
-                MonitorSelectionService.Instance.Select(value?.Id);
+                // Remember the user's target by stable panel fingerprint so switching
+                // pages, restarting Ori or replugging the display (new COM path) does
+                // not silently move the next wallpaper back to the primary display.
+                MonitorSelectionService.Instance.Select(value?.Fingerprint);
                 RefreshCommands();
             }
         }
@@ -492,10 +493,12 @@ public sealed class DiscoverViewModel : ViewModelBase
 
             var primary = detection.Monitors.FirstOrDefault(m => m.IsPrimary)
                 ?? detection.Monitors.FirstOrDefault();
-            MonitorSelectionService.Instance.Load(Monitors.Select(monitor => monitor.Id));
-            var targetId = MonitorSelectionService.Instance.Resolve(primary?.Id);
+            // Resolve by fingerprint, never by the volatile COM device path: a
+            // replugged panel gets a new Id but keeps its fingerprint.
+            MonitorSelectionService.Instance.Load(Monitors.Select(monitor => monitor.Fingerprint));
+            var targetFingerprint = MonitorSelectionService.Instance.Resolve(primary?.Fingerprint);
             SelectedMonitor = Monitors.FirstOrDefault(monitor =>
-                    string.Equals(monitor.Id, targetId, StringComparison.OrdinalIgnoreCase))
+                    string.Equals(monitor.Fingerprint, targetFingerprint, StringComparison.OrdinalIgnoreCase))
                 ?? primary;
 
             if (!detection.Succeeded)
@@ -1106,7 +1109,10 @@ public sealed class DiscoverViewModel : ViewModelBase
                 if (File.Exists(temporary))
                     File.Delete(temporary);
             }
-            WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, path);
+            // Windows keeps one global fit mode: pass this display's saved fit so
+            // the applied image looks the same as it does on the Displays page.
+            var fit = DisplayPreferencesStore.Load().GetFit(monitor.Fingerprint);
+            WindowsDesktopWallpaper.ApplyWallpaper(monitor.Id, path, fit.ToWallpaperPosition());
             // Register the applied image in the library so it can be favourited,
             // collected and rotated (and so the file participates in cleanup).
             try
