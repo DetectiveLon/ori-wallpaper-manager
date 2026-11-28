@@ -152,6 +152,14 @@
             <Setter Property="FontSize" Value="{StaticResource CaptionSize}" />
         </Style>
 
+        <!-- One bottom-of-page status line per view. Colour never carries the
+             meaning alone: the text does. -->
+        <Style x:Key="StatusTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextStyle}">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="Margin" Value="0,8,0,0" />
+        </Style>
+
         <!-- Shared building blocks. Views may use these instead of redefining the
              same label/button/chip styles locally. -->
         <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
@@ -161,7 +169,7 @@
         </Style>
         <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
-            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,0,0,6" />
         </Style>
@@ -203,11 +211,48 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- Ghost: low-priority, navigation-like and destructive actions. Fully
+             self-contained so a disabled ghost dims instead of painting white.
+             BasedOn SecondaryButtonStyle only for its inherited font/cursor. -->
+        <Style x:Key="GhostButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{StaticResource ControlCornerRadius}"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource ControlPressedBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Surface" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="ChipStyle" TargetType="Border">
             <Setter Property="Background" Value="{StaticResource AccentTintBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}" />
             <Setter Property="Padding" Value="8,3" />
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="VerticalAlignment" Value="Center" />
@@ -215,10 +260,6 @@
 
         <!-- Rail section labels: quiet, uppercase, and consistently sized. -->
         <Style x:Key="NavGroupHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource EyebrowTextStyle}">
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="Foreground" Value="{StaticResource NavSectionLabelBrush}" />
-        </Style>
-        <Style x:Key="RailZoneLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource EyebrowTextStyle}">
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Foreground" Value="{StaticResource NavSectionLabelBrush}" />
         </Style>
@@ -436,6 +477,31 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="{StaticResource CardCornerRadius}" />
             <Setter Property="Padding" Value="{StaticResource CardPadding}" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+        </Style>
+
+        <!-- Inset group inside a card: raised fill, control radius, no outline. -->
+        <Style x:Key="PanelStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}" />
+            <Setter Property="Padding" Value="14" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
+        </Style>
+
+        <!-- Empty-state surface. Consumers place a centred StackPanel inside:
+             a Glyph-font 54 px glyph in a circle, a TitleTextStyle headline and
+             a StatusTextStyle guidance line. It never blocks the list behind it. -->
+        <Style x:Key="EmptyStatePanelStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{StaticResource CardCornerRadius}" />
+            <Setter Property="Padding" Value="28" />
+            <Setter Property="MaxWidth" Value="460" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="IsHitTestVisible" Value="False" />
             <Setter Property="SnapsToDevicePixels" Value="True" />
         </Style>
 

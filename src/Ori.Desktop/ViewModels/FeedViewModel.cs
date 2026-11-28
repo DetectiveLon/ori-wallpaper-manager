@@ -547,7 +547,7 @@ public sealed class FeedViewModel : ViewModelBase
         // NSFW requires a saved Wallhaven key; no key is ever stored in feed settings.
         if (_purity.HasFlag(WallhavenPurity.Explicit) && !HasSavedWallhavenKey())
         {
-            SaveError = "NSFW requires a saved Wallhaven API key. Save it in Settings or Discover; no key is stored in feed settings.";
+            SaveError = "NSFW requires a saved Wallhaven API key. Save it in Settings; no key is stored in feed settings.";
             return false;
         }
 

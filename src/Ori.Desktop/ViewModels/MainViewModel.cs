@@ -93,6 +93,12 @@ public sealed class MainViewModel : ViewModelBase
                 "App preferences (Alt+S)", "_Settings", 7)
         };
 
+        // One definition of navigation, two rail hosts: the grouped main list
+        // takes the first four entries and the pinned footer takes Settings.
+        // Items itself stays public and unchanged for existing consumers.
+        PrimaryItems = new ObservableCollection<NavigationItem>(Items.Take(4));
+        FooterItem = Items[4];
+
         NavigateCommand = new RelayCommand(parameter => Navigate(parameter as string));
 
         // Discover is the landing page.
@@ -100,6 +106,12 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     public ObservableCollection<NavigationItem> Items { get; }
+
+    /// <summary>The four destinations rendered in the grouped main rail.</summary>
+    public ObservableCollection<NavigationItem> PrimaryItems { get; }
+
+    /// <summary>The pinned Settings destination rendered in the rail footer.</summary>
+    public NavigationItem FooterItem { get; }
 
     public NavigationItem? SelectedItem
     {

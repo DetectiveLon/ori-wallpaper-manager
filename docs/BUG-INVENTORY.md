@@ -51,7 +51,7 @@ in the script.
 
 | View | Controls (`Element.Attribute` → binding path) |
 |---|---|
-| AutomationView | `CheckBox.IsChecked` (`PauseWhenFullscreen`, `AutoFetchFromWallhaven`, `IsEnabled`, `FetchApplyToAll`); `ComboBox.SelectedItem` (`CadenceMinutes`, `SelectedInterval`, `SourceKind`, `SourceId`) |
+| AutomationView | `CheckBox.IsChecked` (`PauseWhenFullscreen`, `AutoFetchFromWallhaven`, `IsEnabled`, `FetchApplyToAll`); `ComboBox.SelectedItem` (`CadenceMinutes`, `SelectedInterval`, `SourceKind`, `SourceId`); feed draft: `ToggleButton.IsChecked` (`IncludeGeneral`, `IncludeAnime`, `IncludePeople`, `IncludeSafe`, `IncludeSketchy`, `IncludeExplicit`, `IsSelected`); `ComboBox.SelectedValue` (`Sorting`, `Order`, `TopRange`, `Ratio`) — all inside the per-feed `FeedViewModel` template, two-way bound to draft properties and committed by the row's Save command |
 | DiscoverView | `ComboBox.SelectedItem` (`SelectedFeedCadence`, `SelectedSorting`, `SelectedTopRange`, `SelectedOrder`, `SelectedRatio`, `SelectedMonitor`); `ListBox.SelectedItem` (`SelectedCard`); `ToggleButton.IsChecked` (`General`, `Anime`, `People`, `Safe`, `Sketchy`, `Explicit`, `IsSelected`) |
 | DisplaysView | `ComboBox.SelectedItem` (`SelectedPositionOption`) |
 | LibraryView | `ComboBox.SelectedItem` (`SelectedCollectionFilter`, `SelectedSort`, `SelectedDisplay`); `ComboBox.Text` (`SelectedCollection`); `CheckBox.IsChecked` (`FavoritesOnly`, `DeleteFileOnRemove`); `ListBox.SelectedItem` (`SelectedEntry`) |

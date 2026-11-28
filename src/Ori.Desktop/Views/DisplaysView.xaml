@@ -11,49 +11,16 @@
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <!-- One converter replaces the old six fit booleans. -->
         <vm:DisplayFitPreviewConverter x:Key="DisplayFitPreviewConverter" />
-
-        <Style x:Key="DisplayGlyph" TargetType="TextBlock">
-            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
-            <Setter Property="HorizontalAlignment" Value="Center" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-
-        <!-- Chips use the app's two-radius scale: 8 for controls, 12 for cards. -->
-        <Style x:Key="MonitorChipStyle" TargetType="Border" BasedOn="{StaticResource ChipStyle}">
-            <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}" />
-        </Style>
-
-        <!-- Hover and selection are distinct; selection is declared last so it wins.
-             TARGET chip is the non-colour selection cue. -->
-        <Style x:Key="MonitorCardStyle" TargetType="Border" BasedOn="{StaticResource CardStyle}">
-            <Setter Property="Padding" Value="16" />
-            <Setter Property="BorderBrush" Value="{StaticResource DividerBrush}" />
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
-                </Trigger>
-                <Trigger Property="IsKeyboardFocused" Value="True">
-                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                    <Setter Property="BorderThickness" Value="2" />
-                </Trigger>
-                <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                    <Setter Property="Background" Value="{StaticResource AccentTintBrush}" />
-                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                    <Setter Property="BorderThickness" Value="1" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
     </UserControl.Resources>
 
     <!-- The shell renders the page title and subtitle; this page starts with content. -->
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Margin="0,0,0,8">
+        <StackPanel>
 
             <!-- Connected displays: geometry-driven diagram, real image previews. -->
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,24">
                 <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
@@ -64,22 +31,18 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel MinWidth="0">
-                            <TextBlock Text="CONNECTED DISPLAYS" Style="{StaticResource EyebrowTextStyle}"
-                                       FontSize="12" />
-                            <TextBlock Text="Your display layout" Style="{StaticResource SectionTitleStyle}"
-                                       Margin="0,6,0,0" />
+                            <TextBlock Text="Your display layout" Style="{StaticResource SectionTitleStyle}" />
                             <TextBlock Text="Windows numbers each monitor; click a card to choose where Apply lands. Previews show the real image with the saved fit."
-                                       Style="{StaticResource CaptionTextStyle}" FontSize="12"
-                                       TextWrapping="Wrap" Margin="0,6,0,0" />
+                                       Style="{StaticResource CaptionTextStyle}"
+                                       TextWrapping="Wrap" Margin="0,8,0,0" />
                         </StackPanel>
-                        <Button Grid.Column="1" Style="{StaticResource SecondaryButtonStyle}"
-                                Command="{Binding RefreshCommand}" Padding="14,9" MinHeight="36"
+                        <Button Grid.Column="1" Style="{StaticResource GhostButtonStyle}"
+                                Command="{Binding RefreshCommand}"
                                 Margin="16,0,0,0" VerticalAlignment="Center"
                                 AutomationProperties.Name="Refresh monitors"
                                 ToolTip="Re-detect monitors and re-read each display's wallpaper.">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE72C;" Style="{StaticResource DisplayGlyph}" FontSize="13"
-                                           Margin="0,0,7,0" />
+                                <TextBlock Text="&#xE72C;" Style="{StaticResource Glyph}" Margin="0,0,8,0" />
                                 <TextBlock Text="Refresh monitors" />
                             </StackPanel>
                         </Button>
@@ -88,9 +51,8 @@
                     <!-- Scaled virtual-desktop surface. The inner grid keeps a
                          logical minimum card size; LayoutTransform scales the
                          whole diagram so it cannot overflow the host. -->
-                    <Border Grid.Row="1" Margin="0,16,0,0" Padding="12" MaxHeight="420"
-                            Background="{StaticResource PanelAltBrush}"
-                            CornerRadius="{StaticResource ControlCornerRadius}">
+                    <Border Grid.Row="1" Style="{StaticResource PanelStyle}"
+                            Margin="0,16,0,0" MaxHeight="420">
                         <ScrollViewer HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto">
                             <Grid MinWidth="0" ClipToBounds="True">
@@ -110,7 +72,7 @@
                                         </StackPanel.RenderTransform>
                                         <Ellipse Width="8" Height="8" Stroke="{StaticResource AccentBrush}"
                                                  StrokeThickness="1" VerticalAlignment="Center" />
-                                        <TextBlock Text="0,0" FontSize="11" Foreground="{StaticResource MutedBrush}"
+                                        <TextBlock Text="0,0" Style="{StaticResource CaptionTextStyle}"
                                                    Margin="5,0,0,0" VerticalAlignment="Center" />
                                     </StackPanel>
 
@@ -131,10 +93,32 @@
                                         </ItemsControl.ItemContainerStyle>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Style="{StaticResource MonitorCardStyle}"
-                                                        Focusable="True"
+                                                <!-- CardStyle is the surface; this adds only hover,
+                                                     focus and selection behaviour. TARGET below is
+                                                     the non-colour selection cue. -->
+                                                <Border Focusable="True"
                                                         AutomationProperties.Name="{Binding DisplayName}"
                                                         ToolTip="Click to make this display the target for Apply actions.">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                                                            <Setter Property="Padding" Value="16" />
+                                                            <Setter Property="BorderBrush" Value="{StaticResource DividerBrush}" />
+                                                            <Style.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter Property="Background" Value="{StaticResource PanelAltBrush}" />
+                                                                </Trigger>
+                                                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                                    <Setter Property="BorderThickness" Value="2" />
+                                                                </Trigger>
+                                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                    <Setter Property="Background" Value="{StaticResource AccentTintBrush}" />
+                                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                                    <Setter Property="BorderThickness" Value="1" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
                                                     <Border.InputBindings>
                                                         <MouseBinding MouseAction="LeftClick"
                                                             Command="{Binding DataContext.SelectMonitorCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -157,23 +141,23 @@
                                                         </Grid.RowDefinitions>
 
                                                         <WrapPanel>
-                                                            <Border Style="{StaticResource MonitorChipStyle}"
+                                                            <Border Style="{StaticResource ChipStyle}"
                                                                     Visibility="{Binding IsPrimary, Converter={StaticResource BoolToVisibility}}">
-                                                                <TextBlock Text="PRIMARY" FontSize="11" FontWeight="SemiBold"
-                                                                           Foreground="{StaticResource AccentBrush}" />
+                                                                <TextBlock Text="PRIMARY" Style="{StaticResource CaptionTextStyle}"
+                                                                           Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" />
                                                             </Border>
-                                                            <Border Style="{StaticResource MonitorChipStyle}" Margin="8,0,0,0"
+                                                            <Border Style="{StaticResource ChipStyle}" Margin="8,0,0,0"
                                                                     Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}">
-                                                                <TextBlock Text="TARGET" FontSize="11" FontWeight="SemiBold"
-                                                                           Foreground="{StaticResource AccentBrush}" />
+                                                                <TextBlock Text="TARGET" Style="{StaticResource CaptionTextStyle}"
+                                                                           Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" />
                                                             </Border>
                                                         </WrapPanel>
 
                                                         <TextBlock Grid.Row="1" Text="{Binding DisplayName, Mode=OneWay}"
                                                                    Style="{StaticResource SectionTitleStyle}" Margin="0,8,0,0" />
 
-                                                        <TextBlock Grid.Row="2" FontSize="12" TextWrapping="Wrap"
-                                                                   Margin="0,4,0,0" Foreground="{StaticResource MutedBrush}">
+                                                        <TextBlock Grid.Row="2" Style="{StaticResource CaptionTextStyle}"
+                                                                   TextWrapping="Wrap" Margin="0,4,0,0">
                                                             <Run Text="{Binding DeviceName, Mode=OneWay}" />
                                                             <Run Text="&#x2022;" />
                                                             <Run Text="{Binding ResolutionText, Mode=OneWay}" />
@@ -224,8 +208,8 @@
                                                             </Border.Background>
                                                         </Border>
 
-                                                        <TextBlock Grid.Row="4" FontSize="12" Margin="0,8,0,0"
-                                                                   TextTrimming="CharacterEllipsis"
+                                                        <TextBlock Grid.Row="4" Style="{StaticResource BodyTextStyle}"
+                                                                   Margin="0,8,0,0" TextTrimming="CharacterEllipsis"
                                                                    ToolTip="{Binding WallpaperPathToolTip}">
                                                             <Run Text="{Binding ImageName, Mode=OneWay}" />
                                                             <Run Text="&#x2022;" Foreground="{StaticResource MutedBrush}" />
@@ -234,13 +218,14 @@
                                                         </TextBlock>
 
                                                         <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,6,0,0">
-                                                            <Border Style="{StaticResource MonitorChipStyle}">
-                                                                <TextBlock Text="{Binding FitLabel, Mode=OneWay}" FontSize="11"
-                                                                           FontWeight="SemiBold"
-                                                                           Foreground="{StaticResource AccentBrush}" />
+                                                            <Border Style="{StaticResource ChipStyle}">
+                                                                <TextBlock Text="{Binding FitLabel, Mode=OneWay}"
+                                                                           Style="{StaticResource CaptionTextStyle}"
+                                                                           Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" />
                                                             </Border>
                                                             <TextBlock Text="{Binding ImageStatusText, Mode=OneWay}"
-                                                                       FontSize="11" Foreground="{StaticResource WarningBrush}"
+                                                                       Style="{StaticResource CaptionTextStyle}"
+                                                                       Foreground="{StaticResource WarningBrush}"
                                                                        TextTrimming="CharacterEllipsis" Margin="8,0,0,0" />
                                                         </StackPanel>
                                                     </Grid>
@@ -251,176 +236,149 @@
                                 </Grid>
 
                                 <TextBlock Text="No displays were detected. Use Refresh monitors to try again."
-                                           Style="{StaticResource CaptionTextStyle}" FontSize="12"
+                                           Style="{StaticResource CaptionTextStyle}"
                                            TextWrapping="Wrap" VerticalAlignment="Center"
                                            Margin="16"
                                            Visibility="{Binding NoMonitors, Converter={StaticResource BoolToVisibility}}" />
                             </Grid>
                         </ScrollViewer>
                     </Border>
-
-                    <TextBlock Grid.Row="2" Text="Display numbers come from Windows, not the COM enumeration. Each panel keeps its own fit and source across unplug/replug."
-                               Style="{StaticResource CaptionTextStyle}" FontSize="12"
-                               Margin="0,10,0,0" TextWrapping="Wrap" />
                 </Grid>
             </Border>
 
             <!-- One staged source, one fit and one Apply for the target display. -->
-            <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="Choose source and fit" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="Pick the display card above, stage a source, then press Apply. Nothing changes until Apply."
+                               Style="{StaticResource CaptionTextStyle}"
+                               TextWrapping="Wrap" Margin="0,8,0,0" />
 
-                    <StackPanel>
-                        <TextBlock Text="TARGET DISPLAY" Style="{StaticResource EyebrowTextStyle}" FontSize="12" />
-                        <TextBlock Text="Choose source and fit" Style="{StaticResource SectionTitleStyle}" Margin="0,6,0,0" />
-                        <TextBlock Text="Pick the display card above, stage a source, then press Apply. Nothing changes until Apply."
-                                   Style="{StaticResource CaptionTextStyle}" FontSize="12"
-                                   TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <!-- Source kind -->
+                    <StackPanel Margin="0,16,0,0">
+                        <TextBlock Text="Source" Style="{StaticResource FieldLabelStyle}" />
+                        <ComboBox MinWidth="220" MinHeight="32" HorizontalAlignment="Left"
+                                  ItemsSource="{Binding SourceKindOptions}"
+                                  DisplayMemberPath="Label"
+                                  SelectionChanged="OnSourceKindChanged"
+                                  AutomationProperties.Name="Wallpaper source kind"
+                                  ToolTip="Choose an image file, a saved library item or a saved feed." />
                     </StackPanel>
 
-                    <Grid Grid.Row="1" Margin="0,16,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="24" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-
-                        <StackPanel MinWidth="0">
-                            <TextBlock Text="Source" Style="{StaticResource FieldLabelStyle}" FontSize="12" />
-                            <ComboBox MinWidth="220" HorizontalAlignment="Left"
-                                      ItemsSource="{Binding SourceKindOptions}"
-                                      DisplayMemberPath="Label"
-                                      SelectionChanged="OnSourceKindChanged"
-                                      AutomationProperties.Name="Wallpaper source kind"
-                                      ToolTip="Choose an image file, a saved library item or a saved feed." />
-
-                            <StackPanel Margin="0,12,0,0"
-                                        Visibility="{Binding IsFileSource, Converter={StaticResource BoolToVisibility}}">
-                                <TextBlock Text="Image file" Style="{StaticResource FieldLabelStyle}" FontSize="12" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="8" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox Text="{Binding DraftFilePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                             MinWidth="180" Height="36" VerticalContentAlignment="Center"
-                                             AutomationProperties.Name="Wallpaper file path"
-                                             ToolTip="Path to a JPG, PNG, BMP or TIFF wallpaper." />
-                                    <Button Grid.Column="2" Style="{StaticResource SecondaryButtonStyle}"
-                                            Command="{Binding ChooseImageCommand}" MinHeight="36"
-                                            AutomationProperties.Name="Browse for wallpaper file"
-                                            ToolTip="Browse for a wallpaper file. The file is only staged until Apply.">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="&#xE8B7;" Style="{StaticResource DisplayGlyph}" FontSize="13"
-                                                       Margin="0,0,7,0" />
-                                            <TextBlock Text="Browse" />
-                                        </StackPanel>
-                                    </Button>
-                                </Grid>
-                            </StackPanel>
-
-                            <StackPanel Margin="0,12,0,0"
-                                        Visibility="{Binding UsesListSource, Converter={StaticResource BoolToVisibility}}">
-                                <TextBlock Text="Saved image" Style="{StaticResource FieldLabelStyle}" FontSize="12" />
-                                <ComboBox MinWidth="260" MaxWidth="420" HorizontalAlignment="Left"
-                                          ItemsSource="{Binding AvailableSources}"
-                                          DisplayMemberPath="Summary"
-                                          SelectionChanged="OnSourceChanged"
-                                          AutomationProperties.Name="Saved wallpaper source"
-                                          ToolTip="Choose a library image or the newest image fetched by a feed." />
-                            </StackPanel>
-                        </StackPanel>
-
-                        <StackPanel Grid.Column="2" MinWidth="0">
-                            <TextBlock Text="Fit for this display" Style="{StaticResource FieldLabelStyle}" FontSize="12" />
-                            <ComboBox MinWidth="220" HorizontalAlignment="Left"
-                                      ItemsSource="{Binding PositionOptions}"
-                                      SelectedItem="{Binding SelectedPositionOption, Mode=TwoWay}"
-                                      DisplayMemberPath="Label"
-                                      IsEnabled="{Binding CanChooseFit}"
-                                      AutomationProperties.Name="Wallpaper fit mode"
-                                      ToolTip="Fill, Fit, Stretch, Center or Tile for the selected display. Span is a separate toggle." />
-
-                            <TextBlock Text="{Binding PositionDescription}" Style="{StaticResource CaptionTextStyle}"
-                                       FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0" />
-
-                            <ToggleButton Margin="0,12,0,0" Padding="12,8" MinHeight="36"
-                                          HorizontalAlignment="Left" ClickMode="Press"
-                                          IsChecked="{Binding IsSpanActive, Mode=TwoWay}"
-                                          Checked="OnSpanChecked" Unchecked="OnSpanUnchecked"
-                                          AutomationProperties.Name="Span one image across all displays"
-                                          ToolTip="Turn Span on or off. Switching it off restores the fit used before Span.">
+                    <!-- Local image file -->
+                    <StackPanel Margin="0,12,0,0"
+                                Visibility="{Binding IsFileSource, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="Image file" Style="{StaticResource FieldLabelStyle}" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Text="{Binding DraftFilePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     MinWidth="180" MinHeight="32" VerticalContentAlignment="Center"
+                                     AutomationProperties.Name="Wallpaper file path"
+                                     ToolTip="Path to a JPG, PNG, BMP or TIFF wallpaper." />
+                            <Button Grid.Column="2" Style="{StaticResource GhostButtonStyle}"
+                                    Command="{Binding ChooseImageCommand}"
+                                    AutomationProperties.Name="Browse for wallpaper file"
+                                    ToolTip="Browse for a wallpaper file. The file is only staged until Apply.">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE7BA;" Style="{StaticResource DisplayGlyph}" FontSize="13"
-                                               Margin="0,0,7,0" />
-                                    <TextBlock Text="Span across all displays" />
+                                    <TextBlock Text="&#xE8B7;" Style="{StaticResource Glyph}" Margin="0,0,8,0" />
+                                    <TextBlock Text="Browse" />
                                 </StackPanel>
-                            </ToggleButton>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
 
-                            <Border Margin="0,10,0,0" Padding="12,10"
-                                    CornerRadius="{StaticResource ControlCornerRadius}"
-                                    Background="{StaticResource AccentTintBrush}"
-                                    Visibility="{Binding IsSpanActive, Converter={StaticResource BoolToVisibility}}">
-                                <StackPanel>
-                                    <TextBlock Text="Span is active: Windows uses one image across every display. Per-display images are ignored until you switch it off."
-                                               Foreground="{StaticResource WarningBrush}" FontSize="12"
-                                               TextWrapping="Wrap" />
-                                    <TextBlock Foreground="{StaticResource MutedBrush}" FontSize="12"
-                                               TextWrapping="Wrap" Margin="0,6,0,0">
-                                        <Run Text="Image: " />
-                                        <Run Text="{Binding SpanImageName, Mode=OneWay}" />
-                                    </TextBlock>
-                                    <Button Style="{StaticResource SecondaryButtonStyle}"
-                                            Command="{Binding SetSpanWallpaperCommand}"
-                                            Margin="0,10,0,0" HorizontalAlignment="Left" MinHeight="36"
-                                            AutomationProperties.Name="Choose one wallpaper for all displays in Span mode"
-                                            ToolTip="Pick or replace the single image Windows stretches across every display.">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="&#xE8B9;" Style="{StaticResource DisplayGlyph}" FontSize="13"
-                                                       Margin="0,0,7,0" />
-                                            <TextBlock Text="Choose Span image" />
-                                        </StackPanel>
-                                    </Button>
-                                </StackPanel>
-                            </Border>
+                    <!-- Library or feed candidate -->
+                    <StackPanel Margin="0,12,0,0"
+                                Visibility="{Binding UsesListSource, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="Saved image" Style="{StaticResource FieldLabelStyle}" />
+                        <ComboBox MinWidth="260" MaxWidth="420" MinHeight="32" HorizontalAlignment="Left"
+                                  ItemsSource="{Binding AvailableSources}"
+                                  DisplayMemberPath="Summary"
+                                  SelectionChanged="OnSourceChanged"
+                                  AutomationProperties.Name="Saved wallpaper source"
+                                  ToolTip="Choose a library image or the newest image fetched by a feed." />
+                    </StackPanel>
+
+                    <!-- Fit for this display -->
+                    <StackPanel Margin="0,16,0,0">
+                        <TextBlock Text="Fit for this display" Style="{StaticResource FieldLabelStyle}" />
+                        <ComboBox MinWidth="220" MinHeight="32" HorizontalAlignment="Left"
+                                  ItemsSource="{Binding PositionOptions}"
+                                  SelectedItem="{Binding SelectedPositionOption, Mode=TwoWay}"
+                                  DisplayMemberPath="Label"
+                                  IsEnabled="{Binding CanChooseFit}"
+                                  AutomationProperties.Name="Wallpaper fit mode"
+                                  ToolTip="Fill, Fit, Stretch, Center or Tile for the selected display. Span is a separate toggle." />
+
+                        <TextBlock Text="{Binding PositionDescription}" Style="{StaticResource CaptionTextStyle}"
+                                   TextWrapping="Wrap" Margin="0,8,0,0" />
+                    </StackPanel>
+
+                    <!-- Span is a separate explicit toggle; it commits to the OS immediately. -->
+                    <ToggleButton Margin="0,16,0,0" Padding="12,8" MinHeight="36"
+                                  HorizontalAlignment="Left" ClickMode="Press"
+                                  IsChecked="{Binding IsSpanActive, Mode=TwoWay}"
+                                  Checked="OnSpanChecked" Unchecked="OnSpanUnchecked"
+                                  AutomationProperties.Name="Span one image across all displays"
+                                  ToolTip="Turn Span on or off. Switching it off restores the fit used before Span.">
+                        <StackPanel Orientation="Horizontal" IsHitTestVisible="False">
+                            <TextBlock Text="&#xE7BA;" Style="{StaticResource Glyph}" Margin="0,0,8,0" />
+                            <TextBlock Text="Span across all displays" />
                         </StackPanel>
-                    </Grid>
+                    </ToggleButton>
+
+                    <Border Style="{StaticResource PanelStyle}" Margin="0,12,0,0"
+                            Visibility="{Binding IsSpanActive, Converter={StaticResource BoolToVisibility}}">
+                        <StackPanel>
+                            <TextBlock Text="Span is active: Windows uses one image across every display. Per-display images are ignored until you switch it off."
+                                       Style="{StaticResource BodyTextStyle}" Foreground="{StaticResource WarningBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource CaptionTextStyle}"
+                                       TextWrapping="Wrap" Margin="0,8,0,0">
+                                <Run Text="Image: " />
+                                <Run Text="{Binding SpanImageName, Mode=OneWay}" />
+                            </TextBlock>
+                            <Button Style="{StaticResource GhostButtonStyle}"
+                                    Command="{Binding SetSpanWallpaperCommand}"
+                                    Margin="0,12,0,0" HorizontalAlignment="Left"
+                                    AutomationProperties.Name="Choose one wallpaper for all displays in Span mode"
+                                    ToolTip="Pick or replace the single image Windows stretches across every display.">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE8B9;" Style="{StaticResource Glyph}" Margin="0,0,8,0" />
+                                    <TextBlock Text="Choose Span image" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
 
                     <!-- Exactly one primary action on this view. -->
-                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,20,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="0,24,0,0">
                         <Button Style="{StaticResource PrimaryButtonStyle}"
                                 Command="{Binding ApplyCommand}" MinWidth="140" MinHeight="40"
                                 AutomationProperties.Name="Apply wallpaper to the selected display"
                                 ToolTip="Apply the staged image and fit to the selected display.">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE8A7;" Style="{StaticResource DisplayGlyph}" FontSize="13"
-                                           Margin="0,0,7,0" />
+                                <TextBlock Text="&#xE8A7;" Style="{StaticResource Glyph}" Margin="0,0,8,0" />
                                 <TextBlock Text="Apply" />
                             </StackPanel>
                         </Button>
                         <TextBlock Text="Failures leave the current wallpaper and saved preferences untouched."
-                                   Style="{StaticResource CaptionTextStyle}" FontSize="12"
+                                   Style="{StaticResource CaptionTextStyle}"
                                    TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0" />
                     </StackPanel>
-                </Grid>
-            </Border>
-
-            <!-- Compact inline status: never a modal dialog. -->
-            <Border Background="{StaticResource PanelAltBrush}"
-                    CornerRadius="{StaticResource ControlCornerRadius}"
-                    Padding="12,10">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="&#xE946;" Style="{StaticResource DisplayGlyph}" FontSize="13"
-                               Foreground="{StaticResource AccentBrush}" Margin="0,0,9,0" />
-                    <TextBlock Text="{Binding Status}" Style="{StaticResource CaptionTextStyle}"
-                               FontSize="12" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
+
+            <!-- One bottom-of-page status line, with the accent dot leading the text. -->
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="&#xE946;" Style="{StaticResource Glyph}"
+                           Foreground="{StaticResource AccentBrush}" Margin="0,0,8,0" />
+                <TextBlock Text="{Binding Status}" Style="{StaticResource StatusTextStyle}" Margin="0" />
+            </StackPanel>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

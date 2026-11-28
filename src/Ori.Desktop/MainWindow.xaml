@@ -13,11 +13,11 @@
     </shell:WindowChrome.WindowChrome>
 
     <Window.Resources>
-        <!-- One rail template for every entry in MainViewModel.Items. The button
-             Tag feeds the shared NavButtonStyle selection trigger, which also
-             paints the selected row's accent bar. AccessText renders the "_" in
-             AccessLabel as an Alt+letter mnemonic (D/L/P/A/S) and underlines it
-             on demand. -->
+        <!-- One rail template for every entry in PrimaryItems and FooterItem. The
+             button Tag feeds the shared NavButtonStyle selection trigger, which
+             also paints the selected row's accent bar. AccessText renders the "_"
+             in AccessLabel as an Alt+letter mnemonic (D/L/P/A/S) and underlines
+             it on demand. -->
         <DataTemplate x:Key="NavItemTemplate">
             <Grid Margin="0,2,0,2" SnapsToDevicePixels="True">
                 <Button Style="{StaticResource NavButtonStyle}"
@@ -123,7 +123,6 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
@@ -152,18 +151,15 @@
                         </Grid>
                     </Border>
 
-                    <!-- Row 1: zone eyebrow. -->
-                    <TextBlock Grid.Row="1" Text="WORKSPACE" Style="{StaticResource RailZoneLabelStyle}"
-                               Margin="24,18,16,10" />
-
-                    <!-- Row 2: rail items. Grouping by the item's Section keeps
-                         headers and items from drifting. No scroll viewer: five
-                         destinations fit, and a second scroll root would steal
-                         the pages' own scrolling. -->
-                    <ItemsControl Grid.Row="2" Margin="12,0,12,8"
+                    <!-- Row 1: primary destinations only, grouped by Section into
+                         FIND & SAVE and YOUR DESKTOP. Settings lives in the footer,
+                         so the third header tier is gone. No scroll viewer: four
+                         destinations fit, and a second scroll root would steal the
+                         pages' own scrolling. -->
+                    <ItemsControl Grid.Row="1" Margin="12,16,12,8"
                                   ItemTemplate="{StaticResource NavItemTemplate}">
                         <ItemsControl.Resources>
-                            <CollectionViewSource x:Key="NavGroups" Source="{Binding Items}">
+                            <CollectionViewSource x:Key="NavGroups" Source="{Binding PrimaryItems}">
                                 <CollectionViewSource.GroupDescriptions>
                                     <PropertyGroupDescription PropertyName="Section" />
                                 </CollectionViewSource.GroupDescriptions>
@@ -187,17 +183,24 @@
                         </ItemsControl.GroupStyle>
                     </ItemsControl>
 
-                    <!-- Row 3: identity/status chip — everything stays on this PC. -->
-                    <Border Grid.Row="3" Style="{StaticResource RailStatusChipStyle}"
-                            Margin="16,0,16,16"
-                            ToolTip="Wallpapers are saved and rotated on this PC">
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}"
-                                     VerticalAlignment="Center" />
-                            <TextBlock Text="LOCAL · ON THIS PC" Style="{StaticResource CaptionTextStyle}"
-                                       Margin="10,0,0,0" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Border>
+                    <!-- Row 2: footer — Settings uses the same NavItemTemplate, so
+                         its Tag still drives the shared selection accent, followed
+                         by the LOCAL · ON THIS PC chip. -->
+                    <StackPanel Grid.Row="2">
+                        <ContentControl Margin="12,0,12,4"
+                                        Content="{Binding FooterItem}"
+                                        ContentTemplate="{StaticResource NavItemTemplate}" />
+                        <Border Style="{StaticResource RailStatusChipStyle}"
+                                Margin="16,0,16,16"
+                                ToolTip="Wallpapers are saved and rotated on this PC">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}"
+                                         VerticalAlignment="Center" />
+                                <TextBlock Text="LOCAL · ON THIS PC" Style="{StaticResource CaptionTextStyle}"
+                                           Margin="10,0,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
                 </Grid>
             </Border>
 

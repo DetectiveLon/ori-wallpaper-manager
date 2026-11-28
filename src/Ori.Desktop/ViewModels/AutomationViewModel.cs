@@ -114,6 +114,7 @@ public sealed class AutomationViewModel : ViewModelBase
 
         RefreshDisplaysCommand = new RelayCommand(_ => { _ = RefreshAvailabilityAsync(); });
         AddFeedFromDiscoverCommand = new RelayCommand(_ => NavigateToDiscover());
+        FetchNowCommand = new RelayCommand(_ => { _ = FetchGlobalNowAsync(); });
 
         _pauseWhenFullscreen = AutomationPreferencesStore.LoadPauseWhenFullscreen();
 
@@ -252,6 +253,8 @@ public sealed class AutomationViewModel : ViewModelBase
 
     public ICommand RefreshDisplaysCommand { get; }
     public ICommand AddFeedFromDiscoverCommand { get; }
+    /// <summary>Page-level Fetch now; targets SelectedDisplay or all running displays.</summary>
+    public ICommand FetchNowCommand { get; }
 
     // ----- Fetch now targeting -----
 
@@ -1234,6 +1237,28 @@ public sealed class AutomationViewModel : ViewModelBase
                 && !_shutdownRequested && AutoFetchFromWallhaven)
                 _ = FetchDueFeedSafelyAsync();
         }
+    }
+
+    /// <summary>
+    /// Page-level Fetch now. Picks the selected display's feed (or the first enabled
+    /// one), then routes through FetchNowAsync so the existing serialized gate,
+    /// FetchApplyToAll targeting and failure handling stay single-sourced.
+    /// </summary>
+    private async Task FetchGlobalNowAsync()
+    {
+        var feedId = SelectedDisplay?.Session is { } selected
+                     && selected.SourceKind == RotationSourceKind.Feed
+                     && !string.IsNullOrWhiteSpace(selected.SourceId)
+            ? selected.SourceId
+            : FirstEnabledFeedId();
+
+        if (feedId is null)
+        {
+            SetFeedStatus("Enable a rotation feed before using Fetch now.");
+            return;
+        }
+
+        await FetchNowAsync(feedId).ConfigureAwait(false);
     }
 
     /// <summary>Fetch one named feed now, ignoring its cadence. Global Wallhaven opt-in gates this.</summary>

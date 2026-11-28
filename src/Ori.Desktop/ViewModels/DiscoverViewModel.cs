@@ -133,6 +133,7 @@ public sealed class DiscoverViewModel : ViewModelBase
     private readonly DelegateCommand _saveAsFeedCommand;
     private readonly DelegateCommand _applyCustomFeedCadenceCommand;
     private readonly DelegateCommand _saveApiKeyCommand;
+    private readonly DelegateCommand _openSettingsCommand;
 
     private WallhavenSearchPage? _currentPage;
     private WallhavenFilters? _currentFilters;
@@ -258,6 +259,8 @@ public sealed class DiscoverViewModel : ViewModelBase
             }, _ => true, ReportCommandFailure);
         // Saving the key is an explicit user action, never a side effect of searching.
         _saveApiKeyCommand = new DelegateCommand(_ => SaveApiKey(), _ => true, ReportCommandFailure);
+        // Navigation to the single owner of the stored key (Settings).
+        _openSettingsCommand = new DelegateCommand(_ => OpenSettings(), _ => true, ReportCommandFailure);
     }
 
     // Filter state. Most values are plain auto-properties (two-way bindings write
@@ -466,6 +469,16 @@ public sealed class DiscoverViewModel : ViewModelBase
     /// <summary>Commit the custom numeric cadence in <see cref="CustomFeedCadenceText"/>.</summary>
     public ICommand ApplyCustomFeedCadenceCommand => _applyCustomFeedCadenceCommand;
     public ICommand SaveApiKeyCommand => _saveApiKeyCommand;
+    /// <summary>Navigates to Settings, the single owner of saving/removing the API key.</summary>
+    public ICommand OpenSettingsCommand => _openSettingsCommand;
+
+    /// <summary>Same shell-navigation pattern as AutomationViewModel.NavigateToDiscover().</summary>
+    private static Task OpenSettings()
+    {
+        if (Application.Current?.MainWindow?.DataContext is MainViewModel shell)
+            shell.Navigate("Settings");
+        return Task.CompletedTask;
+    }
 
     /// <summary>Enumerates displays once the view is loaded; detection failures stay non-fatal.</summary>
     public void LoadDisplays()
