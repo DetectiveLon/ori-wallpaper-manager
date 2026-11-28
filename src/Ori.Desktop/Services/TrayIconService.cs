@@ -219,22 +219,34 @@ public sealed class TrayIconService : IDisposable
     private static void RunOnUiDispatcher(Action action)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher is null || dispatcher.CheckAccess())
+        if (dispatcher is null)
         {
-            action();
+            InvokeGuarded(action);
             return;
         }
 
-        // Notifications and error reports often come from rotation background
-        // threads. A synchronous Invoke can throw (or deadlock) while the
-        // dispatcher is shutting down; a fire-and-forget post is enough here.
+        // Tray callbacks arrive inside the WinForms NotifyIcon window procedure.
+        // Running a WPF window operation inline there re-enters the WPF dispatcher
+        // while it may be creating the window's presentation source, which can
+        // fault with "The root Visual of a VisualTarget cannot have a parent".
+        // Always post instead: the action runs as a normal dispatcher operation,
+        // and any failure is handled by the app's dispatcher exception handler
+        // rather than escaping as an unhandled Win32 callback exception.
         try
         {
-            dispatcher.BeginInvoke(action);
+            dispatcher.BeginInvoke(new Action(() => InvokeGuarded(action)));
         }
         catch (InvalidOperationException)
         {
             // Dispatcher is already shut down; nothing can be shown.
         }
+    }
+
+    /// <summary>Last line of defence: a tray callback must never escape into the
+    /// WinForms message pump and raise the .NET unhandled-exception dialog.</summary>
+    private static void InvokeGuarded(Action action)
+    {
+        try { action(); }
+        catch (Exception ex) { App.ReportFailure(ex); }
     }
 }

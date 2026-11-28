@@ -237,10 +237,36 @@ public partial class App : Application
             Current.MainWindow = window;
         }
 
-        window.ShowInTaskbar = true;
-        window.WindowState = WindowState.Normal;
-        window.Show();
-        window.Activate();
+        // Already visible: never touch ShowInTaskbar or call Show again. Re-creating
+        // the presentation source of a visible window is what can leave its root
+        // visual parented and throw on the next restore.
+        if (window.IsVisible)
+        {
+            if (window.WindowState == WindowState.Minimized)
+                window.WindowState = WindowState.Normal;
+            window.Activate();
+            return;
+        }
+
+        try
+        {
+            window.ShowInTaskbar = true;
+            window.WindowState = WindowState.Normal;
+            window.Show();
+            window.Activate();
+        }
+        catch (ArgumentException ex) when (
+            ex.Message.Contains("root Visual", StringComparison.OrdinalIgnoreCase))
+        {
+            // A failed source creation can leave this window unusable. Keep Ori
+            // usable by replacing it rather than leaving the user with no window.
+            ReportFailure(ex);
+            Current.MainWindow = null;
+            var replacement = new MainWindow();
+            Current.MainWindow = replacement;
+            replacement.Show();
+            replacement.Activate();
+        }
     }
 
     private static async void ExitFromTray()
@@ -390,6 +416,12 @@ public partial class App : Application
         LogFailure(e.Exception);
         e.SetObserved();
     }
+
+    /// <summary>
+    /// Records a failure from code that cannot let an exception escape (tray
+    /// callbacks, shutdown). Never throws.
+    /// </summary>
+    internal static void ReportFailure(Exception exception) => LogFailure(exception);
 
     /// <summary>
     /// Records a failure with bounded rotation and redaction, then acknowledges
